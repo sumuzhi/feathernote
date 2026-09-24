@@ -480,10 +480,16 @@ class RecorderController extends Notifier<RecorderUiState> {
     _stopDiagnostics();
     final Stopwatch watch = Stopwatch()..start();
     // 收尾前先打一次总账，供「只录到 1 秒」类问题定位。
+    //
+    // ⚠️ 必须先捕获「后端落盘字节」为局部变量：`api.stopRecording()` 结束时会
+    // 把 BackendApi 的 `_activeSessionId` 置 null，此后 `activePcmBytes` 恒返回 0。
+    // 若在 stop 之后再读（旧实现即如此），会打出「收尾总账=348160B /
+    // stop完成=0B」的自相矛盾日志，误导后续排查。这里提前采样、事后复用。
+    final int pcmBeforeStop = backendPcmBytes;
     logInfo(
       'recorder',
       '收尾总账 meeting=$meetingId 已录=${_elapsedBaseMs}ms chunk=$_chunkCount '
-      '帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B 重启=$_restarts',
+      '帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${pcmBeforeStop}B 重启=$_restarts',
     );
     await _releaseHardware();
     logInfo('recorder', '收尾·释放硬件 耗时=${watch.elapsedMilliseconds}ms');
@@ -493,8 +499,9 @@ class RecorderController extends Notifier<RecorderUiState> {
         await api.stopRecording(meetingId).timeout(kStopTimeout);
         logInfo(
           'recorder',
+          // 用 stop **之前**捕获的值：与「收尾总账」必须一致（stop 后会话读数已被清空）。
           '收尾·后端 stopRecording 完成 耗时=${watch.elapsedMilliseconds}ms '
-          '后端落盘=${api.activePcmBytes}B',
+          '后端落盘=${pcmBeforeStop}B',
         );
       } on TimeoutException {
         logWarn(
