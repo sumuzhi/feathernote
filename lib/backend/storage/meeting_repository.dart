@@ -56,12 +56,27 @@ class DriftMeetingRepository implements MeetingRepository {
 
   @override
   Future<void> saveMeeting(Meeting meeting) async {
-    await db.transaction(() async {
-      await db.meetingDao.upsert(meetingRowFromDomain(meeting));
-      await db.segmentDao.upsertMany(segmentRowsFromDomain(meeting));
-      await db.speakerDao.replaceAll(meeting.id, speakerRowsFromDomain(meeting));
-    });
-    logDebug('storage', '会议已落盘', <String, Object?>{'id': meeting.id, 'seg': meeting.segments.length});
+    try {
+      await db.transaction(() async {
+        await db.meetingDao.upsert(meetingRowFromDomain(meeting));
+        await db.segmentDao.upsertMany(segmentRowsFromDomain(meeting));
+        await db.speakerDao.replaceAll(meeting.id, speakerRowsFromDomain(meeting));
+      });
+    } catch (error) {
+      logWarn('storage', '会议落盘失败 meeting=${meeting.id}：$error');
+      rethrow;
+    }
+    logInfo(
+      'storage',
+      '会议已落盘',
+      <String, Object?>{
+        'id': meeting.id,
+        'meetings': 1,
+        'segments': meeting.segments.length,
+        'speakers': meeting.speakers.length,
+        'finalizeStatus': meeting.finalizeStatus.value,
+      },
+    );
   }
 
   @override

@@ -312,6 +312,7 @@ class BackendApiImpl implements BackendApi {
     required String sessionId,
     String? title,
   }) async {
+    final Stopwatch watch = Stopwatch()..start();
     final Meeting? meeting = await persistence.loadMeeting(meetingId);
     if (meeting == null) throw AppError(ErrorCode.notFound, '会议不存在：$meetingId');
     await transcriptionService.startSession(
@@ -323,13 +324,23 @@ class BackendApiImpl implements BackendApi {
     // 绑定活动会话：`pushAudioFrame` 依赖它定位会话（否则音频帧会被丢弃）。
     _activeSessionId = sessionId;
     _activeMeetingId = meetingId;
+    logInfo(
+      'backend',
+      'startRecording 已绑定活动会话',
+      <String, Object?>{
+        'meeting': meetingId,
+        'session': sessionId,
+        'sampleRate': meeting.sampleRate,
+        'elapsedMs': watch.elapsedMilliseconds,
+      },
+    );
   }
 
   @override
   void pushAudioFrame(AudioFrame frame) {
     final String? sessionId = _activeSessionId;
     if (sessionId == null) {
-      logWarn('backend', '收到音频帧但没有活动会话，已丢弃');
+      logWarn('backend', '收到音频帧但没有活动会话，已丢弃 seq=${frame.seq}');
       return;
     }
     transcriptionService.onAudioFrame(sessionId, frame);
@@ -365,9 +376,20 @@ class BackendApiImpl implements BackendApi {
 
   @override
   Future<void> stopRecording(String meetingId) async {
+    final Stopwatch watch = Stopwatch()..start();
+    logInfo(
+      'backend',
+      'stopRecording 开始',
+      <String, Object?>{'meeting': meetingId, 'pcm': activePcmBytes},
+    );
     await transcriptionService.onStop(meetingId);
     _activeSessionId = null;
     _activeMeetingId = null;
+    logInfo(
+      'backend',
+      'stopRecording 完成',
+      <String, Object?>{'meeting': meetingId, 'elapsedMs': watch.elapsedMilliseconds},
+    );
   }
 
   @override

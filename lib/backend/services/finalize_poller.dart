@@ -112,6 +112,11 @@ class FinalizePoller {
           await persistence.saveMeeting(
             meeting.copyWith(finalizeStatus: FinalizeStatus.pending),
           );
+          logInfo(
+            'finalize',
+            '终稿已受理 meeting=$meetingId（pending 已落盘，后台继续）',
+            <String, Object?>{'wav': wavPath},
+          );
           onProgress?.call(meetingId, 'pending', null);
           // 2) 契约点：pending 已落盘 → 立刻交还控制权（taskId 由进度回调补全）。
           if (!accepted.isCompleted) accepted.complete('');
@@ -223,6 +228,16 @@ class FinalizePoller {
         durationMs: meeting.durationMs > derived ? meeting.durationMs : derived,
       ),
     );
+    logInfo(
+      'finalize',
+      '终稿落库完成（覆盖逐字稿）',
+      <String, Object?>{
+        'meeting': meetingId,
+        'segments': segments.length,
+        'speakers': roster.length,
+        'durationMs': meeting.durationMs > derived ? meeting.durationMs : derived,
+      },
+    );
   }
 
   /// 失败落盘（保留实时稿，仅置 failed）。
@@ -231,6 +246,10 @@ class FinalizePoller {
     if (meeting == null) return;
     await persistence.saveMeeting(
       meeting.copyWith(finalizeStatus: FinalizeStatus.failed, finalizeError: message),
+    );
+    logWarn(
+      'finalize',
+      '终稿落库失败态 meeting=$meetingId（逐字稿保持实时稿不覆盖）原因=$message',
     );
   }
 

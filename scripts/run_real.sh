@@ -44,6 +44,11 @@ DEFINES=(
   "--dart-define=BAILIAN_FILETRANS_MODEL=${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
   "--dart-define=BAILIAN_LLM_MODEL=${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
   "--dart-define=ENGINE_PROVIDER=${ENGINE_PROVIDER:-bailian}"
+  # 诊断日志级别：debug 下会额外打印更细的链路埋点。
+  # 关键环节（起录各步 / 首帧 / 每秒音频诊断 / WS URL 与 task-started /
+  # task-failed / filetrans 各步 / 纪要首字节 / 链路摘要）都用 **info 级**，
+  # 即使不设 debug 也能看到；这里设 debug 是为了拿到最全的现场。
+  "--dart-define=LOG_LEVEL=${LOG_LEVEL:-debug}"
 )
 
 echo "已注入真实百炼配置："
@@ -51,6 +56,7 @@ echo "  region        = ${BAILIAN_REGION:-cn-beijing}"
 echo "  realtime      = ${BAILIAN_REALTIME_MODEL:-qwen-audio-3.1-asr-flash-streaming}"
 echo "  filetrans     = ${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
 echo "  llm           = ${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
+echo "  log level     = ${LOG_LEVEL:-debug}"
 echo "  api key 长度  = ${#DASHSCOPE_API_KEY}（值不打印）"
 
 CMD="${1:-run}"

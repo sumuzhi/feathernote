@@ -46,6 +46,20 @@ enum RealtimeState {
   closed,
 }
 
+/// 连接失败归类（便于一眼看出是 DNS / TLS / 鉴权 还是其它）。
+String classifyConnectError(Object error) {
+  if (error is HandshakeException) return 'TLS/SecureSocket 握手失败';
+  if (error is SocketException) return '网络不可达 / DNS 解析失败 / 连接被拒';
+  if (error is HttpException) return 'HTTP 握手被拒（多为鉴权 401/403 或域名错误）';
+  if (error is WebSocketException) return 'WebSocket 协议异常';
+  if (error is TimeoutException) return '连接超时';
+  return '其他异常(${error.runtimeType})';
+}
+
+/// 日志用短文本（截断到 [max] 字符）。
+String _shorten(String text, [int max = 60]) =>
+    text.length <= max ? text : '${text.substring(0, max)}…';
+
 /// 携带可读原因的实时链路异常（`toString()` 即中文提示，UI/日志可直接展示）。
 class RealtimeFailure implements Exception {
   /// 构造异常。
@@ -186,17 +200,35 @@ class RealtimeTask {
       headers['X-DashScope-WorkSpace'] = cfg.dashscopeWorkspaceId;
     }
     try {
-      logInfo('asr', '正在连接实时服务 task=$taskId url=$url');
+      logInfo(
+        'asr',
+        '发起实时连接（等待 task-started）',
+        <String, Object?>{
+          'task': taskId,
+          'url': url,
+          'model': cfg.realtimeModel,
+          'region': cfg.bailianRegion,
+          'sampleRate': cfg.realtimeSampleRate,
+          'format': 'pcm',
+          // Authorization 已按脱敏规则打码，**绝不打印完整 Key**。
+          'headers': redactHeaders(headers),
+        },
+      );
       _socket = await _socketFactory(url, headers);
+      logInfo('asr', 'WS 握手成功，等待 task-started task=$taskId');
     } catch (error) {
       state = RealtimeState.failed;
-      // 连接阶段失败（DNS / TLS / 401 鉴权 / 域名错误）必须带上 URL 与原因，
+      // 连接阶段失败（DNS / TLS / 401 鉴权 / 域名错误）必须带上 URL 与分类，
       // 否则「音频在收音却没有转写」将无从定位。
+      final String category = classifyConnectError(error);
       logWarn(
         'asr',
-        '实时连接失败 task=$taskId url=$url 原因=${error.runtimeType}: $error',
+        '实时连接失败 task=$taskId 分类=$category url=$url '
+        '原因=${error.runtimeType}: $error',
       );
-      handlers.onError?.call(RealtimeFailure('连接失败（$url）：$error'));
+      handlers.onError?.call(
+        RealtimeFailure('连接失败（$category）：$error [url=$url]'),
+      );
       _resolve();
       return;
     }
@@ -248,6 +280,8 @@ class RealtimeTask {
     switch (event) {
       case 'task-started':
         state = RealtimeState.running;
+        // 关键：这条代表「实时会话真的起来了」，此后下发的音频才会被识别。
+        logInfo('asr', '实时任务已就绪 task-started task=$taskId（此后可下发音频）');
         handlers.onStarted?.call();
         break;
       case 'result-generated':
@@ -262,6 +296,7 @@ class RealtimeTask {
         break;
       case 'task-finished':
         state = RealtimeState.finished;
+        logInfo('asr', '实时任务已结束 task-finished task=$taskId');
         handlers.onFinished?.call();
         _resolve();
         break;
@@ -476,10 +511,14 @@ class BailianRealtimeSession {
         final int end = (offset + chunkBytes > bytes.length) ? bytes.length : offset + chunkBytes;
         _task?.sendAudio(Uint8List.sublistView(bytes, offset, end));
       }
+      logInfo(
+        'asr',
+        '重连回放环形缓冲 session=$sessionId 字节=${bytes.length}B 覆盖=${ringDurationMs()}ms',
+      );
     }
     _restarted = false;
     _drain();
-    logInfo('asr', '实时任务已就绪 session=$sessionId meeting=$meetingId');
+    logInfo('asr', '实时任务已就绪 session=$sessionId meeting=$meetingId（开始下发音频）');
   }
 
   /// 把累积的 PCM 凑满 [chunkBytes] 后下发。
@@ -547,6 +586,13 @@ class BailianRealtimeSession {
     final int revision = (_revById[sentenceId] ?? 0) + 1;
     _revById[sentenceId] = revision;
 
+    logInfo(
+      'asr',
+      '实时句子 id=$sentenceId final=${sentence['sentence_end'] == true} '
+      'begin=${taskBaseMs + begin} end=${taskBaseMs + (end > begin ? end : begin)} '
+      'rev=$revision text="${_shorten(text)}"',
+    );
+
     onEvent(
       StreamEvent(
         segmentId: 'seg_$sentenceId',
@@ -565,6 +611,11 @@ class BailianRealtimeSession {
   Future<void> _onTaskDown(String code, String message) async {
     if (_closed || _finishing) return;
     if (_restartCount >= maxRestart) {
+      logWarn(
+        'asr',
+        '实时任务已失败且重试耗尽（$_restartCount/$maxRestart），转由会后终稿兜底',
+        <String, Object?>{'code': code, 'message': message, 'session': sessionId},
+      );
       onError('实时转写暂不可用（$code）：$message，请依赖会后终稿');
       return;
     }
@@ -578,7 +629,12 @@ class BailianRealtimeSession {
     logWarn(
       'asr',
       '实时任务中断，重开($_restartCount/$maxRestart)',
-      <String, Object?>{'code': code, 'session': sessionId},
+      <String, Object?>{
+        'code': code,
+        'message': message,
+        'session': sessionId,
+        '回放可覆盖ms': ringDurationMs(),
+      },
     );
     try {
       await open();
@@ -590,10 +646,17 @@ class BailianRealtimeSession {
   /// 主动收尾：发送残余字节 + `finish-task`，等待 `task-finished`。
   Future<void> flush() async {
     final RealtimeTask? task = _task;
-    if (task == null) return;
+    if (task == null) {
+      logInfo('asr', 'flush：无活动任务，跳过 session=$sessionId');
+      return;
+    }
     _finishing = true;
     _startTimer?.cancel();
     _startTimer = null;
+    logInfo(
+      'asr',
+      'flush 开始 session=$sessionId 残余=${_pending.length}B state=${task.state.name}',
+    );
     _drain();
     if (_pending.isNotEmpty && task.state == RealtimeState.running) {
       task.sendAudio(Uint8List.fromList(_pending));
@@ -604,6 +667,7 @@ class BailianRealtimeSession {
       const Duration(seconds: 5),
       onTimeout: () => logWarn('asr', '等待 task-finished 超时 session=$sessionId'),
     );
+    logInfo('asr', 'flush 完成 session=$sessionId');
   }
 
   /// 关闭（含清理）。
@@ -613,6 +677,7 @@ class BailianRealtimeSession {
     _startTimer = null;
     final RealtimeTask? task = _task;
     _task = null;
+    logInfo('asr', '关闭实时会话 session=$sessionId（state=${task?.state.name ?? 'none'}）');
     task?.abort();
   }
 

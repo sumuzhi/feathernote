@@ -12,12 +12,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../backend/backend_api.dart';
+import '../../core/log/log.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/profile_screen.dart';
+import '../theme/app_theme.dart';
+import '../utils/exporter.dart';
 import '../utils/placeholders.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/surface_card.dart';
 
 /// 我的页。
 class ProfilePage extends ConsumerStatefulWidget {
@@ -187,8 +191,24 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             ),
           ],
         ),
+        ProfileSectionView(
+          title: '诊断',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.ios_share_rounded,
+              title: '导出诊断日志',
+              subtitle: '写入 exports/ 并显示绝对路径（缓冲最近 $logHistoryLength 条日志）',
+              value: '导出',
+              onTap: () => unawaited(_exportDiagnostics()),
+            ),
+          ],
+        ),
       ],
       versionText: '版本 ${config.version} · 端化运行',
+      diagnosticsPanel: _DiagnosticsPanel(
+        lines: recentLogs(limit: 20),
+        onExport: () => unawaited(_exportDiagnostics()),
+      ),
       onSettings: () => _toast('设置'),
       onTabTap: (int index) {
         switch (index) {
@@ -230,6 +250,56 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   void _toast(String text) =>
       ref.read(toastProvider.notifier).show(text, tone: ToastTone.info);
 
+  /// 导出诊断日志（自检读数 + 最近日志）到 `exports/diagnostic-<时间戳>.log`。
+  Future<void> _exportDiagnostics() async {
+    try {
+      final String path = await exportTextFile(
+        fileName: 'diagnostic-${_stamp()}',
+        content: _diagnosticReport(),
+        extension: '.log',
+      );
+      if (!mounted) return;
+      ref.read(toastProvider.notifier).show(
+        '诊断日志已导出：$path',
+        tone: ToastTone.success,
+        duration: const Duration(seconds: 6),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ref.read(toastProvider.notifier).show(
+        '导出诊断日志失败：$error',
+        tone: ToastTone.warning,
+      );
+    }
+  }
+
+  /// 诊断报告正文（自检读数 + 全量日志缓冲）。
+  String _diagnosticReport() {
+    final RealtimeDiagnostics diag =
+        ref.read(backendProvider).value?.diagnostics ??
+            const RealtimeDiagnostics.empty();
+    final List<String> header = <String>[
+      '==== 智能会议纪要 · 诊断日志 ====',
+      '导出时间: ${DateTime.now().toIso8601String()}',
+      '引擎: ${diag.engineName}',
+      '实时会话: ${diag.active ? (diag.realtimeRunning ? '已连接' : '未连接') : '无活动录音'}',
+      'session: ${diag.sessionId ?? '—'}',
+      'meeting: ${diag.meetingId ?? '—'}',
+      '后端收帧: ${diag.framesReceived}  落盘PCM: ${diag.pcmBytes}B  实时句子: ${diag.sentenceCount}',
+      '最近错误: ${diag.lastError ?? '—'}',
+      '---- 日志缓冲 ${recentLogs().length} 条 ----',
+    ];
+    return '${header.join('\n')}\n${dumpLogs()}\n';
+  }
+
+  /// 文件名时间戳（`yyyyMMdd-HHmmss`）。
+  static String _stamp() {
+    final DateTime now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}-'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
   /// 把过长的 ID / 错误文案压缩到一行可读（自检面板用）。
   static String _short(String? value, {int max = 28}) {
     if (value == null || value.isEmpty) return '—';
@@ -262,4 +332,61 @@ class AppConfigView {
 
   /// 版本号。
   final String version;
+}
+
+/// 诊断面板：导出按钮 + 最近日志预览（用户跑一次后可直接截图/导出）。
+class _DiagnosticsPanel extends StatelessWidget {
+  const _DiagnosticsPanel({required this.lines, required this.onExport});
+
+  final List<String> lines;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Text('最近日志（${lines.length} 条）', style: AppTextStyles.meta),
+              AppTextPillButton(
+                label: '导出诊断日志',
+                soft: true,
+                onTap: onExport,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (lines.isEmpty)
+            Text('暂无日志', style: AppTextStyles.metaSmall)
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    for (final String line in lines.reversed)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1.5),
+                        child: Text(
+                          line,
+                          style: AppTextStyles.metaSmall.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

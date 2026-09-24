@@ -56,6 +56,10 @@ class MinutesService {
       throw AppError(ErrorCode.notFound, '会议不存在：$meetingId');
     }
     if (!force && meeting.minutesMd != null && !meeting.minutesPartial) {
+      logInfo(
+        'minutes',
+        '纪要命中缓存，直接回库 meeting=$meetingId 长度=${meeting.minutesMd!.length}',
+      );
       yield meeting.minutesMd!;
       return;
     }
@@ -65,6 +69,26 @@ class MinutesService {
     final StringBuffer markdown = StringBuffer();
     bool completed = false;
     Object? failure;
+    int promptChars = 0;
+    for (final LlmMessage message in messages) {
+      promptChars += message.content.length;
+    }
+    final Stopwatch watch = Stopwatch()..start();
+    int firstTokenMs = -1;
+    logInfo(
+      'minutes',
+      '纪要生成开始 meeting=$meetingId',
+      <String, Object?>{
+        'model': cfg.llmModel,
+        'strategy': cfg.summaryStrategy,
+        'promptChars': promptChars,
+        'messages': messages.length,
+        'force': force,
+        'transcriptSegments': meeting.segments.length,
+        'enableThinking': cfg.llmEnableThinking,
+        'maxTokens': cfg.llmMaxTokens,
+      },
+    );
 
     try {
       await for (final String delta in engine.chatStream(
@@ -76,12 +100,27 @@ class MinutesService {
           model: cfg.llmModel,
         ),
       )) {
+        if (firstTokenMs < 0) {
+          firstTokenMs = watch.elapsedMilliseconds;
+          logInfo('minutes', '纪要首字节到达 meeting=$meetingId 延迟=${firstTokenMs}ms');
+        }
         markdown.write(delta);
         yield delta;
       }
       completed = true;
+      logInfo(
+        'minutes',
+        '纪要生成结束 meeting=$meetingId 字符=${markdown.length} '
+        '首字延迟=${firstTokenMs < 0 ? '—' : '${firstTokenMs}ms'} 总耗时=${watch.elapsedMilliseconds}ms',
+      );
     } catch (error) {
       failure = error;
+      logWarn(
+        'minutes',
+        '纪要生成失败 meeting=$meetingId 已产出=${markdown.length}字 '
+        '首字延迟=${firstTokenMs < 0 ? '—' : '${firstTokenMs}ms'} '
+        '耗时=${watch.elapsedMilliseconds}ms 原因=$error',
+      );
     } finally {
       // 落盘恒在 finally：订阅方提前取消时生成器在 yield 处结束，
       // 只有 finally 能保住已生成内容。

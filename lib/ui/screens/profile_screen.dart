@@ -91,6 +91,7 @@ class ProfileScreen extends StatelessWidget {
     required this.onTabTap,
     this.selectedTab = 2,
     this.debugEntry,
+    this.diagnosticsPanel,
   });
 
   /// 用户名。
@@ -119,6 +120,9 @@ class ProfileScreen extends StatelessWidget {
 
   /// debug 构建的额外入口（「屏幕目录」），release 下为 null。
   final Widget? debugEntry;
+
+  /// 诊断面板（自检读数 + 导出诊断日志 + 最近日志预览），可为 null。
+  final Widget? diagnosticsPanel;
 
   @override
   Widget build(BuildContext context) {
@@ -211,6 +215,11 @@ class ProfileScreen extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ),
+          if (diagnosticsPanel != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.page, 0, AppSpacing.page, 4),
+              child: diagnosticsPanel!,
+            ),
           if (debugEntry != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),

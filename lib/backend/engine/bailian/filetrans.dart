@@ -17,6 +17,7 @@ import 'package:dio/dio.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/error/app_error.dart';
 import '../../../core/ids.dart';
+import '../../../core/log/log.dart';
 import '../../../core/ws_protocol.dart';
 import '../../../domain/segment.dart';
 import 'bailian_endpoints.dart';
@@ -92,6 +93,7 @@ class BailianFiletrans {
   /// 步骤1：获取上传凭证。
   Future<Map<String, dynamic>> getUploadPolicy({String? model}) async {
     final String url = '$httpBase/api/v1/uploads?action=getPolicy&model=${Uri.encodeComponent(model ?? cfg.filetransModel)}';
+    final Stopwatch watch = Stopwatch()..start();
     final Response<dynamic> resp = await _dio.get<dynamic>(
       url,
       options: Options(
@@ -101,6 +103,14 @@ class BailianFiletrans {
       ),
     );
     _ensureOk(resp, '获取上传凭证');
+    logInfo(
+      'filetrans',
+      '获取上传凭证完成',
+      <String, Object?>{
+        'httpStatus': resp.statusCode,
+        'elapsedMs': watch.elapsedMilliseconds,
+      },
+    );
     final Object? body = resp.data;
     if (body is! Map<String, dynamic>) {
       throw const AppError(ErrorCode.engineError, '获取上传凭证失败：响应体不是对象', engineCode: 'E_PROTOCOL');
@@ -117,6 +127,7 @@ class BailianFiletrans {
   /// **字段顺序严格**（顺序错误 OSS 会 403）：
   /// `OSSAccessKeyId, Signature, policy, x-oss-object-acl, x-oss-forbid-overwrite, key, success_action_status, file`。
   Future<String> uploadBuffer(Uint8List buffer, String filename, {Map<String, dynamic>? policy}) async {
+    final Stopwatch watch = Stopwatch()..start();
     final Map<String, dynamic> pol = policy ?? await getUploadPolicy();
     final FormData form = FormData.fromMap(<String, dynamic>{
       'OSSAccessKeyId': '${pol['oss_access_key_id']}',
@@ -137,6 +148,16 @@ class BailianFiletrans {
       ),
     );
     _ensureOk(resp, '临时上传');
+    logInfo(
+      'filetrans',
+      '临时上传完成',
+      <String, Object?>{
+        'filename': filename,
+        'bytes': buffer.length,
+        'httpStatus': resp.statusCode,
+        'elapsedMs': watch.elapsedMilliseconds,
+      },
+    );
     return buildOssUrl('${pol['upload_dir']}', filename);
   }
 
@@ -152,8 +173,20 @@ class BailianFiletrans {
         engineCode: 'E_TOO_LARGE',
       );
     }
+    logInfo(
+      'filetrans',
+      '本地上传开始',
+      <String, Object?>{'file': filePath, 'bytes': length, 'maxMb': cfg.uploadMaxMb},
+    );
+    final Stopwatch watch = Stopwatch()..start();
     final Uint8List bytes = await file.readAsBytes();
-    return uploadBuffer(bytes, filePath.split(Platform.pathSeparator).last);
+    final String ossUrl = await uploadBuffer(bytes, filePath.split(Platform.pathSeparator).last);
+    logInfo(
+      'filetrans',
+      '本地上传完成',
+      <String, Object?>{'bytes': length, 'elapsedMs': watch.elapsedMilliseconds, 'ossUrl': ossUrl},
+    );
+    return ossUrl;
   }
 
   /// 步骤3：提交异步转写任务。
@@ -176,6 +209,7 @@ class BailianFiletrans {
         'diarization_enabled': diarization,
       },
     };
+    final Stopwatch watch = Stopwatch()..start();
     final Response<dynamic> resp = await _dio.post<dynamic>(
       url,
       data: body,
@@ -192,11 +226,26 @@ class BailianFiletrans {
     }
     final Object? output = payload['output'];
     final Map<String, dynamic> out = output is Map<String, dynamic> ? output : const <String, dynamic>{};
-    return SubmitResult(
+    final SubmitResult submitted = SubmitResult(
       taskId: (out['task_id'] as String?) ?? '',
       taskStatus: (out['task_status'] as String?) ?? TaskStatus.pending,
       requestId: (payload['request_id'] as String?) ?? '',
     );
+    logInfo(
+      'filetrans',
+      '提交 filetrans 完成',
+      <String, Object?>{
+        'httpStatus': resp.statusCode,
+        'taskId': submitted.taskId,
+        'taskStatus': submitted.taskStatus,
+        'requestId': submitted.requestId,
+        'elapsedMs': watch.elapsedMilliseconds,
+        'raw': safeJson(payload).length > 500
+            ? '${safeJson(payload).substring(0, 500)}…'
+            : safeJson(payload),
+      },
+    );
+    return submitted;
   }
 
   /// 单次轮询任务状态。
@@ -239,10 +288,28 @@ class BailianFiletrans {
     final int intervalMs = (interval ?? Duration(milliseconds: cfg.filetransPollIntervalMs)).inMilliseconds;
     final int timeoutMs = (timeout ?? Duration(milliseconds: cfg.filetransTimeoutMs)).inMilliseconds;
     final Stopwatch stopwatch = Stopwatch()..start();
+    logInfo(
+      'filetrans',
+      '开始轮询终稿任务',
+      <String, Object?>{
+        'taskId': taskId,
+        'intervalMs': intervalMs,
+        'timeoutMs': timeoutMs,
+      },
+    );
     for (;;) {
       final PollResult result = await pollTask(taskId);
+      logInfo(
+        'filetrans',
+        '轮询 tick task=$taskId status=${result.status} 已等待=${stopwatch.elapsedMilliseconds}ms '
+        '${result.message == null ? '' : 'message=${result.message}'}',
+      );
       onTick?.call(result.status);
       if (result.status == TaskStatus.succeeded || result.status == TaskStatus.failed) {
+        logInfo(
+          'filetrans',
+          '轮询结束 task=$taskId status=${result.status} 总耗时=${stopwatch.elapsedMilliseconds}ms',
+        );
         return WaitResult(
           status: result.status,
           transcriptionUrl: result.transcriptionUrl,
@@ -250,6 +317,7 @@ class BailianFiletrans {
         );
       }
       if (stopwatch.elapsedMilliseconds >= timeoutMs) {
+        logWarn('filetrans', '轮询超时 task=$taskId 已等待=${stopwatch.elapsedMilliseconds}ms');
         return WaitResult(status: TaskStatus.timeout, transcriptionUrl: null, elapsedMs: stopwatch.elapsedMilliseconds);
       }
       await Future<void>.delayed(Duration(milliseconds: intervalMs));
@@ -258,6 +326,7 @@ class BailianFiletrans {
 
   /// 下载 `transcription_url`（公网 JSON，24h 有效）→ 解析对象。
   Future<Map<String, dynamic>> downloadTranscription(String url) async {
+    final Stopwatch watch = Stopwatch()..start();
     final Response<dynamic> resp = await _dio.get<dynamic>(
       url,
       options: Options(
@@ -268,6 +337,16 @@ class BailianFiletrans {
     );
     _ensureOk(resp, '下载转写结果');
     final Object? body = resp.data;
+    final int bytes = body is String ? body.length : safeJson(body).length;
+    logInfo(
+      'filetrans',
+      '下载转写结果完成',
+      <String, Object?>{
+        'bytes': bytes,
+        'httpStatus': resp.statusCode,
+        'elapsedMs': watch.elapsedMilliseconds,
+      },
+    );
     if (body is Map<String, dynamic>) return body;
     if (body is String) {
       final Object? decoded = jsonDecode(body);
@@ -380,10 +459,22 @@ List<TranscriptSegment> mapFiletransToSegments(
     for (int i = 0; i < ranked.length; i++) ranked[i].key: i,
   };
 
-  return <TranscriptSegment>[
+  final List<TranscriptSegment> mapped = <TranscriptSegment>[
     for (int index = 0; index < usable.length; index++)
       _segmentFromSentence(usable[index], index, speakerRank, scale, unit, meetingId),
   ];
+  logInfo(
+    'filetrans',
+    '映射终稿片段完成',
+    <String, Object?>{
+      'sentences': mapped.length,
+      'speakers': speakerRank.length,
+      'timeScale': scale,
+      'channels': list.length,
+      'usableBeforeFilter': usable.length,
+    },
+  );
+  return mapped;
 }
 
 TranscriptSegment _segmentFromSentence(

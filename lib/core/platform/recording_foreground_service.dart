@@ -45,7 +45,15 @@ class RecordingForegroundService {
 
   /// 启动（幂等）。失败只告警。
   Future<void> start() async {
-    if (!supported || _running) return;
+    if (!supported) {
+      logInfo('foreground', '前台服务：当前平台不支持（非 Android），跳过');
+      return;
+    }
+    if (_running) {
+      logInfo('foreground', '前台服务：已在运行，跳过重复启动');
+      return;
+    }
+    final Stopwatch watch = Stopwatch()..start();
     try {
       await FlutterForegroundTask.requestNotificationPermission();
       if (!_initialized) {
@@ -82,23 +90,36 @@ class RecordingForegroundService {
       );
       _running = result is ServiceRequestSuccess;
       if (_running) {
-        logInfo('fgs', '前台服务已启动（type=microphone）');
+        logInfo(
+          'foreground',
+          '前台服务已启动（type=microphone）',
+          <String, Object?>{'elapsedMs': watch.elapsedMilliseconds},
+        );
       } else {
-        logWarn('fgs', '前台服务启动失败：$result');
+        // Android 14+ 未起 microphone 型前台服务时，麦克风流可能被系统提前掐断。
+        logWarn(
+          'foreground',
+          '前台服务启动失败（录音可能被系统中断）',
+          <String, Object?>{'result': '$result', 'elapsedMs': watch.elapsedMilliseconds},
+        );
       }
     } catch (error) {
-      logWarn('fgs', '前台服务启动异常：$error');
+      logWarn('foreground', '前台服务启动异常（录音可能被系统中断）：$error');
     }
   }
 
   /// 停止（幂等）。失败只告警。
   Future<void> stop() async {
-    if (!supported || !_running) return;
+    if (!supported) return;
+    if (!_running) {
+      logDebug('foreground', '前台服务：未运行，跳过停止');
+      return;
+    }
     try {
       await FlutterForegroundTask.stopService();
-      logInfo('fgs', '前台服务已停止');
+      logInfo('foreground', '前台服务已停止');
     } catch (error) {
-      logWarn('fgs', '前台服务停止异常：$error');
+      logWarn('foreground', '前台服务停止异常：$error');
     } finally {
       _running = false;
     }

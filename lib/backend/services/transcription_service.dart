@@ -233,7 +233,11 @@ class TranscriptionService {
         );
     runtime.subscription = subscription;
     _emit(MeetingStarted(meetingId: meetingId, sessionId: sessionId));
-    logInfo('transcription', '实时会话已开启 session=$sessionId meeting=$meetingId');
+    logInfo(
+      'transcription',
+      '实时会话已开启 session=$sessionId meeting=$meetingId engine=${engine.name} '
+      'sampleRate=$sampleRate 事件订阅已挂载',
+    );
     return state;
   }
 
@@ -269,11 +273,22 @@ class TranscriptionService {
         'transcription',
         '后端收到首帧 session=$sessionId seq=${frame.seq} startMs=${frame.startMs} ${frame.pcm.length}B',
       );
+      runtime.lastReportAtMs = DateTime.now().millisecondsSinceEpoch;
     }
     // U6：边录边追加写，不整份驻留内存。
     runtime.sink.add(frame.pcm);
     runtime.pcmBytes += frame.pcm.length;
     runtime.frameCount += 1;
+    // 每 5 秒汇总一条（既能看到持续收帧，又不刷屏）。
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - runtime.lastReportAtMs >= 5000) {
+      runtime.lastReportAtMs = nowMs;
+      logInfo(
+        'transcription',
+        '音频汇总 session=$sessionId 帧=${runtime.frameCount} PCM=${runtime.pcmBytes}B '
+        '实时会话=${engine.isRealtimeRunning(sessionId) ? '已连接' : '未连接'}',
+      );
+    }
     final SessionState? state = sessionStore.get(sessionId);
     if (state != null) {
       state.tracker.accept(frame.seq, frame.startMs, frame.endMs);
@@ -305,15 +320,29 @@ class TranscriptionService {
 
   /// 停止会议：收尾实时会话 → 写 WAV → 归档 → 落库 → 提交终稿。
   Future<Meeting?> onStop(String meetingId, {bool upload = true}) async {
+    final Stopwatch watch = Stopwatch()..start();
     final Meeting? stored = await persistence.loadMeeting(meetingId);
-    if (stored == null) return null;
+    if (stored == null) {
+      logWarn('transcription', 'onStop：会议不存在 meeting=$meetingId');
+      return null;
+    }
 
     final SessionState? state = sessionStore.findByMeeting(meetingId);
     final String? sessionId = state?.sessionId;
-    _SessionRuntime? runtime = sessionId == null ? null : _runtimes[sessionId];
+    final _SessionRuntime? runtime = sessionId == null ? null : _runtimes[sessionId];
+    // 收尾前采样（closeSession 之后这些读数就没了）。
+    final bool realtimeRunning = isRealtimeRunning(sessionId);
+    final int realtimeSentences = segmentCountForSession(sessionId);
     if (sessionId != null) {
+      logInfo('transcription', 'onStop·收尾实时会话 session=$sessionId flush=true');
       await closeSession(sessionId, flush: true);
       sessionStore.markStopped(sessionId);
+      logInfo(
+        'transcription',
+        'onStop·实时会话已关闭 耗时=${watch.elapsedMilliseconds}ms',
+      );
+    } else {
+      logWarn('transcription', 'onStop：未找到会话态 meeting=$meetingId（实时稿将为空）');
     }
 
     // 1) 汇总逐字稿（会话态优先，其次库中已有）。
@@ -322,19 +351,35 @@ class TranscriptionService {
     if (segments.isEmpty) segments = stored.segments;
     final List<TranscriptSegment> normalized =
         segments.map(normalizeSegment).toList(growable: false);
+    logInfo(
+      'transcription',
+      'onStop·逐字稿汇总 segment=${normalized.length} 耗时=${watch.elapsedMilliseconds}ms',
+    );
 
     // 2) 写 WAV（流式写已在进行，此处补头）→ 归档。
     int durationMs = deriveDurationMs(normalized.map((TranscriptSegment s) => s.endTime));
     String? audioKey;
+    int wavBytes = 0;
     if (runtime != null) {
       final Uint8List wav = await runtime.finishWav(sampleRate: stored.sampleRate);
+      wavBytes = wav.length;
+      logInfo(
+        'transcription',
+        'onStop·WAV 收尾 WAV=${wav.length}B 解析时长=${parseWavDurationMs(wav) ?? 0}ms '
+        'PCM=${runtime.pcmBytes}B 帧=${runtime.frameCount}',
+      );
       if (wav.isNotEmpty) {
         final int wavMs = parseWavDurationMs(wav) ?? 0;
         if (wavMs > durationMs) durationMs = wavMs;
         if (upload) {
           audioKey = await archive.put(meetingId, wav);
+          logInfo('transcription', 'onStop·WAV 已归档 key=$audioKey 耗时=${watch.elapsedMilliseconds}ms');
         }
+      } else {
+        logWarn('transcription', 'onStop：WAV 为空（PCM=0B，录音未产出数据）');
       }
+    } else {
+      logWarn('transcription', 'onStop：无 runtime，未产出 WAV（录音未成功建立）');
     }
 
     final List<Speaker> roster = buildSpeakerRoster(normalized, meetingId: meetingId);
@@ -349,18 +394,17 @@ class TranscriptionService {
       audioBytes: runtime?.pcmBytes ?? 0,
     );
     await persistence.saveMeeting(updated);
+    logInfo(
+      'transcription',
+      'onStop·已落库 meeting=$meetingId segment=${normalized.length} '
+      '说话人=${roster.length} 耗时=${watch.elapsedMilliseconds}ms',
+    );
     _emit(
       MeetingStopped(meetingId: meetingId, speakerCount: roster.length, durationMs: updated.durationMs),
     );
     if (roster.isNotEmpty) {
       _emit(SpeakerUpdate(meetingId: meetingId, speakers: roster));
     }
-    logInfo(
-      'transcription',
-      '会议已停止 meeting=$meetingId 片段=${normalized.length} 时长=${updated.durationMs}ms '
-      'PCM=${runtime?.pcmBytes ?? 0}B 帧=${runtime?.frameCount ?? 0} '
-      'WAV=${audioKey == null ? '未归档' : '已归档'}',
-    );
 
     // 3) 触发终稿链路（失败不影响停止流程本身）。
     //
@@ -368,12 +412,33 @@ class TranscriptionService {
     // 弱网 / 大文件下可能耗时数十秒到数分钟。停录必须在这里立即返回，
     // 否则「结束并生成」按钮会一直转圈（历史 Bug）。
     // 失败统一落成 finalize_status=failed 并广播进度，由 UI 提示。
+    bool finalizeTriggered = false;
     if (upload && audioKey != null) {
       final String? wavPath = await _resolveArchivePath(audioKey);
       if (wavPath != null) {
         unawaited(_triggerFinalizeInBackground(meetingId, wavPath));
+        finalizeTriggered = true;
+        logInfo('transcription', 'onStop·终稿链路已触发 meeting=$meetingId wav=$wavPath');
+      } else {
+        logWarn('transcription', 'onStop：归档路径解析失败，终稿未触发 meeting=$meetingId key=$audioKey');
       }
+    } else {
+      logWarn(
+        'transcription',
+        'onStop：未触发终稿（upload=$upload audioKey=${audioKey ?? 'null'}）',
+      );
     }
+
+    // A3 链路摘要：用户跑一次后最该发回来的一行（一眼看断在哪一环）。
+    logInfo(
+      'transcription',
+      '链路摘要 meeting=$meetingId 录音=${durationMs}ms '
+      '后端收帧=${runtime?.frameCount ?? 0} PCM=${runtime?.pcmBytes ?? 0}B '
+      'WAV=${durationMs}ms/${wavBytes}B '
+      '实时会话=${realtimeRunning ? '已连接' : '未连接'} 实时句子=$realtimeSentences '
+      '终稿=${finalizeTriggered ? '提交中' : '未触发'} '
+      '摘要片段=${(updated.minutesMd ?? '').length}字 总耗时=${watch.elapsedMilliseconds}ms',
+    );
     return updated;
   }
 
@@ -493,6 +558,9 @@ class _SessionRuntime {
 
   /// 后端实际收到的音频帧数（诊断用）。
   int frameCount = 0;
+
+  /// 上次「音频汇总」日志的墙钟毫秒（每 5 秒一条）。
+  int lastReportAtMs = 0;
 
   /// PCM 写入器。
   IOSink get sink => _sink;

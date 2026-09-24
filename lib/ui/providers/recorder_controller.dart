@@ -195,6 +195,7 @@ class RecorderController extends Notifier<RecorderUiState> {
   Timer? _ticker;
   Timer? _watchdog;
   Timer? _diagTimer;
+  Stopwatch? _startWatch;
   int _resumedAtMs = 0;
   int _elapsedBaseMs = 0;
   int _lastWavePushMs = 0;
@@ -266,10 +267,14 @@ class RecorderController extends Notifier<RecorderUiState> {
         clearError: true,
       ),
     );
+    final Stopwatch watch = Stopwatch()..start();
+    _startWatch = watch;
+    logInfo('recorder', '开始录音流程 mode=${resolvedMode.name}');
     try {
       final BackendApi api = await ref.read(backendProvider.future);
       if (_disposed) return;
       _api = api;
+      logInfo('recorder', '步骤①后端就绪 耗时=${watch.elapsedMilliseconds}ms');
 
       final String resolvedTitle = title.trim().isNotEmpty
           ? title.trim()
@@ -279,6 +284,10 @@ class RecorderController extends Notifier<RecorderUiState> {
         sampleRate: kTargetSampleRateHz,
       );
       if (_disposed) return;
+      logInfo(
+        'recorder',
+        '步骤②会议已创建 meeting=${meeting.id} 耗时=${watch.elapsedMilliseconds}ms',
+      );
 
       final String sessionId = genSessionId();
       // 两个订阅都在 [_releaseHardware] 中统一 cancel（此处无法就地取消）。
@@ -292,20 +301,30 @@ class RecorderController extends Notifier<RecorderUiState> {
         title: resolvedTitle,
       );
       if (_disposed) return;
+      logInfo(
+        'recorder',
+        '步骤③后端会话已开 session=$sessionId 耗时=${watch.elapsedMilliseconds}ms',
+      );
 
       final MicSource mic = ref.read(micSourceFactoryProvider)();
       _mic = mic;
 
       // 1) 权限：`record` 的 hasPermission() 默认会主动申请（request: true）。
       final bool granted = await mic.hasPermission();
-      logInfo('recorder', '麦克风权限 granted=$granted');
+      logInfo(
+        'recorder',
+        '步骤④麦克风权限 granted=$granted 耗时=${watch.elapsedMilliseconds}ms',
+      );
       if (!granted) {
         throw const AppError(ErrorCode.badRequest, '未获得麦克风权限，请在系统设置中开启后重试');
       }
 
       // 2) 设备能力：不支持 PCM16 流式采集时给出可读错误，而不是静默无数据。
       final bool pcmOk = await mic.isPcmSupported();
-      logInfo('recorder', 'PCM16 采集支持=$pcmOk');
+      logInfo(
+        'recorder',
+        '步骤⑤PCM16 采集支持=$pcmOk 耗时=${watch.elapsedMilliseconds}ms',
+      );
       if (!pcmOk) {
         throw const AppError(ErrorCode.badRequest, '当前设备不支持 PCM16 流式采集，无法录音');
       }
@@ -313,12 +332,14 @@ class RecorderController extends Notifier<RecorderUiState> {
       // 3) 前台服务（Android）：Android 14+ 未起 microphone 型前台服务时，
       //    麦克风流可能被系统提前掐断（「只录一小会儿」的典型诱因）。
       await RecordingForegroundService.instance.start();
+      logInfo('recorder', '步骤⑥前台服务已处理 耗时=${watch.elapsedMilliseconds}ms');
 
       // 4) 起流。
       final Stream<Uint8List> pcmStream = await mic.startStream(
         sampleRateHz: kTargetSampleRateHz,
         channels: 1,
       );
+      logInfo('recorder', '步骤⑦PCM 流已起 耗时=${watch.elapsedMilliseconds}ms');
       _resampler = kMicActualSampleRateHz == kTargetSampleRateHz
           ? null
           : Resampler(fromHz: kMicActualSampleRateHz, toHz: kTargetSampleRateHz);
@@ -333,6 +354,7 @@ class RecorderController extends Notifier<RecorderUiState> {
       _recovering = false;
       _lastChunkAtMs = _nowMs();
       _pcmSubscription = _listenPcm(pcmStream);
+      logInfo('recorder', '步骤⑧监听已挂载 耗时=${watch.elapsedMilliseconds}ms');
 
       _elapsedBaseMs = 0;
       _resumedAtMs = DateTime.now().millisecondsSinceEpoch;
@@ -356,7 +378,10 @@ class RecorderController extends Notifier<RecorderUiState> {
           clearError: true,
         ),
       );
-      logInfo('recorder', '开始录音 meeting=${meeting.id} session=$sessionId');
+      logInfo(
+        'recorder',
+        '开始录音完成 meeting=${meeting.id} session=$sessionId 总耗时=${watch.elapsedMilliseconds}ms',
+      );
     } catch (error) {
       await _releaseHardware();
       await RecordingForegroundService.instance.stop();
@@ -364,6 +389,10 @@ class RecorderController extends Notifier<RecorderUiState> {
       _stopWatchdog();
       _stopDiagnostics();
       if (_disposed) return;
+      logWarn(
+        'recorder',
+        '开始录音失败 耗时=${watch.elapsedMilliseconds}ms：$error',
+      );
       _emit(
         state.copyWith(
           phase: RecorderPhase.idle,
@@ -432,6 +461,7 @@ class RecorderController extends Notifier<RecorderUiState> {
     _stopTicker();
     _stopWatchdog();
     _stopDiagnostics();
+    final Stopwatch watch = Stopwatch()..start();
     // 收尾前先打一次总账，供「只录到 1 秒」类问题定位。
     logInfo(
       'recorder',
@@ -439,22 +469,28 @@ class RecorderController extends Notifier<RecorderUiState> {
       '帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B 重启=$_restarts',
     );
     await _releaseHardware();
+    logInfo('recorder', '收尾·释放硬件 耗时=${watch.elapsedMilliseconds}ms');
     final BackendApi? api = _api;
     if (api != null) {
       try {
         await api.stopRecording(meetingId).timeout(kStopTimeout);
         logInfo(
           'recorder',
-          '录音已停止 meeting=$meetingId 后端落盘=${api.activePcmBytes}B',
+          '收尾·后端 stopRecording 完成 耗时=${watch.elapsedMilliseconds}ms '
+          '后端落盘=${api.activePcmBytes}B',
         );
       } on TimeoutException {
-        logWarn('recorder', '收尾超时（${kStopTimeout.inSeconds}s），已转后台 meeting=$meetingId');
+        logWarn(
+          'recorder',
+          '收尾超时（${kStopTimeout.inSeconds}s），已转后台 meeting=$meetingId '
+          '耗时=${watch.elapsedMilliseconds}ms',
+        );
         ref.read(toastProvider.notifier).show(
           '收尾超时，已在后台继续处理，可在历史页查看终稿状态',
           tone: ToastTone.warning,
         );
       } catch (error) {
-        logWarn('recorder', '停止流程报错：$error');
+        logWarn('recorder', '停止流程报错 耗时=${watch.elapsedMilliseconds}ms：$error');
         ref.read(toastProvider.notifier).show(
           '收尾失败，转写可能不完整：${_readable(error)}',
           tone: ToastTone.warning,
@@ -462,6 +498,7 @@ class RecorderController extends Notifier<RecorderUiState> {
       }
     }
     await RecordingForegroundService.instance.stop();
+    logInfo('recorder', '收尾全部完成 meeting=$meetingId 总耗时=${watch.elapsedMilliseconds}ms');
     if (_disposed) return meetingId;
     _emit(const RecorderUiState.idle());
     ref.read(waveformProvider.notifier).reset();
@@ -516,7 +553,10 @@ class RecorderController extends Notifier<RecorderUiState> {
     _chunkCount++;
     if (!_loggedFirstChunk) {
       _loggedFirstChunk = true;
-      logInfo('recorder', '首个 PCM chunk=${chunk.length}B（开始收到音频）');
+      logInfo(
+        'recorder',
+        '首帧到达 chunk=${chunk.length}B（距今录音流程启动 ${_startWatch?.elapsedMilliseconds ?? 0}ms）',
+      );
     }
     final Resampler? resampler = _resampler;
     final Uint8List pcm = resampler == null ? chunk : resampler.convert(chunk);
