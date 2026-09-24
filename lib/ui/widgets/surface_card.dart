@@ -1,24 +1,20 @@
-/// 白卡容器：统一「白底 + 大圆角 + 暖棕柔和阴影 + 1px 暖色描边」。
+/// 通用白卡片（HTML `.card`）：圆角 24 或 20 + `rgba(58,42,32,.05)` 阴影。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// 表面卡片。
+/// 白卡片。
 class SurfaceCard extends StatelessWidget {
   /// 构造卡片。
   const SurfaceCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(AppSpacing.card),
+    this.padding = const EdgeInsets.all(20),
+    this.margin = EdgeInsets.zero,
     this.radius = AppRadius.card,
-    this.shadows = AppShadow.card,
-    this.color = AppColors.surface,
-    this.bordered = true,
-    this.onTap,
-    this.onLongPress,
-    this.semanticLabel,
+    this.width,
   });
 
   /// 内容。
@@ -27,52 +23,27 @@ class SurfaceCard extends StatelessWidget {
   /// 内边距。
   final EdgeInsetsGeometry padding;
 
-  /// 圆角。
+  /// 外边距。
+  final EdgeInsetsGeometry margin;
+
+  /// 圆角（默认 24；列表卡用 20）。
   final double radius;
 
-  /// 阴影。
-  final List<BoxShadow> shadows;
-
-  /// 底色。
-  final Color color;
-
-  /// 是否绘制描边。
-  final bool bordered;
-
-  /// 点击回调。
-  final VoidCallback? onTap;
-
-  /// 长按回调。
-  final VoidCallback? onLongPress;
-
-  /// 无障碍标签。
-  final String? semanticLabel;
+  /// 固定宽度（为空时占满父级）。
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
-    final BorderRadius borderRadius = BorderRadius.circular(radius);
-    return Semantics(
-      label: semanticLabel,
-      button: onTap != null,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: borderRadius,
-          border: bordered ? Border.all(color: AppColors.hairline) : null,
-          boxShadow: shadows,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: borderRadius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            borderRadius: borderRadius,
-            child: Padding(padding: padding, child: child),
-          ),
-        ),
+    return Container(
+      width: width,
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: AppShadow.card,
       ),
+      child: child,
     );
   }
 }

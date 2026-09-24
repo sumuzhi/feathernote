@@ -1,131 +1,163 @@
-/// 录音波形：一排竖向圆角柱（橙色深浅），随音量起伏。
+/// 录音波形（HTML `.wave`）：44 根橙色柱，中间高两侧低。
 ///
-/// - 不使用任何动画库；`AnimatedContainer` 做柱高过渡即可；
-/// - **尊重 reduced-motion**：系统关闭动画时只做静态渲染，不持续重绘；
-/// - 数据来源：`waveformProvider`（录音期间由 PCM 计算 RMS 后按 ~15Hz 推入）。
+/// 柱高 / 透明度 / 动画时长**完全照抄** HTML 的 `buildWave()`：
+/// ```js
+/// const n = 44, mid = 22;
+/// dist = Math.abs(i-mid)/mid
+/// h = 14 + sin(i*0.55)*10 + (1-dist)*46*(0.6+0.4*sin(i*1.3))
+/// h = clamp(8, 78)
+/// opacity = 0.25 + (1-dist)*0.75
+/// delay = i*0.045s ; duration = 0.9 + (i%5)*0.12s
+/// ```
+/// 动画为 `scaleY 1 → .45 → 1`；命中「减少动效」时降级为静态柱。
 library;
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// 波形条。
-class Waveform extends StatelessWidget {
+/// 波形柱数量（HTML `n = 44`）。
+const int kWaveformBarCount = 44;
+
+/// 单根柱的静态高度（与 HTML `buildWave` 一致）。
+double waveformBarHeight(int index) {
+  const int mid = 22;
+  final double dist = (index - mid).abs() / mid;
+  final double h = 14 +
+      math.sin(index * 0.55) * 10 +
+      (1 - dist) * 46 * (0.6 + 0.4 * math.sin(index * 1.3));
+  return h.clamp(8.0, 78.0);
+}
+
+/// 单根柱的静态透明度（与 HTML `buildWave` 一致）。
+double waveformBarOpacity(int index) {
+  const int mid = 22;
+  final double dist = (index - mid).abs() / mid;
+  return 0.25 + (1 - dist) * 0.75;
+}
+
+/// 单根柱的动画周期（秒）。
+double _barDuration(int index) => 0.9 + (index % 5) * 0.12;
+
+/// 单根柱的动画延迟（秒）。
+double _barDelay(int index) => index * 0.045;
+
+/// 录音波形。
+class Waveform extends StatefulWidget {
   /// 构造波形。
-  const Waveform({
-    super.key,
-    required this.levels,
-    this.barCount = 44,
-    this.height = 68,
-    this.barWidth = 3,
-    this.gap = 4,
-    this.color = AppColors.primary,
-    this.active = true,
-  });
+  const Waveform({super.key, this.height = 88});
 
-  /// 音量序列（0–1，最新的在末尾）；不足 [barCount] 时左侧补零。
-  final List<double> levels;
-
-  /// 柱子数量。
-  final int barCount;
-
-  /// 组件高度（最高柱高）。
+  /// 容器高度（HTML `.wave` 为 88）。
   final double height;
 
-  /// 柱宽。
-  final double barWidth;
+  @override
+  State<Waveform> createState() => _WaveformState();
+}
 
-  /// 柱间距。
-  final double gap;
+class _WaveformState extends State<Waveform> with TickerProviderStateMixin {
+  final List<AnimationController> _controllers = <AnimationController>[];
+  bool _reduceMotion = false;
 
-  /// 柱色。
-  final Color color;
+  @override
+  void initState() {
+    super.initState();
+    for (int i = 0; i < kWaveformBarCount; i++) {
+      final double period = _barDuration(i);
+      final AnimationController controller = AnimationController(
+        vsync: this,
+        // `repeat(reverse: true)` 走完一个来回 = 两个 duration，故折半对齐 HTML 周期。
+        duration: Duration(milliseconds: (period * 500).round()),
+      );
+      final double delay = _barDelay(i);
+      controller.value = (delay / period) % 1.0;
+      _controllers.add(controller);
+    }
+  }
 
-  /// 是否处于活动（录音中）状态。
-  final bool active;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 命中「减少动效」时不起 ticker：柱体停在 scale=1 的静态形态。
+    _reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    for (final AnimationController controller in _controllers) {
+      if (_reduceMotion) {
+        if (controller.isAnimating) controller.stop();
+        controller.value = 0;
+      } else if (!controller.isAnimating) {
+        controller.repeat(reverse: true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final AnimationController controller in _controllers) {
+      controller.dispose();
+    }
+    _controllers.clear();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final bool reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final List<double> bars = _tail(levels, barCount);
     return SizedBox(
-      height: height,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          for (int i = 0; i < bars.length; i++)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: gap / 2),
-              child: _Bar(
-                level: active ? bars[i] : 0,
-                height: height,
-                width: barWidth,
-                color: color,
-                // 中间深、两端浅，模拟设计稿的「橙色深浅」。
-                opacity: _edgeFade(i, bars.length),
-                animate: !reduceMotion,
-              ),
-            ),
-        ],
+      height: widget.height,
+      child: AnimatedBuilder(
+        animation: Listenable.merge(_controllers),
+        builder: (BuildContext context, Widget? child) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              for (int i = 0; i < kWaveformBarCount; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _WaveBar(
+                    height: waveformBarHeight(i),
+                    opacity: waveformBarOpacity(i),
+                    scale: _reduceMotion ? 1.0 : 1.0 - 0.55 * _controllers[i].value,
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Bar extends StatelessWidget {
-  const _Bar({
-    required this.level,
+class _WaveBar extends StatelessWidget {
+  const _WaveBar({
     required this.height,
-    required this.width,
-    required this.color,
     required this.opacity,
-    required this.animate,
+    required this.scale,
   });
 
-  final double level;
   final double height;
-  final double width;
-  final Color color;
   final double opacity;
-  final bool animate;
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
-    const double minHeight = 6;
-    final double target = minHeight + level.clamp(0.0, 1.0) * (height - minHeight);
-    final Widget bar = Container(
-      width: width,
-      height: target,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: opacity),
-        borderRadius: BorderRadius.circular(width / 2),
-      ),
-    );
-    if (!animate) return bar;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
-      curve: Curves.easeOut,
-      width: width,
-      height: target,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: opacity),
-        borderRadius: BorderRadius.circular(width / 2),
+    return Opacity(
+      opacity: opacity,
+      child: Align(
+        alignment: Alignment.center,
+        child: Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.diagonal3Values(1, scale, 1),
+          child: Container(
+            width: 4,
+            height: height,
+            decoration: BoxDecoration(
+              color: AppColors.orange,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ),
       ),
     );
   }
-}
-
-double _edgeFade(int index, int total) {
-  if (total <= 1) return 0.85;
-  final double distanceFromCenter = (index - (total - 1) / 2).abs() / ((total - 1) / 2);
-  return 0.95 - 0.5 * distanceFromCenter;
-}
-
-List<double> _tail(List<double> source, int count) {
-  if (source.length >= count) {
-    return source.sublist(source.length - count);
-  }
-  final List<double> padded = List<double>.filled(count - source.length, 0);
-  return <double>[...padded, ...source];
 }

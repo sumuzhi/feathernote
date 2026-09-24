@@ -1,150 +1,116 @@
-/// 说话人 chips：彩色圆点 + 名称。
-///
-/// 两种用法：
-/// - 录音中（02 号屏）：仅展示当前已识别的说话人；
-/// - 完整转写（07 号屏）：可选中过滤，含「全部」项（调用方传 [showAll]）。
+/// 说话人 chip（HTML `.sp-chip`）与说话人序号头像。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../../domain/speaker.dart';
 import '../theme/app_theme.dart';
+import '../theme/speaker_palette.dart';
 
-/// 说话人 chips。
-class SpeakerChips extends StatelessWidget {
-  /// 构造 chips。
-  const SpeakerChips({
-    super.key,
-    required this.speakers,
-    this.selectedId,
-    this.onSelected,
-    this.showAll = false,
-    this.padding = const EdgeInsets.symmetric(horizontal: AppSpacing.page),
+/// 说话人 chip 视图数据。
+class SpeakerChipView {
+  /// 构造 chip 数据。
+  const SpeakerChipView({
+    required this.ordinal,
+    required this.label,
+    this.gray = false,
   });
 
-  /// 说话人表。
-  final List<Speaker> speakers;
+  /// 说话人序号（1-based）。
+  final int ordinal;
 
-  /// 当前选中的说话人 ID（null = 未选）。
-  final String? selectedId;
+  /// 文案（如「说话人 1」或「说话人 8 · 识别中」）。
+  final String label;
 
-  /// 选中回调（回调 null 表示选择「全部」）。
-  final ValueChanged<String?>? onSelected;
+  /// 灰态（识别中 / 未确认，HTML `.sp-chip.gray`）。
+  final bool gray;
+}
 
-  /// 是否展示「全部」项。
-  final bool showAll;
+/// 说话人 chip。
+class SpeakerChip extends StatelessWidget {
+  /// 构造 chip。
+  const SpeakerChip({super.key, required this.view});
 
-  /// 外边距。
-  final EdgeInsetsGeometry padding;
+  /// chip 数据。
+  final SpeakerChipView view;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: padding,
+    final Color background = view.gray ? AppColors.grayWash : speakerSoftColor(view.ordinal);
+    final Color foreground = view.gray ? AppColors.faint : speakerColor(view.ordinal);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (showAll)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _Chip(
-                label: '全部',
-                color: AppColors.primary,
-                selected: selectedId == null,
-                onTap: onSelected == null ? null : () => onSelected!(null),
-              ),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: view.gray ? speakerPaletteAt(view.ordinal - 1).foreground : foreground,
+              shape: BoxShape.circle,
             ),
-          for (final Speaker speaker in speakers)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _Chip(
-                label: speaker.name,
-                color: speakerColor(speaker.colorIndex),
-                selected: selectedId == speaker.speakerId,
-                onTap: onSelected == null
-                    ? null
-                    : () => onSelected!(
-                        selectedId == speaker.speakerId ? null : speaker.speakerId,
-                      ),
-              ),
-            ),
+          ),
+          const SizedBox(width: 6),
+          Text(view.label, style: AppTextStyles.speakerChip.copyWith(color: foreground)),
         ],
       ),
     );
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
-    required this.color,
-    required this.selected,
-    this.onTap,
-  });
+/// 横向可换行的说话人 chip 组（HTML `.sp-chips`）。
+class SpeakerChipRow extends StatelessWidget {
+  /// 构造 chip 组。
+  const SpeakerChipRow({super.key, required this.items});
 
-  final String label;
-  final Color color;
-  final bool selected;
-  final VoidCallback? onTap;
+  /// chip 列表。
+  final List<SpeakerChipView> items;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: onTap != null,
-      selected: selected,
-      child: Material(
-        color: selected ? color : AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 34),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(
-                color: selected ? Colors.transparent : AppColors.hairline,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: selected ? Colors.white : color,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: AppTextStyles.meta.copyWith(
-                    color: selected ? Colors.white : AppColors.ink,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.page, 18, AppSpacing.page, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: <Widget>[
+          for (final SpeakerChipView item in items) SpeakerChip(view: item),
+        ],
       ),
     );
   }
 }
 
-/// 由配色下标取说话人主色（越界回绕）。
-Color speakerColor(int colorIndex) {
-  const List<Color> palette = AppColors.speakerPalette;
-  final int index = colorIndex < 0 ? 0 : colorIndex % palette.length;
-  return palette[index];
-}
+/// 说话人序号圆形头像（HTML `.t-avatar`，28×28）。
+class SpeakerAvatar extends StatelessWidget {
+  /// 构造头像。
+  const SpeakerAvatar({super.key, required this.ordinal});
 
-/// 由配色下标取说话人浅底色。
-Color speakerSoftColor(int colorIndex) {
-  const List<Color> palette = AppColors.speakerSoftPalette;
-  final int index = colorIndex < 0 ? 0 : colorIndex % palette.length;
-  return palette[index];
+  /// 说话人序号（1-based）。
+  final int ordinal;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: speakerColor(ordinal),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$ordinal',
+        style: AppTextStyles.chip.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }

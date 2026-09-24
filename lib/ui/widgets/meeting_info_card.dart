@@ -1,11 +1,10 @@
-/// 会议信息卡（设计稿 11 号屏 / 2:953）：标题 + 状态徽标 + 一行元信息。
+/// 会议信息卡（HTML `#s03 .info` / `#s11 .info`）：标题 + 徽标 + 元信息。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'app_badge.dart';
-import 'surface_card.dart';
 
 /// 会议信息卡。
 class MeetingInfoCard extends StatelessWidget {
@@ -14,27 +13,32 @@ class MeetingInfoCard extends StatelessWidget {
     super.key,
     required this.title,
     required this.meta,
-    this.badgeLabel,
-    this.badgeTone = BadgeTone.green,
+    this.badgeText = '已完成',
+    this.badgeTone = AppBadgeTone.done,
   });
 
   /// 会议标题。
   final String title;
 
-  /// 元信息行（如「3 小时 12 分钟 · 8 位说话人 · 今天 09:12」）。
+  /// 元信息（如「32 分钟 · 3 位说话人 · 今天 09:12」）。
   final String meta;
 
   /// 徽标文案。
-  final String? badgeLabel;
+  final String badgeText;
 
-  /// 徽标色调。
-  final BadgeTone badgeTone;
+  /// 徽标语义。
+  final AppBadgeTone badgeTone;
 
   @override
   Widget build(BuildContext context) {
-    final String? badge = badgeLabel;
-    return SurfaceCard(
-      padding: const EdgeInsets.all(AppSpacing.cardSm),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(AppSpacing.page, 18, AppSpacing.page, 0),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        boxShadow: AppShadow.card,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -42,20 +46,13 @@ class MeetingInfoCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(
-                child: Text(
-                  title,
-                  style: AppTextStyles.itemTitle.copyWith(fontSize: 15),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(title, style: AppTextStyles.cardTitle),
               ),
-              if (badge != null) ...<Widget>[
-                const SizedBox(width: 8),
-                AppBadge(label: badge, tone: badgeTone),
-              ],
+              const SizedBox(width: 12),
+              AppBadge(text: badgeText, tone: badgeTone),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 9),
           Text(meta, style: AppTextStyles.meta),
         ],
       ),

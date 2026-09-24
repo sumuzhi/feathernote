@@ -1,4 +1,9 @@
-/// 搜索框（圆角 21 / 高 42，白底 + 暖色描边）。
+/// 搜索框（HTML `.searchbar`）：高 48、圆角 999、白底卡片阴影。
+///
+/// 支持三态：
+/// - 普通；
+/// - 聚焦（2px 橙色描边，HTML `.searchbar.focus` / `#s10`）；
+/// - 禁用（半透明，HTML `#s08 .searchbar`）。
 library;
 
 import 'package:flutter/material.dart';
@@ -6,77 +11,106 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// 搜索框。
-class AppSearchField extends StatelessWidget {
+class SearchField extends StatelessWidget {
   /// 构造搜索框。
-  const AppSearchField({
+  const SearchField({
     super.key,
-    required this.controller,
-    this.hintText = '搜索',
+    required this.hintText,
+    this.controller,
+    this.focused = false,
+    this.enabled = true,
     this.onChanged,
     this.onClear,
   });
 
-  /// 文本控制器。
-  final TextEditingController controller;
-
   /// 占位文案。
   final String hintText;
 
-  /// 变更回调。
+  /// 文本控制器（为空时展示纯静态外观）。
+  final TextEditingController? controller;
+
+  /// 是否显示为聚焦态（橙色描边）。
+  final bool focused;
+
+  /// 是否可用（false 时整体半透明且不可输入）。
+  final bool enabled;
+
+  /// 输入回调。
   final ValueChanged<String>? onChanged;
 
-  /// 清空回调。
+  /// 点击清除按钮回调（为空则不展示清除按钮）。
   final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 42,
-      child: TextField(
-        controller: controller,
-        onChanged: onChanged,
-        textInputAction: TextInputAction.search,
-        style: AppTextStyles.body,
-        cursorColor: AppColors.primary,
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: AppColors.surface,
-          hintText: hintText,
-          hintStyle: AppTextStyles.meta,
-          prefixIcon: const Icon(
-            Icons.search_rounded,
-            size: 18,
-            color: AppColors.ink2,
+    final Widget field = Container(
+      height: AppSpacing.searchBar,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        boxShadow: AppShadow.card,
+        border: focused
+            ? Border.all(color: AppColors.orange, width: 2)
+            : null,
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.search_rounded, size: 17, color: enabled ? AppColors.faint : AppColors.disabled),
+          const SizedBox(width: 9),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              enabled: enabled,
+              onChanged: onChanged,
+              style: AppTextStyles.input,
+              cursorColor: AppColors.orange,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
+                hintText: hintText,
+                hintStyle: AppTextStyles.input.copyWith(
+                  color: enabled ? AppColors.faint : AppColors.disabled,
+                ),
+              ),
+            ),
           ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-          suffixIcon: ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (BuildContext context, TextEditingValue value, Widget? child) {
-              if (value.text.isEmpty) return const SizedBox.shrink();
-              return IconButton(
-                icon: const Icon(Icons.close_rounded, size: 16, color: AppColors.ink2),
-                tooltip: '清空',
-                onPressed: () {
-                  controller.clear();
-                  onChanged?.call('');
-                  onClear?.call();
-                },
-              );
-            },
-          ),
-          suffixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-          border: _border(AppColors.hairline),
-          enabledBorder: _border(AppColors.hairline),
-          focusedBorder: _border(AppColors.primary),
-        ),
+          if (onClear != null) ...<Widget>[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onClear,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFD9CDBF),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.close, size: 12, color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.55,
+        child: IgnorePointer(ignoring: !enabled, child: field),
       ),
     );
   }
-
-  OutlineInputBorder _border(Color color) => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(AppRadius.search),
-    borderSide: BorderSide(color: color),
-  );
 }

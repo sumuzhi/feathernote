@@ -1,7 +1,9 @@
 /// 顶部浮动提示条（Toast）。
 ///
-/// 对应设计稿 2:546 的「录音中 · 断线重连」提示：白底 / 暖色描边胶囊，
-/// 左侧图标 + 单行文案，从顶部滑入。用于断线重连、书签、错误等瞬时反馈。
+/// 对齐 HTML 的两种形态：
+/// - `.toast`（浅橙底 `#FBE3D2` + 橙色文案 + 右侧重试按钮）：断线重连（s06）；
+/// - `.toast.plain`（深棕底 `#3A2A20` + 白字）：导出 / 分享 / 复制后的瞬时反馈，
+///   HTML JS 里约 2.2s 自动消失。
 ///
 /// 本文件只负责**视觉**；显示/自动消失的调度在
 /// `lib/ui/providers/app_providers.dart` 的 `toastProvider`。
@@ -63,7 +65,7 @@ class ToastMessage {
   int get hashCode => Object.hash(text, tone, sticky, duration, nonce);
 }
 
-/// 单条提示的视觉。
+/// 普通提示条（深色底，对齐 HTML `.toast.plain`）。
 class AppToast extends StatelessWidget {
   /// 构造提示条。
   const AppToast({super.key, required this.message});
@@ -73,33 +75,124 @@ class AppToast extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (IconData icon, Color accent) = switch (message.tone) {
-      ToastTone.info => (Icons.bookmark_added_outlined, AppColors.primary),
-      ToastTone.warning => (Icons.wifi_off_rounded, AppColors.primaryDeep),
-      ToastTone.success => (Icons.check_circle_outline_rounded, AppColors.speakerGreen),
+    final IconData icon = switch (message.tone) {
+      ToastTone.info => Icons.bookmark_added_outlined,
+      ToastTone.warning => Icons.wifi_off_rounded,
+      ToastTone.success => Icons.check_circle_outline_rounded,
     };
     return Semantics(
       liveRegion: true,
       child: Container(
-        constraints: const BoxConstraints(minHeight: AppSpacing.minTap),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: Border.all(color: AppColors.hairline),
-          boxShadow: AppShadow.pill,
+          color: AppColors.toastPlain,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          boxShadow: AppShadow.toast,
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 18, color: accent),
-            const SizedBox(width: 10),
-            Flexible(
+            SizedBox(
+              width: 34,
+              height: 34,
+              child: Icon(icon, size: 20, color: Colors.white),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
               child: Text(
                 message.text,
-                style: AppTextStyles.meta.copyWith(color: AppColors.ink),
+                style: AppTextStyles.body15.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 断线重连提示条（浅橙底 + 重试按钮，对齐 HTML `.toast`）。
+class AppActionToast extends StatelessWidget {
+  /// 构造提示条。
+  const AppActionToast({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  /// 主文案。
+  final String title;
+
+  /// 副文案。
+  final String subtitle;
+
+  /// 右侧按钮文案。
+  final String actionLabel;
+
+  /// 右侧按钮回调。
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: AppColors.toastBg,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          boxShadow: AppShadow.toast,
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(
+              width: 34,
+              height: 34,
+              child: Icon(Icons.wifi_off_rounded, size: 22, color: AppColors.orange),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: AppTextStyles.body15.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.toastSub),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 38,
+              child: TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  backgroundColor: AppColors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  minimumSize: const Size(64, 38),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+                child: Text(actionLabel, style: AppTextStyles.settingTitle.copyWith(color: Colors.white)),
               ),
             ),
           ],
@@ -129,28 +222,19 @@ class AppToastOverlay extends StatelessWidget {
       children: <Widget>[
         child,
         Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpacing.page, 8, AppSpacing.page, 0),
-              child: IgnorePointer(
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  offset: current == null ? const Offset(0, -1.4) : Offset.zero,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 180),
-                    opacity: current == null ? 0 : 1,
-                    child: Center(
-                      child: current == null
-                          ? const SizedBox.shrink()
-                          : AppToast(message: current),
-                    ),
-                  ),
-                ),
+          top: AppSpacing.statusBar + 13,
+          left: AppSpacing.page,
+          right: AppSpacing.page,
+          child: IgnorePointer(
+            ignoring: current == null,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 350),
+              curve: const Cubic(0.2, 0.9, 0.3, 1.2),
+              offset: current == null ? const Offset(0, -1.4) : Offset.zero,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: current == null ? 0 : 1,
+                child: current == null ? const SizedBox.shrink() : AppToast(message: current),
               ),
             ),
           ),

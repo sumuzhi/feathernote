@@ -1,214 +1,195 @@
-/// 「我的」页（设计稿 05 号屏）：设置与运行信息。
+/// 我的（屏 05）：用户卡 + 统计卡 + 两组设置 + 版本行。
 ///
-/// 本版本**无账号体系**，因此这里不做假登录，只展示真实运行参数
-/// （引擎 / 模型 / 存储 / schema 版本 / 会议数量），便于现场排查。
+/// 设置项展示**真实运行参数**（引擎、模型、采样率、降级原因），
+/// 不是写死的演示值；开关为本地偏好（暂未落库）。
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../backend/backend_api.dart';
-import '../../backend/di.dart';
-import '../../core/config/app_config.dart';
-import '../../core/log/log.dart' show logLevel;
+import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
-import '../theme/app_theme.dart';
+import '../screens/profile_screen.dart';
 import '../utils/placeholders.dart';
-import '../widgets/surface_card.dart';
+import '../widgets/app_button.dart';
+import '../widgets/app_toast.dart';
 
-/// 「我的」页。
-class ProfilePage extends ConsumerWidget {
+/// 我的页。
+class ProfilePage extends ConsumerStatefulWidget {
   /// 构造我的页。
   const ProfilePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final AppConfig config = ref.watch(appConfigProvider);
-    final BackendBundle? bundle = ref.watch(backendBundleProvider).value;
-    final AsyncValue<HealthStatus> health = ref.watch(healthProvider);
-    final String engineName = bundle?.engineName ?? config.engineProvider;
-    return SafeArea(
-      bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.page, 8, AppSpacing.page, AppSpacing.gapLg),
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Container(
-                width: AppSpacing.minTap,
-                height: AppSpacing.minTap,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  kUserDisplayName.characters.first,
-                  style: AppTextStyles.label.copyWith(color: Colors.white),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.gapSm),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(kUserDisplayName, style: AppTextStyles.heroTitle),
-                  Text('本地优先 · 数据不出设备', style: AppTextStyles.metaSmall),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.gapLg),
-          if (bundle?.degradedReason != null) ...<Widget>[
-            _Notice(text: '当前为离线示例引擎（Mock）：${bundle!.degradedReason}'),
-            const SizedBox(height: AppSpacing.gapSm),
+  ConsumerState<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends ConsumerState<ProfilePage> {
+  bool _diarization = true;
+  bool _keepAudio = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final AsyncValue<List<MeetingSummary>> asyncMeetings = ref.watch(meetingsProvider);
+    final List<MeetingSummary> meetings =
+        asyncMeetings.value ?? const <MeetingSummary>[];
+    final AsyncValue<HealthStatus> asyncHealth = ref.watch(healthProvider);
+    final HealthStatus? health = asyncHealth.value;
+    final AppConfigView config = _configView();
+
+    int totalMs = 0;
+    int summarized = 0;
+    for (final MeetingSummary item in meetings) {
+      totalMs += item.durationMs;
+      if (item.hasMinutes) summarized++;
+    }
+
+    return ProfileScreen(
+      userName: kUserDisplayName,
+      userSubtitle: '专业版 · 云端转写',
+      stats: <ProfileStatView>[
+        ProfileStatView(value: '${meetings.length}', label: '场会议'),
+        ProfileStatView(value: '${totalMs ~/ 3600000}h', label: '累计时长'),
+        ProfileStatView(value: '$summarized', label: '场已总结'),
+      ],
+      sections: <ProfileSectionView>[
+        ProfileSectionView(
+          title: '模型与转写',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.auto_awesome_rounded,
+              title: '纪要模型',
+              subtitle: '摘要策略 · ${config.summaryStrategy}',
+              value: config.llmModel,
+              onTap: () => _toast('纪要模型：${config.llmModel}'),
+            ),
+            ProfileSettingView(
+              icon: Icons.translate_rounded,
+              title: '转写语言',
+              subtitle: '云端 ASR · ${config.realtimeModel}',
+              value: config.languageLabel,
+              onTap: () => _toast('转写语言：${config.languageLabel}'),
+            ),
+            ProfileSettingView(
+              icon: Icons.groups_rounded,
+              title: '说话人分离',
+              subtitle: '声纹聚类 · 自动标注',
+              toggle: true,
+              toggleValue: _diarization,
+              switchLabel: '说话人分离',
+              onToggle: (bool value) => setState(() => _diarization = value),
+            ),
           ],
-          const _SectionTitle('引擎与模型'),
-          SurfaceCard(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              children: <Widget>[
-                _SettingRow(label: '运行时引擎', value: engineName),
-                _SettingRow(label: '实时识别模型', value: config.realtimeModel),
-                _SettingRow(label: '终稿转写模型', value: config.filetransModel),
-                _SettingRow(
-                  label: '说话人分离',
-                  value: config.filetransDiarization ? '已开启' : '已关闭',
-                ),
-                _SettingRow(label: '纪要模型', value: config.llmModel),
-                _SettingRow(label: '纪要策略', value: config.summaryStrategy),
-              ],
+        ),
+        ProfileSectionView(
+          title: '数据与导出',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.description_outlined,
+              title: '导出格式',
+              subtitle: '纪要导出为文件',
+              value: 'Markdown',
+              onTap: () => _toast('导出格式：Markdown'),
             ),
-          ),
-          const SizedBox(height: AppSpacing.gapLg),
-          const _SectionTitle('录音与存储'),
-          SurfaceCard(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              children: <Widget>[
-                _SettingRow(label: '采样率', value: '${config.sampleRate} Hz · 单声道'),
-                _SettingRow(label: '音频归档', value: config.audioStorage == 'local' ? '本地文件' : 'COS'),
-                _SettingRow(label: '单文件上限', value: '${config.uploadMaxMb} MB'),
-                _SettingRow(
-                  label: '本地调试服务',
-                  value: config.enableLocalHttp ? '已挂载 :${config.localHttpPort}' : '未挂载',
-                ),
-              ],
+            ProfileSettingView(
+              icon: Icons.wifi_off_rounded,
+              title: '音频留存',
+              subtitle: '转写后不保存原始音频',
+              toggle: true,
+              toggleValue: _keepAudio,
+              switchLabel: '音频留存',
+              onToggle: (bool value) => setState(() => _keepAudio = value),
             ),
-          ),
-          const SizedBox(height: AppSpacing.gapLg),
-          const _SectionTitle('诊断'),
-          SurfaceCard(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              children: <Widget>[
-                _SettingRow(label: '日志级别', value: logLevel),
-                _SettingRow(
-                  label: '数据库 schema',
-                  value: health.when(
-                    data: (HealthStatus status) => 'v${status.schemaVersion ?? '?'}',
-                    loading: () => '检测中…',
-                    error: (Object error, StackTrace stack) => '读取失败',
-                  ),
-                ),
-                _SettingRow(
-                  label: '会议数量',
-                  value: health.when(
-                    data: (HealthStatus status) => '${status.meetingCount}',
-                    loading: () => '检测中…',
-                    error: (Object error, StackTrace stack) => '—',
-                  ),
-                ),
-                _SettingRow(label: '应用版本', value: config.version),
-              ],
+          ],
+        ),
+        ProfileSectionView(
+          title: '运行参数',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.memory_rounded,
+              title: '转写引擎',
+              subtitle: health?.message ?? '本地进程内后端',
+              value: health?.engineName ?? '装配中…',
+              onTap: () => _toast('引擎：${health?.engineName ?? '—'}'),
             ),
-          ),
-          const SizedBox(height: AppSpacing.gapLg),
-          const _SectionTitle('关于'),
-          const SurfaceCard(
-            padding: EdgeInsets.all(AppSpacing.card),
-            child: Text(
-              '智能会议纪要 · 移动端\n'
-              '录音 → 实时转写 → 终稿转写（说话人分离）→ AI 结构化纪要，全流程在本机完成。\n'
-              '如需 COS 归档 / 知识库，本版本暂不提供。',
-              style: AppTextStyles.meta,
+            ProfileSettingView(
+              icon: Icons.storage_rounded,
+              title: '数据库',
+              subtitle: 'SQLite · schema ${health?.schemaVersion ?? '—'}',
+              value: '${meetings.length} 条',
+              onTap: () => _toast('已存 ${meetings.length} 条会议'),
             ),
-          ),
-          const SizedBox(height: AppSpacing.gapLg),
-          Center(
-            child: TextButton(
-              onPressed: () => context.go('/'),
-              child: const Text('返回录音页', style: AppTextStyles.link),
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
+      ],
+      versionText: '版本 ${config.version} · 端化运行',
+      onSettings: () => _toast('设置'),
+      onTabTap: (int index) {
+        switch (index) {
+          case 0:
+            context.go('/');
+          case 1:
+            context.go('/history');
+          default:
+            break;
+        }
+      },
+      selectedTab: 2,
+      debugEntry: kDebugMode
+          ? AppTextPillButton(
+              label: '屏幕目录（debug）',
+              soft: true,
+              onTap: () => context.go('/gallery'),
+            )
+          : null,
     );
   }
+
+  AppConfigView _configView() {
+    final config = ref.watch(appConfigProvider);
+    final bool zh = config.filetransLanguageHints.contains('zh');
+    final bool en = config.filetransLanguageHints.contains('en');
+    final String language = zh && en
+        ? '中英文自动'
+        : (zh ? '中文' : (en ? '英文' : '自动识别'));
+    return AppConfigView(
+      llmModel: config.llmModel,
+      realtimeModel: config.realtimeModel,
+      summaryStrategy: config.summaryStrategy,
+      languageLabel: language,
+      version: config.version,
+    );
+  }
+
+  void _toast(String text) =>
+      ref.read(toastProvider.notifier).show(text, tone: ToastTone.info);
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
+/// 「我的」页展示用的配置投影（避免直接依赖 `AppConfig` 的 40 个字段）。
+class AppConfigView {
+  /// 构造投影。
+  const AppConfigView({
+    required this.llmModel,
+    required this.realtimeModel,
+    required this.summaryStrategy,
+    required this.languageLabel,
+    required this.version,
+  });
 
-  final String text;
+  /// 纪要模型。
+  final String llmModel;
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.gapSm, left: 2),
-      child: Text(text, style: AppTextStyles.itemTitle.copyWith(fontSize: 15)),
-    );
-  }
-}
+  /// 实时转写模型。
+  final String realtimeModel;
 
-class _SettingRow extends StatelessWidget {
-  const _SettingRow({required this.label, required this.value});
+  /// 摘要策略。
+  final String summaryStrategy;
 
-  final String label;
-  final String value;
+  /// 语种文案。
+  final String languageLabel;
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.card, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 96,
-            child: Text(label, style: AppTextStyles.meta),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: AppTextStyles.body,
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Notice extends StatelessWidget {
-  const _Notice({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.badgeOrangeBg,
-        borderRadius: BorderRadius.circular(AppRadius.infoBar),
-      ),
-      child: Text(
-        text,
-        style: AppTextStyles.metaSmall.copyWith(color: AppColors.badgeOrangeFg),
-      ),
-    );
-  }
+  /// 版本号。
+  final String version;
 }

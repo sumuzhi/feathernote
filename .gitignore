@@ -49,3 +49,6 @@ app.*.map.json
 
 # 本项目仅面向 Android，flutter create 生成的 web 目录不纳入版本管理
 /web/
+
+# Kotlin / Gradle 构建缓存
+/android/.kotlin/

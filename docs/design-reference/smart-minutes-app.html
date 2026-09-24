@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>智能会议纪要 · smart-minutes</title>
+<style>
+/* ============ 设计 Token（严格对齐设计稿） ============ */
+:root{
+  --bg:#FAF3EC;            /* 暖米底 */
+  --card:#FFFFFF;          /* 卡片白 */
+  --orange:#F0783C;        /* 主橙 */
+  --orange-deep:#E8662A;   /* 主橙按压 */
+  --orange-soft:#FFF0E3;   /* 浅橙底 */
+  --orange-wash:#FBE9DB;   /* chip 底 */
+  --ink:#3A2A20;           /* 深字 */
+  --body:#4A3A30;          /* 正文 */
+  --muted:#8B7565;         /* 辅助棕灰 */
+  --faint:#B8A899;         /* 更浅 */
+  --line:#F1E7DC;          /* 分割线 */
+  --green-bg:#EAF4EE;      /* 已完成绿底 */
+  --green:#4E9A6A;         /* 已完成绿 */
+  --sp1:#F0783C; --sp1-bg:#FDEEE2;   /* 说话人色板 */
+  --sp2:#4E9A6A; --sp2-bg:#E9F3ED;
+  --sp3:#7C6BB0; --sp3-bg:#EFEBF7;
+  --sp4:#3E7CB8; --sp4-bg:#E7F0F8;
+  --sp5:#C75B8A; --sp5-bg:#F9EAF1;
+  --sp6:#B08D3E; --sp6-bg:#F6EFDE;
+  --sp7:#3E9B94; --sp7-bg:#E4F2F1;
+  --sp8:#A79A8E; --sp8-bg:#F0EAE4;
+  --radius-card:24px; --radius-card2:20px;
+  --shadow-card:0 6px 18px rgba(58,42,32,.05);
+  --font:"PingFang SC","Noto Sans SC","HarmonyOS Sans SC","Source Han Sans SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:var(--font);
+  background:radial-gradient(1200px 800px at 30% 0%,#F3E8DC,#E9DDD0);
+  display:flex;align-items:center;justify-content:center;gap:36px;
+  min-height:100vh;padding:32px;
+  color:var(--ink);
+}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit}
+
+/* ============ 手机壳 ============ */
+.phone{
+  width:390px;height:844px;flex:none;
+  background:var(--bg);
+  border:11px solid #17130F;border-radius:54px;
+  box-shadow:0 40px 80px rgba(40,25,12,.35),0 0 0 2px rgba(255,255,255,.15) inset;
+  position:relative;overflow:hidden;
+}
+@media (max-width:760px){
+  body{padding:0}
+  .phone{width:100vw;height:100vh;height:100dvh;border:none;border-radius:0;box-shadow:none}
+  .screen-nav{display:none !important}
+}
+
+/* ============ 屏幕目录（桌面评审用，手机内不显示） ============ */
+.screen-nav{
+  width:172px;flex:none;background:#FFFDFB;border-radius:20px;padding:14px;
+  box-shadow:var(--shadow-card);max-height:844px;overflow:auto;
+}
+.screen-nav h2{font-size:13px;color:var(--muted);font-weight:600;margin:2px 4px 10px;letter-spacing:.5px}
+.screen-nav button{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:8px 10px;border-radius:10px;font-size:12.5px;color:var(--body);text-align:left;
+}
+.screen-nav button:hover{background:var(--orange-soft)}
+.screen-nav button.on{background:var(--orange);color:#fff;font-weight:600}
+.screen-nav button b{font-family:ui-monospace,Menlo,monospace;font-weight:600;opacity:.75;font-size:11px;width:18px}
+.screen-nav .nav-sec{font-size:11px;color:var(--faint);margin:12px 4px 4px}
+
+/* ============ 屏切换 ============ */
+.app-screen{position:absolute;inset:0;display:none;flex-direction:column;background:var(--bg)}
+.app-screen.active{display:flex}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+
+/* ============ 状态栏 ============ */
+.statusbar{
+  flex:none;height:47px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 26px 0 30px;font-size:15px;font-weight:600;color:var(--ink);
+}
+.statusbar svg{display:block}
+
+/* ============ TabBar ============ */
+.tabbar{
+  position:absolute;left:20px;right:20px;bottom:12px;height:64px;z-index:40;
+  background:#fff;border-radius:999px;display:flex;
+  box-shadow:0 10px 30px rgba(58,42,32,.10);
+}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--muted);font-size:11px;border-radius:999px;margin:8px 7px;transition:background .2s}
+.tab svg{stroke:currentColor}
+.tab.active{background:var(--orange);color:#fff;font-weight:600;box-shadow:0 6px 16px rgba(240,120,60,.35)}
+.tabbar-spacer{flex:none;height:88px}
+
+/* ============ 通用元件 ============ */
+.badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge.sum{background:var(--orange-soft);color:var(--orange)}
+.badge.done{background:var(--green-bg);color:var(--green)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:999px;
+  background:#fff;color:var(--muted);font-size:13px;font-weight:500;border:none;cursor:pointer}
+.chip .dot{width:9px;height:9px;border-radius:50%}
+.chip.on{background:var(--orange);color:#fff;font-weight:600;box-shadow:0 4px 10px rgba(240,120,60,.3)}
+.btn-circle{width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(58,42,32,.06);flex:none;cursor:pointer}
+.btn-circle svg{stroke:var(--ink)}
+.page-title{font-size:34px;font-weight:700;letter-spacing:.5px}
+.meta{color:var(--muted)}
+.card{background:var(--card);border-radius:var(--radius-card);box-shadow:var(--shadow-card)}
+
+/* 说话人条目 */
+.t-item{display:flex;gap:12px;padding:9px 0}
+.t-avatar{width:28px;height:28px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:13px;font-weight:600;margin-top:2px}
+.t-head{font-size:13px;font-weight:600;margin-bottom:4px}
+.t-head .t-time{font-weight:500;opacity:.85}
+.t-text{font-size:15px;line-height:1.62;color:var(--body)}
+.sp-1 .t-avatar{background:var(--sp1)} .sp-1 .t-head{color:var(--sp1)}
+.sp-2 .t-avatar{background:var(--sp2)} .sp-2 .t-head{color:var(--sp2)}
+.sp-3 .t-avatar{background:var(--sp3)} .sp-3 .t-head{color:var(--sp3)}
+.sp-4 .t-avatar{background:var(--sp4)} .sp-4 .t-head{color:var(--sp4)}
+.sp-5 .t-avatar{background:var(--sp5)} .sp-5 .t-head{color:var(--sp5)}
+.sp-6 .t-avatar{background:var(--sp6)} .sp-6 .t-head{color:var(--sp6)}
+.sp-7 .t-avatar{background:var(--sp7)} .sp-7 .t-head{color:var(--sp7)}
+.sp-8 .t-avatar{background:var(--sp8)} .sp-8 .t-head{color:var(--sp8)}
+
+/* 悬浮 Toast */
+.toast{
+  position:absolute;left:20px;right:20px;top:60px;z-index:60;
+  background:#FBE3D2;border-radius:16px;padding:13px 14px;
+  display:flex;align-items:center;gap:11px;
+  box-shadow:0 12px 28px rgba(200,90,30,.22);
+  animation:toastIn .35s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes toastIn{from{transform:translateY(-16px);opacity:0}to{transform:none;opacity:1}}
+.toast .t-ic{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--orange)}
+.toast .t-tt{font-size:15px;font-weight:700;color:var(--orange)}
+.toast .t-sub{font-size:12px;color:#A9703F;margin-top:2px}
+.toast .t-retry{margin-left:auto;background:var(--orange);color:#fff;font-size:14px;font-weight:600;
+  padding:9px 16px;border-radius:12px;flex:none}
+.toast.plain{background:#3A2A20}
+.toast.plain .t-tt,.toast.plain .t-sub,.toast.plain .t-ic{color:#fff}
+
+/* 波形 */
+.wave{height:88px;display:flex;align-items:center;justify-content:center;gap:4px;overflow:hidden}
+.wave i{width:4px;border-radius:3px;background:var(--orange);animation:wv 1.1s ease-in-out infinite}
+@keyframes wv{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.45)}}
+
+/* ============ 01 待机态 ============ */
+#s01 .greet{padding:14px 20px 0;display:flex;align-items:flex-end;justify-content:space-between}
+#s01 .greet .hi{font-size:15px;color:var(--muted)}
+#s01 .greet h1{font-size:34px;font-weight:700;margin-top:4px}
+#s01 .avatar{width:44px;height:44px;border-radius:50%;background:var(--orange);color:#fff;font-size:17px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(240,120,60,.3)}
+#s01 .hero{margin:22px 20px 0;padding:26px 24px 24px;text-align:center}
+#s01 .hero .status{display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;color:var(--muted)}
+#s01 .hero .status i{width:7px;height:7px;border-radius:50%;background:var(--orange);display:inline-block}
+#s01 .mic-wrap{position:relative;width:172px;height:172px;margin:18px auto 0;display:flex;align-items:center;justify-content:center}
+#s01 .mic-halo{position:absolute;inset:0;border-radius:50%;background:var(--orange-soft)}
+#s01 .mic-halo::after{content:"";position:absolute;inset:24px;border-radius:50%;background:#FDE3CE}
+#s01 .mic-btn{position:relative;width:124px;height:124px;border-radius:50%;cursor:pointer;
+  background:linear-gradient(160deg,#F58A50,#EE6E2C);border:none;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 16px 32px rgba(240,120,60,.38);transition:transform .15s}
+#s01 .mic-btn:active{transform:scale(.94)}
+#s01 .mic-btn.rec{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 16px 32px rgba(240,120,60,.38)}50%{box-shadow:0 16px 44px rgba(240,120,60,.55)}}
+#s01 h2{font-size:22px;font-weight:700;margin-top:22px}
+#s01 .sub{font-size:13px;color:var(--muted);margin-top:8px}
+#s01 .seg{display:flex;background:var(--orange-wash);border-radius:999px;padding:4px;margin-top:20px}
+#s01 .seg button{flex:1;height:38px;border-radius:999px;font-size:14px;color:var(--muted);background:none}
+#s01 .seg button.on{background:#fff;color:var(--orange);font-weight:600;box-shadow:0 2px 8px rgba(58,42,32,.08)}
+#s01 .recent{padding:26px 20px 0}
+#s01 .recent .hd{display:flex;align-items:center;justify-content:space-between}
+#s01 .recent .hd h3{font-size:20px;font-weight:700}
+#s01 .recent .hd a{font-size:14px;color:var(--orange);text-decoration:none;font-weight:500}
+#s01 .rc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+#s01 .rc-card{background:#fff;border-radius:var(--radius-card2);padding:16px;box-shadow:var(--shadow-card);cursor:pointer}
+#s01 .rc-card h4{font-size:16px;font-weight:600}
+#s01 .rc-card p{font-size:12px;color:var(--muted);margin-top:7px}
+#s01 .rc-card .badge{margin-top:10px}
+
+/* ============ 02 / 06 / 13 录音中 ============ */
+.rec-top{display:flex;align-items:center;justify-content:space-between;padding:6px 20px 0}
+.rec-top .tt{text-align:center}
+.rec-top .tt b{font-size:17px;font-weight:700;display:block}
+.rec-top .tt span{font-size:12px;color:var(--muted);display:block;margin-top:3px}
+.rec-clock{display:flex;align-items:center;gap:10px;padding:14px 20px 0}
+.rec-clock i{width:10px;height:10px;border-radius:50%;background:#E5483C;flex:none}
+.rec-clock span{font-size:46px;font-weight:700;letter-spacing:1px;font-variant-numeric:tabular-nums}
+.sp-chips{display:flex;flex-wrap:wrap;gap:8px;padding:18px 20px 0}
+.sp-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;font-size:12px;font-weight:500}
+.sp-chip i{width:10px;height:10px;border-radius:50%}
+.sp-chip.gray{background:#F0EAE4;color:var(--faint)}
+.live-card{margin:18px 20px 0;padding:18px 20px 8px}
+.live-card .hd{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px}
+.live-card .hd b{font-size:17px;font-weight:700}
+.live-card .hd .auto{background:var(--orange-soft);color:var(--orange);font-size:11px;font-weight:600;
+  padding:5px 10px;border-radius:999px}
+.live-card .hd .auto.paused{background:#F0EAE4;color:var(--faint)}
+.rec-ctrl{display:flex;align-items:center;justify-content:center;gap:16px;padding:20px 20px 8px}
+.rec-ctrl .side{width:56px;height:56px;border-radius:50%;background:#fff;box-shadow:var(--shadow-card);
+  display:flex;align-items:center;justify-content:center;cursor:pointer}
+.rec-ctrl .side svg{stroke:var(--ink)}
+.rec-ctrl .stop{height:56px;padding:0 30px;border-radius:999px;background:var(--orange);color:#fff;
+  font-size:17px;font-weight:700;display:flex;align-items:center;gap:9px;cursor:pointer;
+  box-shadow:0 10px 24px rgba(240,120,60,.4)}
+.rec-ctrl .stop i{width:12px;height:12px;border-radius:3px;background:#fff;display:inline-block}
+.t-item.pending{opacity:.55}
+.t-item.pending .t-text{color:var(--muted)}
+.fab-down{position:absolute;right:34px;bottom:238px;width:44px;height:44px;border-radius:50%;background:#fff;
+  box-shadow:0 6px 16px rgba(58,42,32,.15);display:flex;align-items:center;justify-content:center;z-index:30}
+
+/* ============ 03 / 11 会议纪要 ============ */
+.doc-top{display:flex;align-items:center;justify-content:space-between;padding:6px 20px 0}
+.doc-top .tt{text-align:center}
+.doc-top .tt b{font-size:17px;font-weight:700;display:block}
+.doc-top .tt span{font-size:12px;color:var(--muted);display:block;margin-top:3px}
+#s03 .info,#s11 .info{margin:18px 20px 0;padding:18px 20px}
+#s03 .info .r1,#s11 .info .r1{display:flex;align-items:center;justify-content:space-between}
+#s03 .info h2,#s11 .info h2{font-size:22px;font-weight:700}
+#s03 .info .meta,#s11 .info .meta{font-size:13px;margin-top:9px}
+.sum-card{margin:16px 20px 0;padding:20px 22px 6px}
+.sum-card .hd{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.sum-card .hd b{font-size:17px;font-weight:700}
+.sum-card .hd .tag{background:var(--orange-soft);color:var(--orange);font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px}
+.sum-card .abs{font-size:15px;line-height:1.75;color:var(--body);margin-top:13px}
+.sum-card hr{border:none;border-top:1px solid var(--line);margin:16px 0 4px}
+.sum-card h5{font-size:15px;font-weight:700;margin-top:13px}
+.sum-card ul{list-style:none;margin-top:4px}
+.sum-card li{position:relative;padding:7px 0 7px 18px;font-size:15px;line-height:1.6;color:var(--body)}
+.sum-card li::before{content:"";position:absolute;left:2px;top:16px;width:7px;height:7px;border-radius:50%}
+.sum-card li.o::before{background:var(--orange)}
+.sum-card li.g::before{background:#C9BBAE}
+.sum-card .more{display:inline-flex;align-items:center;gap:4px;color:var(--orange);font-size:14px;font-weight:600;
+  padding:9px 0;cursor:pointer}
+.sum-card .foot{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);
+  padding:15px 0 15px;margin-top:8px;cursor:pointer}
+.sum-card .foot b{font-size:15px;font-weight:700}
+.sum-card .foot span{font-size:14px;color:var(--muted)}
+.doc-cta{position:absolute;left:20px;right:20px;bottom:24px;display:flex;gap:12px;z-index:30}
+.doc-cta .main{flex:1;height:56px;border-radius:999px;background:var(--orange);color:#fff;font-size:17px;font-weight:700;
+  box-shadow:0 10px 24px rgba(240,120,60,.35);cursor:pointer}
+.doc-cta .side{width:56px;height:56px;border-radius:50%;background:#fff;box-shadow:var(--shadow-card);
+  display:flex;align-items:center;justify-content:center}
+.doc-cta .side svg{stroke:var(--ink)}
+.expand-note{color:var(--orange);font-size:14px;font-weight:600;display:flex;align-items:center;gap:4px;padding:10px 0 2px;cursor:pointer}
+
+/* ============ 04 / 08 / 09 / 10 历史记录 ============ */
+#s04 .hd,#s08 .hd,#s09 .hd,#s10 .hd{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 0}
+#s04 h1,#s08 h1,#s09 h1,#s10 h1{font-size:34px;font-weight:700}
+#s09 .hd .col p{font-size:13px;color:var(--muted);margin-top:5px}
+#s09 .sort{display:flex;align-items:center;gap:5px;background:#fff;border-radius:999px;height:40px;padding:0 14px;
+  font-size:13px;color:var(--ink);box-shadow:var(--shadow-card)}
+.searchbar{display:flex;align-items:center;gap:9px;margin:16px 20px 0;height:48px;border-radius:999px;background:#fff;
+  padding:0 18px;box-shadow:var(--shadow-card)}
+.searchbar svg{stroke:var(--faint);flex:none}
+.searchbar input{flex:1;border:none;outline:none;background:none;font-size:14px;font-family:inherit;color:var(--ink)}
+.searchbar input::placeholder{color:var(--faint)}
+.searchbar.focus{outline:2px solid var(--orange);outline-offset:-2px}
+.searchbar .clear{width:22px;height:22px;border-radius:50%;background:#D9CDBF;color:#fff;font-size:12px;
+  display:flex;align-items:center;justify-content:center;flex:none}
+.filter-row{display:flex;gap:9px;padding:15px 20px 0}
+#s08 .filter-row{opacity:.55;pointer-events:none}
+#s08 .searchbar{opacity:.55}
+#s08 .searchbar svg{stroke:#C9BBAE}
+#s08 .searchbar input::placeholder{color:#C9BBAE}
+#s10 .searchbar{outline:2px solid var(--orange);outline-offset:-2px}
+.hist-list{padding:6px 20px 0}
+.day-label{font-size:13px;color:var(--muted);padding:14px 2px 2px}
+.h-card{background:#fff;border-radius:var(--radius-card2);padding:17px 18px;margin-top:12px;box-shadow:var(--shadow-card);cursor:pointer}
+.h-card .r1{display:flex;align-items:center;justify-content:space-between}
+.h-card h4{font-size:17px;font-weight:600}
+.h-card .dots{color:var(--faint);font-size:16px;letter-spacing:1px}
+.h-card p{font-size:13px;color:var(--muted);margin-top:8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.h-card .r3{display:flex;align-items:center;justify-content:space-between;margin-top:11px}
+.h-card .meta{font-size:12px}
+#s09 .h-card.cut{border-radius:var(--radius-card2) var(--radius-card2) 0 0}
+#s09 .load-more{display:flex;align-items:center;justify-content:center;gap:7px;background:#fff;
+  border-radius:0 0 var(--radius-card2) var(--radius-card2);padding:13px;font-size:12.5px;color:var(--muted);margin-top:0}
+#s09 .load-more i{width:14px;height:14px;border:2px solid var(--orange);border-top-color:transparent;border-radius:50%;
+  animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 08 空态 */
+.empty-hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 40px;margin-top:64px}
+.empty-hero .ring{width:104px;height:104px;border-radius:50%;background:var(--orange-soft);
+  display:flex;align-items:center;justify-content:center;margin-bottom:26px}
+.empty-hero .ring.gray{background:#F0EAE4}
+.empty-hero h3{font-size:20px;font-weight:700}
+.empty-hero p{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6}
+.empty-hero .cta{margin-top:22px;height:50px;padding:0 26px;border-radius:999px;background:var(--orange);color:#fff;
+  font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;box-shadow:0 8px 20px rgba(240,120,60,.35)}
+#s10 .empty-hero{margin-top:96px}
+#s10 .empty-hero h3{font-size:18px}
+.empty-hero .acts{display:flex;gap:12px;margin-top:20px}
+.empty-hero .acts .b1{height:44px;padding:0 20px;border-radius:999px;background:#fff;font-size:14px;font-weight:600;
+  display:flex;align-items:center;box-shadow:var(--shadow-card)}
+.empty-hero .acts .b2{height:44px;padding:0 20px;border-radius:999px;background:var(--orange-soft);color:var(--orange);
+  font-size:14px;font-weight:600;display:flex;align-items:center}
+
+/* ============ 05 我的 ============ */
+#s05 .hd{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 0}
+#s05 h1{font-size:34px;font-weight:700}
+#s05 .me-card{margin:20px 20px 0;padding:20px;display:flex;align-items:center;gap:15px}
+#s05 .me-card .ava{width:58px;height:58px;border-radius:50%;background:var(--orange);color:#fff;font-size:23px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;flex:none}
+#s05 .me-card b{font-size:20px;font-weight:700;display:block}
+#s05 .me-card span{font-size:13px;color:var(--muted);display:block;margin-top:5px}
+#s05 .stats{margin:12px 20px 0;padding:18px 8px;display:flex}
+#s05 .stats>div{flex:1;text-align:center}
+#s05 .stats b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+#s05 .stats span{font-size:12px;color:var(--muted);display:block;margin-top:5px}
+#s05 .sec{font-size:13px;color:var(--muted);padding:20px 22px 9px}
+#s05 .set-card{margin:0 20px;padding:2px 18px}
+#s05 .set-row{display:flex;align-items:center;gap:13px;padding:13px 0;border-bottom:1px solid var(--line)}
+#s05 .set-row:last-child{border-bottom:none}
+#s05 .set-row .ic{width:34px;height:34px;border-radius:10px;background:var(--orange-soft);color:var(--orange);
+  display:flex;align-items:center;justify-content:center;flex:none}
+#s05 .set-row .tx{flex:1}
+#s05 .set-row .tx b{font-size:15px;font-weight:600;display:block}
+#s05 .set-row .tx span{font-size:11px;color:var(--muted);display:block;margin-top:3px}
+#s05 .set-row .val{font-size:14px;color:var(--muted);display:flex;align-items:center;gap:4px}
+#s05 .tgl{width:46px;height:28px;border-radius:999px;background:#E4D8CB;position:relative;transition:background .2s;flex:none}
+#s05 .tgl::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;
+  transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+#s05 .tgl.on{background:var(--orange)}
+#s05 .tgl.on::after{left:21px}
+#s05 .ver{font-size:12px;color:var(--faint);text-align:center;padding:20px 0 8px}
+
+/* ============ 07 / 12 完整转写 ============ */
+.tr-info{display:flex;align-items:center;justify-content:space-between;margin:14px 20px 0;height:48px;
+  border-radius:999px;background:#fff;padding:0 18px;box-shadow:var(--shadow-card)}
+.tr-info b{font-size:14px;font-weight:600}
+.tr-info span{font-size:13px;color:var(--muted)}
+.tr-chips{display:flex;gap:8px;padding:14px 20px 0;overflow-x:auto;scrollbar-width:none}
+.tr-chips::-webkit-scrollbar{display:none}
+.tr-list{padding:8px 22px 0}
+.hit-bar{display:flex;align-items:center;justify-content:space-between;margin:14px 20px 0;
+  background:#FBE3D2;border-radius:13px;padding:11px 14px}
+.hit-bar b{font-size:13px;color:var(--orange);font-weight:600}
+.hit-bar .nav{display:flex;align-items:center;gap:10px;color:var(--orange);font-size:13px;font-weight:600}
+.hit-bar .nav button{color:var(--orange);display:flex}
+#s12 .t-item.hl{background:#FFF3E6;border-radius:16px;padding:12px;margin:4px -10px}
+#s12 .t-item.hl .expand{color:var(--orange);font-size:13px;font-weight:600;padding-top:8px;display:flex;align-items:center;gap:4px}
+.seg-load{display:flex;align-items:center;justify-content:center;gap:7px;margin:16px 20px 0;background:#fff;
+  border-radius:999px;height:42px;font-size:12.5px;color:var(--muted);box-shadow:var(--shadow-card)}
+.seg-load i{width:14px;height:14px;border:2px solid var(--orange);border-top-color:transparent;border-radius:50%;
+  animation:spin 1s linear infinite}
+.tr-cta{position:absolute;left:20px;right:20px;bottom:24px;display:flex;gap:12px;z-index:30}
+.tr-cta .b1{flex:1;height:56px;border-radius:999px;background:#fff;font-size:16px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow-card)}
+.tr-cta .b1 svg{stroke:var(--ink)}
+.tr-cta .b2{flex:1;height:56px;border-radius:999px;background:var(--orange);color:#fff;font-size:16px;font-weight:700;
+  box-shadow:0 10px 24px rgba(240,120,60,.35)}
+</style>
+</head>
+<body>
+
+<!-- ══════════ 屏幕目录（桌面评审导航） ══════════ -->
+<nav class="screen-nav" id="screenNav">
+  <h2>屏幕目录</h2>
+  <div class="nav-sec">核心流程</div>
+  <button data-go="s01" class="on"><b>01</b>待机态 · 首页</button>
+  <button data-go="s02"><b>02</b>录音中</button>
+  <button data-go="s03"><b>03</b>AI 会议纪要</button>
+  <button data-go="s04"><b>04</b>历史记录</button>
+  <button data-go="s05"><b>05</b>我的</button>
+  <button data-go="s07"><b>07</b>完整转写</button>
+  <div class="nav-sec">状态与边界</div>
+  <button data-go="s06"><b>06</b>断线重连</button>
+  <button data-go="s08"><b>08</b>历史 · 空态</button>
+  <button data-go="s09"><b>09</b>历史 · 超长列表</button>
+  <button data-go="s10"><b>10</b>搜索无结果</button>
+  <button data-go="s11"><b>11</b>总结超长</button>
+  <button data-go="s12"><b>12</b>转写超长</button>
+  <button data-go="s13"><b>13</b>说话人过多</button>
+</nav>
+
+<div class="phone" id="phone">
+
+<!-- ════════ 01 待机态 ════════ -->
+<section class="app-screen active" id="s01">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="scroll">
+    <div class="greet">
+      <div>
+        <div class="hi">早上好，苏木</div>
+        <h1>开始记录</h1>
+      </div>
+      <div class="avatar">苏</div>
+    </div>
+
+    <div class="card hero">
+      <div class="status"><i></i><span id="heroStatus">待机中</span><span class="meta">·</span><span>今日已记录 42 分钟</span></div>
+      <div class="mic-wrap">
+        <div class="mic-halo"></div>
+        <button class="mic-btn" id="micBtn" aria-label="开始录音">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#fff" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg>
+        </button>
+      </div>
+      <h2>点击开始录音</h2>
+      <div class="sub">中英文自动转写 · 智能区分说话人</div>
+      <div class="seg" id="modeSeg">
+        <button class="on">会议</button><button>访谈</button><button>灵感</button>
+      </div>
+    </div>
+
+    <div class="recent">
+      <div class="hd"><h3>最近记录</h3><a href="#" data-go="s04">查看全部 ›</a></div>
+      <div class="rc-grid">
+        <div class="rc-card" data-go="s03">
+          <h4>Q3 产品规划评审</h4>
+          <p>32 分钟 · 今天 09:12</p>
+          <span class="badge sum">已总结</span>
+        </div>
+        <div class="rc-card" data-go="s03">
+          <h4>渠道合作沟通</h4>
+          <p>18 分钟 · 昨天 16:40</p>
+          <span class="badge done">已完成</span>
+        </div>
+      </div>
+      <div class="tabbar-spacer"></div>
+    </div>
+  </div>
+  <nav class="tabbar" data-tab="rec"></nav>
+</section>
+
+<!-- ════════ 02 录音中 ════════ -->
+<section class="app-screen" id="s02">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="rec-top">
+    <button class="btn-circle" data-go="s01" aria-label="结束录音"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="tt"><b>录音中</b><span id="recModeLabel">会议模式</span></div>
+    <button class="btn-circle" aria-label="设置"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95A7 7 0 0 0 14.06 5.3L13.7 2.8h-3.4l-.36 2.5a7 7 0 0 0-2.44 1.24l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .47.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.44 1.24l.36 2.5h3.4l.36-2.5a7 7 0 0 0 2.44-1.24l2.36.95 2-3.46-2-1.55c.09-.46.14-.93.14-1.4z"/></svg></button>
+  </div>
+  <div class="rec-clock"><i></i><span id="recClock">00:00</span></div>
+  <div class="wave" id="recWave"></div>
+  <div class="sp-chips" id="recSpChips">
+    <span class="sp-chip" style="background:var(--sp1-bg);color:var(--sp1)"><i style="background:var(--sp1)"></i>说话人 1</span>
+    <span class="sp-chip" style="background:var(--sp2-bg);color:var(--sp2)"><i style="background:var(--sp2)"></i>说话人 2</span>
+    <span class="sp-chip" style="background:var(--sp3-bg);color:var(--sp3)"><i style="background:var(--sp3)"></i>说话人 3</span>
+  </div>
+  <div class="card live-card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div class="hd"><b>实时转写</b><span class="auto" id="liveTag">自动滚动</span></div>
+    <div class="scroll" id="liveList" style="padding-bottom:10px"></div>
+  </div>
+  <div class="rec-ctrl">
+    <button class="side" id="pauseBtn" aria-label="暂停"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg></button>
+    <button class="stop" id="stopBtn"><i></i>结束并生成</button>
+    <button class="side" aria-label="标记"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></button>
+  </div>
+  <div class="tabbar-spacer" style="height:78px"></div>
+  <nav class="tabbar" data-tab="rec"></nav>
+</section>
+
+<!-- ════════ 03 会议纪要 ════════ -->
+<section class="app-screen" id="s03">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="doc-top">
+    <button class="btn-circle" data-go="s01"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="tt"><b>会议纪要</b><span>生成于 12:47</span></div>
+    <button class="btn-circle" id="shareBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
+  </div>
+  <div class="scroll" style="padding-bottom:100px">
+    <div class="card info">
+      <div class="r1"><h2>Q3 产品规划评审</h2><span class="badge done">已完成</span></div>
+      <div class="meta">32 分钟 · 3 位说话人 · 今天 09:12</div>
+    </div>
+    <div class="card sum-card">
+      <div class="hd"><b>✦ AI 结构化纪要</b><span class="tag">qwen3.7-plus</span></div>
+      <p class="abs">本次会议围绕 Q3 产品规划展开，核心共识是将新用户激活率标定为 35%，并要求渠道合作在 8 月底前完成落地，运营侧同步给出资源排期。</p>
+      <hr/>
+      <h5>重要决策</h5>
+      <ul>
+        <li class="o">Q3 激活率目标从 30% 上调至 35%，采用新统计口径。</li>
+        <li class="o">渠道合作协议由商务团队在 8 月底前签署完成。</li>
+      </ul>
+      <hr/>
+      <h5>讨论要点</h5>
+      <ul>
+        <li class="g">激活率按新口径重算后实际完成 82%，此前未达标系统计口径问题。</li>
+        <li class="g">用户访谈反馈引导页过长，是激活链路最主要的流失点。</li>
+        <li class="g">渠道合作分成比例仍待法务复核，将直接影响 8 月底能否落地。</li>
+      </ul>
+      <hr/>
+      <div class="foot" data-go="s07"><b>查看完整转写</b><span>1,860 字 ›</span></div>
+    </div>
+  </div>
+  <div class="doc-cta">
+    <button class="main" id="exportBtn">导出纪要</button>
+    <button class="side" aria-label="收藏"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></button>
+  </div>
+</section>
+
+<!-- ════════ 04 历史记录 ════════ -->
+<section class="app-screen" id="s04">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="hd">
+    <h1>历史记录</h1>
+    <button class="btn-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.4"/><circle cx="8" cy="17" r="2.4"/></svg></button>
+  </div>
+  <div class="searchbar">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input placeholder="搜索会议标题、纪要或待办…" />
+  </div>
+  <div class="filter-row">
+    <button class="chip on">全部</button>
+    <button class="chip">今天</button>
+    <button class="chip">本周</button>
+    <button class="chip">已总结</button>
+  </div>
+  <div class="scroll">
+    <div class="hist-list" id="histList04"></div>
+    <div class="tabbar-spacer"></div>
+  </div>
+  <nav class="tabbar" data-tab="hist"></nav>
+</section>
+
+<!-- ════════ 05 我的 ════════ -->
+<section class="app-screen" id="s05">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="hd">
+    <h1>我的</h1>
+    <button class="btn-circle"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95A7 7 0 0 0 14.06 5.3L13.7 2.8h-3.4l-.36 2.5a7 7 0 0 0-2.44 1.24l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .47.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.44 1.24l.36 2.5h3.4l.36-2.5a7 7 0 0 0 2.44-1.24l2.36.95 2-3.46-2-1.55c.09-.46.14-.93.14-1.4z"/></svg></button>
+  </div>
+  <div class="scroll">
+    <div class="card me-card">
+      <div class="ava">苏</div>
+      <div><b>苏木</b><span>专业版 · 云端转写</span></div>
+    </div>
+    <div class="card stats">
+      <div><b>128</b><span>场会议</span></div>
+      <div><b>64h</b><span>累计时长</span></div>
+      <div><b>112</b><span>场已总结</span></div>
+    </div>
+    <div class="sec">模型与转写</div>
+    <div class="card set-card">
+      <div class="set-row">
+        <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 15.8l-1.8-4.6L6 9.4l4.2-1.8L12 3z"/><path d="M18.5 15l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3z"/></svg></div>
+        <div class="tx"><b>纪要模型</b><span>摘要策略 · knowledge-extract</span></div>
+        <div class="val">qwen3.7-plus<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B8A899" stroke-width="2" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      </div>
+      <div class="set-row">
+        <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h7M7.5 3v2M9.5 5c-.6 3-2.8 5.6-5.5 7M6 8.5C7 10.8 9 12.6 11.5 13.5"/><path d="M13 20l4-9 4 9M14.3 17h5.4"/></svg></div>
+        <div class="tx"><b>转写语言</b><span>云端 ASR 识别语种</span></div>
+        <div class="val">中英文自动<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B8A899" stroke-width="2" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      </div>
+      <div class="set-row">
+        <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.2 5.5-5.2s4.9 1.8 5.5 5.2"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.6c2.4.2 4 1.8 4.5 4.4"/></svg></div>
+        <div class="tx"><b>说话人分离</b><span>声纹聚类 · 自动标注</span></div>
+        <button class="tgl on" aria-label="说话人分离"></button>
+      </div>
+    </div>
+    <div class="sec">数据与导出</div>
+    <div class="card set-card">
+      <div class="set-row">
+        <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6V3z"/><path d="M15 3v4h4"/><path d="M9.5 13h5M9.5 16.5h5"/></svg></div>
+        <div class="tx"><b>导出格式</b><span>纪要导出为文件</span></div>
+        <div class="val">Markdown<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B8A899" stroke-width="2" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      </div>
+      <div class="set-row">
+        <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l16 16"/><path d="M9 9a3 3 0 0 0 5.6 1.5M15 5.5A6.5 6.5 0 0 0 6 6M18.5 12A6.5 6.5 0 0 1 17 14.5"/><path d="M12 18v3"/></svg></div>
+        <div class="tx"><b>音频留存</b><span>转写后不保存原始音频</span></div>
+        <button class="tgl" aria-label="音频留存"></button>
+      </div>
+    </div>
+    <div class="ver">版本 v1.0.0 · 端化运行</div>
+    <div class="tabbar-spacer"></div>
+  </div>
+  <nav class="tabbar" data-tab="me"></nav>
+</section>
+
+<!-- ════════ 06 断线重连 ════════ -->
+<section class="app-screen" id="s06">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="toast">
+    <div class="t-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l16 16"/><path d="M9 9a3 3 0 0 0 5.6 1.5M15 5.5A6.5 6.5 0 0 0 6 6M18.5 12A6.5 6.5 0 0 1 17 14.5"/><path d="M12 18v3"/></svg></div>
+    <div>
+      <div class="t-tt">网络连接中断</div>
+      <div class="t-sub">正在本地缓存音频，恢复后自动续传</div>
+    </div>
+    <button class="t-retry" data-go="s02">重试</button>
+  </div>
+  <div class="rec-top" style="margin-top:0">
+    <button class="btn-circle" data-go="s01"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="tt"><b style="opacity:.28">录音中</b><span>会议模式</span></div>
+    <button class="btn-circle"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95A7 7 0 0 0 14.06 5.3L13.7 2.8h-3.4l-.36 2.5a7 7 0 0 0-2.44 1.24l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .47.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.44 1.24l.36 2.5h3.4l.36-2.5a7 7 0 0 0 2.44-1.24l2.36.95 2-3.46-2-1.55c.09-.46.14-.93.14-1.4z"/></svg></button>
+  </div>
+  <div class="rec-clock"><i></i><span>12:34</span></div>
+  <div class="wave" id="recWave6"></div>
+  <div class="sp-chips">
+    <span class="sp-chip" style="background:var(--sp1-bg);color:var(--sp1)"><i style="background:var(--sp1)"></i>说话人 1</span>
+    <span class="sp-chip" style="background:var(--sp2-bg);color:var(--sp2)"><i style="background:var(--sp2)"></i>说话人 2</span>
+    <span class="sp-chip" style="background:var(--sp3-bg);color:var(--sp3)"><i style="background:var(--sp3)"></i>说话人 3</span>
+  </div>
+  <div class="card live-card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div class="hd"><b>实时转写</b><span class="auto paused">转写已暂停</span></div>
+    <div class="scroll" style="padding-bottom:10px">
+      <div class="t-item sp-1"><div class="t-avatar">1</div><div><div class="t-head">说话人 1 <span class="t-time">· 00:12</span></div><div class="t-text">大家下午好，今天我们主要讨论第三季度的产品规划，以及渠道合作的进展。</div></div></div>
+      <div class="t-item sp-2"><div class="t-avatar">2</div><div><div class="t-head">说话人 2 <span class="t-time">· 01:48</span></div><div class="t-text">我先同步上一季度遗留的三个问题，其中最关键的是新用户激活率没有达标。</div></div></div>
+      <div class="t-item sp-1"><div class="t-avatar">1</div><div><div class="t-head">说话人 1 <span class="t-time">· 03:05</span></div><div class="t-text">激活率这边我让数据团队重新拉了一版口径，新口径下实际完成 82%。</div></div></div>
+      <div class="t-item sp-2 pending"><div class="t-avatar">2</div><div><div class="t-head">说话人 2 <span class="t-time">· 待上传</span></div><div class="t-text">这一段已缓存在本地，网络恢复后自动补传并生成纪要。</div></div></div>
+    </div>
+  </div>
+  <div class="rec-ctrl">
+    <button class="side"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg></button>
+    <button class="stop" data-go="s03"><i></i>结束并生成</button>
+    <button class="side"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></button>
+  </div>
+  <div class="tabbar-spacer" style="height:78px"></div>
+  <nav class="tabbar" data-tab="rec"></nav>
+</section>
+
+<!-- ════════ 07 完整转写 ════════ -->
+<section class="app-screen" id="s07">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="doc-top">
+    <button class="btn-circle" data-go="s03"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l-7 7 7 7"/></svg></button>
+    <div class="tt"><b>完整转写</b><span>Q3 产品规划评审</span></div>
+    <button class="btn-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </div>
+  <div class="tr-info"><b>32 分钟 · 3 位说话人</b><span>1,860 字</span></div>
+  <div class="tr-chips">
+    <button class="chip on">全部</button>
+    <button class="chip"><span class="dot" style="background:var(--sp1)"></span>说话人 1</button>
+    <button class="chip"><span class="dot" style="background:var(--sp2)"></span>说话人 2</button>
+    <button class="chip"><span class="dot" style="background:var(--sp3)"></span>说话人 3</button>
+  </div>
+  <div class="scroll" style="padding-bottom:100px">
+    <div class="tr-list" id="trList07"></div>
+  </div>
+  <div class="tr-cta">
+    <button class="b1" id="copyAllBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制全文</button>
+    <button class="b2" id="exportMdBtn">导出 Markdown</button>
+  </div>
+</section>
+
+<!-- ════════ 08 历史空态 ════════ -->
+<section class="app-screen" id="s08">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="hd">
+    <h1>历史记录</h1>
+    <button class="btn-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.4"/><circle cx="8" cy="17" r="2.4"/></svg></button>
+  </div>
+  <div class="searchbar">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input placeholder="搜索会议标题或纪要内容…" />
+  </div>
+  <div class="filter-row">
+    <button class="chip on">全部</button>
+    <button class="chip">今天</button>
+    <button class="chip">本周</button>
+    <button class="chip">已总结</button>
+  </div>
+  <div class="empty-hero">
+    <div class="ring">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#F0783C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#F5A96F" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg>
+    </div>
+    <h3>还没有会议记录</h3>
+    <p>点下方按钮开始，第一段录音只需 3 秒上手</p>
+    <button class="cta" data-go="s01">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#fff" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>
+      开始第一次录音
+    </button>
+  </div>
+  <div style="flex:1"></div>
+  <nav class="tabbar" data-tab="hist"></nav>
+</section>
+
+<!-- ════════ 09 历史超长列表 ════════ -->
+<section class="app-screen" id="s09">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="hd">
+    <div class="col">
+      <h1>历史记录</h1>
+      <p>共 128 条 · 约 64 小时</p>
+    </div>
+    <button class="sort">最近优先<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B7565" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
+  </div>
+  <div class="searchbar">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input placeholder="搜索会议标题或纪要内容…" />
+  </div>
+  <div class="filter-row">
+    <button class="chip on">全部</button>
+    <button class="chip">今天</button>
+    <button class="chip">本周</button>
+    <button class="chip">已总结</button>
+  </div>
+  <div class="scroll">
+    <div class="hist-list" id="histList09"></div>
+    <div class="tabbar-spacer"></div>
+  </div>
+  <nav class="tabbar" data-tab="hist"></nav>
+</section>
+
+<!-- ════════ 10 搜索无结果 ════════ -->
+<section class="app-screen" id="s10">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="hd">
+    <h1>历史记录</h1>
+    <button class="btn-circle" style="background:var(--orange);box-shadow:0 4px 12px rgba(240,120,60,.35)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.4"/><circle cx="8" cy="17" r="2.4"/></svg></button>
+  </div>
+  <div class="searchbar">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input value="区块链" />
+    <button class="clear" data-go="s04">✕</button>
+  </div>
+  <div class="empty-hero">
+    <div class="ring gray">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#A79A8E" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/><path d="M8.5 8.5l5 5M13.5 8.5l-5 5"/></svg>
+    </div>
+    <h3>没有找到「区块链」相关记录</h3>
+    <p>已搜索 128 条会议标题与纪要正文，换个词再试试</p>
+    <div class="acts">
+      <button class="b1" data-go="s04">清空筛选条件</button>
+      <button class="b2">搜索全部时间</button>
+    </div>
+  </div>
+  <div style="flex:1"></div>
+  <nav class="tabbar" data-tab="hist"></nav>
+</section>
+
+<!-- ════════ 11 总结超长 ════════ -->
+<section class="app-screen" id="s11">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="doc-top">
+    <button class="btn-circle" data-go="s01"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="tt"><b>会议纪要</b><span>生成于 12:47</span></div>
+    <button class="btn-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
+  </div>
+  <div class="scroll" style="padding-bottom:100px">
+    <div class="card info">
+      <div class="r1"><h2>Q3 产品规划评审</h2><span class="badge done">已完成</span></div>
+      <div class="meta">3 小时 12 分钟 · 8 位说话人 · 今天 09:12</div>
+    </div>
+    <div class="card sum-card">
+      <div class="hd"><b>✦ AI 结构化纪要</b><span class="tag">qwen3.7-plus</span><span class="tag" style="background:var(--orange-wash)">内容较长</span></div>
+      <p class="abs">本次会议围绕 Q3 产品规划展开，历时 3 小时 12 分钟，共 8 位发言人参与。核心共识是将新用户激活率目标定为 35%，并要求渠道合作在 8 月底前完成落地，运营…</p>
+      <div class="expand-note">展开全文 · 摘要约 1,240 字 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div>
+      <hr/>
+      <h5>重要决策 · 共 8 条</h5>
+      <ul>
+        <li class="o">Q3 激活率目标从 30% 上调至 35%，采用新统计口径。</li>
+        <li class="o">渠道合作协议由商务团队在 8 月底前签署完成。</li>
+      </ul>
+      <div class="more">查看全部 8 条决策 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <hr/>
+      <h5>讨论要点 · 共 12 条</h5>
+      <ul>
+        <li class="g">激活率按新口径重算后实际完成 82%，此前未达标系统计口径问题。</li>
+      </ul>
+      <div class="more">查看全部 12 条要点 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <ul>
+        <li class="g">用户访谈反馈引导页过长，是激活链路最主要的流失点。</li>
+      </ul>
+      <hr/>
+      <div class="foot" data-go="s07"><b>查看完整转写</b><span>1,860 字 ›</span></div>
+    </div>
+  </div>
+  <div class="doc-cta">
+    <button class="main">导出纪要</button>
+    <button class="side"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></button>
+  </div>
+</section>
+
+<!-- ════════ 12 转写超长 ════════ -->
+<section class="app-screen" id="s12">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="doc-top">
+    <button class="btn-circle" data-go="s03"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l-7 7 7 7"/></svg></button>
+    <div class="tt"><b>完整转写</b><span>Q3 产品规划评审</span></div>
+    <button class="btn-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </div>
+  <div class="tr-info"><b>3 小时 12 分钟 · 8 位说话人</b><span>28,640 字</span></div>
+  <div class="tr-chips">
+    <button class="chip on">全部</button>
+    <button class="chip"><span class="dot" style="background:var(--sp1)"></span>说话人 1</button>
+    <button class="chip"><span class="dot" style="background:var(--sp2)"></span>说话人 2</button>
+    <button class="chip"><span class="dot" style="background:var(--sp3)"></span>说话人 3</button>
+  </div>
+  <div class="hit-bar">
+    <b>找到 12 处「激活」</b>
+    <div class="nav">
+      <span>3 / 12</span>
+      <button aria-label="上一处"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 15l-6-6-6 6"/></svg></button>
+      <button aria-label="下一处"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button aria-label="关闭" style="color:#C07A4A"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+  </div>
+  <div class="scroll" style="padding-bottom:100px">
+    <div class="tr-list">
+      <div class="t-item sp-1"><div class="t-avatar">1</div><div><div class="t-head">说话人 1 <span class="t-time">· 00:12</span></div><div class="t-text">大家下午好，今天我们主要讨论第三季度的产品规划，以及渠道合作的进展。</div></div></div>
+      <div class="t-item sp-2"><div class="t-avatar">2</div><div><div class="t-head">说话人 2 <span class="t-time">· 01:48</span></div><div class="t-text">我先同步上一季度遗留的三个问题，其中最关键的是新用户激活率没有达标。</div></div></div>
+      <div class="t-item sp-1 hl"><div class="t-avatar">1</div><div style="flex:1"><div class="t-head">说话人 1 <span class="t-time">· 03:05</span></div><div class="t-text">激活率这边我让数据团队重新拉了一版口径，新口径下实际完成 82%，原来的统计把沉默用户也算进分母了。这里要说明一下口径差异的具体影响：…</div><div class="expand">展开这段 · 1,860 字 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div></div>
+      <div class="t-item sp-3"><div class="t-avatar">3</div><div><div class="t-head">说话人 3 <span class="t-time">· 07:22</span></div><div class="t-text">那我建议把 Q3 目标从 30% 上调到 35%，前提是渠道合作能在 8 月底落地。</div></div></div>
+      <div class="t-item sp-2"><div class="t-avatar">2</div><div><div class="t-head">说话人 2 <span class="t-time">· 09:40</span></div><div class="t-text">这一段已缓存在本地，网络恢复后自动补传并生成纪要。</div></div></div>
+    </div>
+    <div class="seg-load"><i></i>分段加载中 · 已显示 1,240 / 3,480 段</div>
+  </div>
+  <div class="tr-cta">
+    <button class="b1"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制全文</button>
+    <button class="b2">导出 Markdown</button>
+  </div>
+</section>
+
+<!-- ════════ 13 说话人过多 ════════ -->
+<section class="app-screen" id="s13">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="70" height="14" viewBox="0 0 70 14" fill="none"><rect x="0" y="5" width="3" height="8" rx="1" fill="#3A2A20"/><rect x="5" y="3" width="3" height="10" rx="1" fill="#3A2A20"/><rect x="10" y="1" width="3" height="12" rx="1" fill="#3A2A20"/><path d="M24 5.5c3.5-3.5 9.5-3.5 13 0l-2 2.2c-2.4-2.4-6.6-2.4-9 0L24 5.5z" fill="#3A2A20"/><circle cx="30.5" cy="10.5" r="1.8" fill="#3A2A20"/><rect x="46" y="2" width="20" height="10" rx="3" stroke="#3A2A20" stroke-width="1.4"/><rect x="48" y="4" width="13" height="6" rx="1.5" fill="#3A2A20"/><path d="M67.5 5.5v3c1.2-.3 1.2-2.7 0-3z" fill="#3A2A20"/></svg>
+  </div>
+  <div class="rec-top">
+    <button class="btn-circle" data-go="s01"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="tt"><b>录音中</b><span>会议模式 · 已识别 8 人</span></div>
+    <button class="btn-circle"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95A7 7 0 0 0 14.06 5.3L13.7 2.8h-3.4l-.36 2.5a7 7 0 0 0-2.44 1.24l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .47.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.44 1.24l.36 2.5h3.4l.36-2.5a7 7 0 0 0 2.44-1.24l2.36.95 2-3.46-2-1.55c.09-.46.14-.93.14-1.4z"/></svg></button>
+  </div>
+  <div class="rec-clock"><i></i><span>2:15:08</span></div>
+  <div class="wave" id="recWave13"></div>
+  <div class="sp-chips">
+    <span class="sp-chip" style="background:var(--sp1-bg);color:var(--sp1)"><i style="background:var(--sp1)"></i>说话人 1</span>
+    <span class="sp-chip" style="background:var(--sp2-bg);color:var(--sp2)"><i style="background:var(--sp2)"></i>说话人 2</span>
+    <span class="sp-chip" style="background:var(--sp3-bg);color:var(--sp3)"><i style="background:var(--sp3)"></i>说话人 3</span>
+    <span class="sp-chip" style="background:var(--sp4-bg);color:var(--sp4)"><i style="background:var(--sp4)"></i>说话人 4</span>
+    <span class="sp-chip" style="background:var(--sp5-bg);color:var(--sp5)"><i style="background:var(--sp5)"></i>说话人 5</span>
+    <span class="sp-chip" style="background:var(--sp6-bg);color:var(--sp6)"><i style="background:var(--sp6)"></i>说话人 6</span>
+    <span class="sp-chip" style="background:var(--sp7-bg);color:var(--sp7)"><i style="background:var(--sp7)"></i>说话人 7</span>
+    <span class="sp-chip gray"><i style="background:var(--sp8)"></i>说话人 8 · 识别中</span>
+  </div>
+  <div class="card live-card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div class="hd"><b>实时转写</b><span class="auto">自动滚动</span></div>
+    <div class="scroll" style="padding-bottom:10px">
+      <div class="t-item sp-1"><div class="t-avatar">1</div><div><div class="t-head">说话人 1 <span class="t-time">· 00:12</span></div><div class="t-text">大家下午好，今天我们主要讨论第三季度的产品规划，以及渠道合作的进展。</div></div></div>
+      <div class="t-item sp-2"><div class="t-avatar">2</div><div><div class="t-head">说话人 2 <span class="t-time">· 01:48</span></div><div class="t-text">我先同步上一季度遗留的三个问题，其中最关键的是新用户激活率没有达标。</div></div></div>
+      <div class="t-item sp-1"><div class="t-avatar">1</div><div><div class="t-head">说话人 1 <span class="t-time">· 03:05</span></div><div class="t-text">激活率这边我让数据团队重新拉了一版口径，新口径下实际完成 82%。</div></div></div>
+    </div>
+  </div>
+  <button class="fab-down" aria-label="回到底部"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#F0783C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14"/><path d="M6 13l6 6 6-6"/></svg></button>
+  <div class="rec-ctrl">
+    <button class="side"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg></button>
+    <button class="stop" data-go="s03"><i></i>结束并生成</button>
+    <button class="side"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></button>
+  </div>
+  <div class="tabbar-spacer" style="height:78px"></div>
+  <nav class="tabbar" data-tab="rec"></nav>
+</section>
+
+</div><!-- /phone -->
+
+<script>
+/* ════════ 数据 ════════ */
+const SPS = {1:['--sp1','--sp1-bg'],2:['--sp2','--sp2-bg'],3:['--sp3','--sp3-bg']};
+const TRANSCRIPT = [
+  {sp:1, t:'00:12', text:'大家下午好，今天我们主要讨论第三季度的产品规划，以及渠道合作的进展。'},
+  {sp:2, t:'01:48', text:'我先同步上一季度遗留的三个问题，其中最关键的是新用户激活率没有达标。'},
+  {sp:1, t:'03:05', text:'激活率这边我让数据团队重新拉了一版口径，新口径下实际完成 82%。'},
+  {sp:3, t:'07:22', text:'那我建议把 Q3 目标从 30% 上调到 35%，前提是渠道合作能在 8 月底落地。'},
+  {sp:2, t:'09:40', text:'这一段已缓存在本地，网络恢复后自动补传并生成纪要。'},
+  {sp:1, t:'12:15', text:'排期我这周内出。另外激活链路的引导页确实太长了，我建议压缩到两步再测一版数据。'},
+  {sp:3, t:'15:02', text:'渠道那边分成比例还在跟法务对，最迟下周三能给结论，如果延后我第一时间同步大家。'},
+];
+const HIST = [
+  {title:'Q3 产品规划评审', desc:'明确激活率目标上调至 35%，渠道合作 8 月底前完成落地。', meta:'32 分钟 · 今天 09:12 · 3 人', badge:'sum', go:'s03'},
+  {title:'渠道合作沟通会', desc:'敲定分成比例与首批资源位排期，待法务复核。', meta:'18 分钟 · 昨天 16:40 · 2 人', badge:'sum', go:'s03'},
+  {title:'用户访谈 · 激活链路', desc:'三位用户反馈引导页过长，建议压缩至两步。', meta:'45 分钟 · 09-18 · 2 人', badge:'done', go:'s03'},
+  {title:'周例会 · 运营同步', desc:'确认下周活动排期，素材需在周三前交付。', meta:'26 分钟 · 09-12 · 4 人', badge:'done', go:'s03'},
+];
+const HIST09 = [
+  {day:'今天', items:[
+    {title:'Q3 产品规划评审', desc:'明确激活率目标上调至 35%，渠道合作 8 月底前完成落地。', meta:'32 分钟 · 09:12 · 3 人', badge:'sum'},
+    {title:'每日站会 · 研发同步', desc:'接口联调进度过半，测试环境待运维扩容后恢复。', meta:'12 分钟 · 08:30 · 5 人', badge:'sum'},
+  ]},
+  {day:'昨天', items:[
+    {title:'渠道合作沟通会', desc:'敲定分成比例与首批资源位排期，待法务复核。', meta:'18 分钟 · 16:40 · 2 人', badge:'sum'},
+    {title:'设计评审 · 激活链路改版', desc:'确认引导页压缩至两步，新增一键跳过入口。', meta:'54 分钟 · 14:05 · 4 人', badge:'sum', cut:true},
+  ]},
+];
+
+/* ════════ TabBar 注入 ════════ */
+const TABS = {
+  rec:{label:'录音', go:'s01', icon:'<rect x="9" y="2.5" width="6" height="11" rx="3" fill="currentColor" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/>'},
+  hist:{label:'历史', go:'s04', icon:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'},
+  me:{label:'我的', go:'s05', icon:'<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.8 3.5-5.8 7-5.8s6.2 2 7 5.8"/>'},
+};
+document.querySelectorAll('.tabbar').forEach(bar=>{
+  const key = bar.dataset.tab;
+  bar.innerHTML = Object.entries(TABS).map(([k,t])=>
+    `<button class="tab ${k===key?'active':''}" data-go="${t.go}">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${t.icon}</svg>
+      <span>${t.label}</span></button>`).join('');
+});
+
+/* ════════ 路由 ════════ */
+let recording = false, recTimer = null, recSec = 0, recIdx = 0, disconnected = false;
+const screens = document.querySelectorAll('.app-screen');
+function go(id){
+  const target = document.getElementById(id);
+  if(!target) return;
+  if(recording && id!=='s02' && id!=='s06') stopRecording(true);
+  screens.forEach(s=>s.classList.remove('active'));
+  target.classList.add('active');
+  const sc = target.querySelector('.scroll'); if(sc) sc.scrollTop = 0;
+  document.querySelectorAll('.screen-nav button').forEach(b=>b.classList.toggle('on', b.dataset.go===id));
+  if(location.hash !== '#'+id) history.replaceState(null,'','#'+id);
+  if(id==='s02' && !recording) startRecording();
+}
+document.addEventListener('click', e=>{
+  const el = e.target.closest('[data-go]');
+  if(el){ e.preventDefault(); go(el.dataset.go); }
+});
+const initHash = location.hash.replace('#','');
+if(initHash && document.getElementById(initHash)) go(initHash);
+
+/* ════════ 01 首页 ════════ */
+document.getElementById('modeSeg').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById('recModeLabel').textContent = b.textContent + '模式';
+});
+
+/* ════════ 02 录音 ════════ */
+function buildWave(el){
+  const n = 44, mid = 22;
+  for(let i=0;i<n;i++){
+    const bar = document.createElement('i');
+    const dist = Math.abs(i-mid)/mid;
+    let h = 14 + Math.sin(i*0.55)*10 + (1-dist)*46*(0.6+0.4*Math.sin(i*1.3));
+    h = Math.max(8, Math.min(78, h));
+    bar.style.height = h+'px';
+    bar.style.opacity = (0.25 + (1-dist)*0.75).toFixed(2);
+    bar.style.animationDelay = (i*0.045)+'s';
+    bar.style.animationDuration = (0.9+ (i%5)*0.12)+'s';
+    el.appendChild(bar);
+  }
+}
+buildWave(document.getElementById('recWave'));
+buildWave(document.getElementById('recWave6'));
+buildWave(document.getElementById('recWave13'));
+
+function fmt(sec){
+  const m = Math.floor(sec/60), s = sec%60;
+  if(m>=60){const h=Math.floor(m/60);return `${h}:${String(m%60).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function addLiveItem(entry){
+  const list = document.getElementById('liveList');
+  const div = document.createElement('div');
+  div.className = 't-item sp-'+entry.sp;
+  div.innerHTML = `<div class="t-avatar">${entry.sp}</div><div><div class="t-head">说话人 ${entry.sp} <span class="t-time">· ${entry.t}</span></div><div class="t-text">${entry.text}</div></div>`;
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+function startRecording(){
+  recording = true; recSec = 0; recIdx = 0; disconnected = false;
+  document.getElementById('recClock').textContent = '00:00';
+  document.getElementById('liveList').innerHTML = '';
+  document.getElementById('liveTag').textContent = '自动滚动';
+  document.getElementById('liveTag').classList.remove('paused');
+  document.getElementById('heroStatus').textContent = '录音中';
+  document.getElementById('micBtn').classList.add('rec');
+  recTimer = setInterval(()=>{
+    recSec++;
+    document.getElementById('recClock').textContent = fmt(recSec);
+    while(recIdx < TRANSCRIPT.length && parseT(TRANSCRIPT[recIdx].t) <= recSec*4){
+      addLiveItem(TRANSCRIPT[recIdx]); recIdx++;
+    }
+    if(recSec===8 && !disconnected){ disconnected = true; go('s06'); }  // 模拟断线 → 06
+  }, 1000);
+}
+function parseT(t){ const [m,s]=t.split(':').map(Number); return m*60+s; }
+function stopRecording(silent){
+  recording = false; clearInterval(recTimer);
+  document.getElementById('micBtn').classList.remove('rec');
+  document.getElementById('heroStatus').textContent = '待机中';
+  if(!silent) go('s03');
+}
+document.getElementById('micBtn').addEventListener('click', ()=>go('s02'));
+document.getElementById('stopBtn').addEventListener('click', ()=>stopRecording(false));
+document.getElementById('pauseBtn').addEventListener('click', function(){
+  if(recTimer){ clearInterval(recTimer); recTimer=null; this.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="#3A2A20" stroke="none"><path d="M8 5l11 7-11 7V5z"/></svg>'; }
+  else { this.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3A2A20" stroke-width="2" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>'; recTimer = setInterval(()=>{recSec++;document.getElementById('recClock').textContent=fmt(recSec);},1000); }
+});
+
+/* ════════ 03 纪要 ════════ */
+function showToast(msg, onS06){
+  const host = document.getElementById(onS06?'s06':'s03');
+  const old = host.querySelector('.toast.plain'); if(old) old.remove();
+  const div = document.createElement('div');
+  div.className = 'toast plain';
+  div.innerHTML = `<div class="t-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div><div><div class="t-tt">${msg}</div></div>`;
+  host.appendChild(div);
+  setTimeout(()=>div.remove(), 2200);
+}
+document.getElementById('exportBtn').addEventListener('click', ()=>showToast('纪要已导出为 Markdown'));
+document.getElementById('shareBtn').addEventListener('click', ()=>showToast('分享链接已复制'));
+
+/* ════════ 04 / 09 历史列表 ════════ */
+function histCard(h){
+  return `<div class="h-card" ${h.go?`data-go="${h.go}"`:''}>
+    <div class="r1"><h4>${h.title}</h4><span class="dots">···</span></div>
+    <p>${h.desc}</p>
+    <div class="r3"><span class="meta">${h.meta}</span><span class="badge ${h.badge}">${h.badge==='sum'?'已总结':'已完成'}</span></div>
+  </div>`;
+}
+document.getElementById('histList04').innerHTML = HIST.map(histCard).join('');
+document.getElementById('histList09').innerHTML = HIST09.map(g=>
+  `<div class="day-label">${g.day}</div>` + g.items.map(h=>
+    h.cut
+    ? `<div class="h-card cut"><div class="r1"><h4>${h.title}</h4><span class="dots">···</span></div><p>${h.desc}</p><div class="r3"><span class="meta">${h.meta}</span><span class="badge ${h.badge}" style="opacity:.7">${h.badge==='sum'?'已总结':'已完成'}</span></div></div>
+       <div class="load-more"><i></i>正在加载更多 · 已显示 24 / 128</div>`
+    : histCard(h)
+  ).join('')).join('');
+document.querySelectorAll('.filter-row').forEach(row=>{
+  row.addEventListener('click', e=>{
+    const b = e.target.closest('.chip'); if(!b) return;
+    row.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+  });
+});
+
+/* ════════ 05 开关 ════════ */
+document.querySelectorAll('#s05 .tgl').forEach(t=>t.addEventListener('click', ()=>t.classList.toggle('on')));
+
+/* ════════ 07 转写列表 ════════ */
+document.getElementById('trList07').innerHTML = TRANSCRIPT.map(t=>
+  `<div class="t-item sp-${t.sp}"><div class="t-avatar">${t.sp}</div><div><div class="t-head">说话人 ${t.sp} <span class="t-time">· ${t.t}</span></div><div class="t-text">${t.text}</div></div></div>`).join('');
+document.getElementById('copyAllBtn').addEventListener('click', ()=>showToast('全文已复制到剪贴板'));
+document.getElementById('exportMdBtn').addEventListener('click', ()=>showToast('转写已导出 Markdown'));
+document.querySelectorAll('.tr-chips').forEach(row=>{
+  row.addEventListener('click', e=>{
+    const b = e.target.closest('.chip'); if(!b) return;
+    row.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    const label = b.textContent.trim();
+    const sp = {'全部':0,'说话人 1':1,'说话人 2':2,'说话人 3':3}[label] ?? 0;
+    document.querySelectorAll('#trList07 .t-item').forEach(it=>{
+      it.style.display = (!sp || it.classList.contains('sp-'+sp)) ? '' : 'none';
+    });
+  });
+});
+</script>
+</body>
+</html>

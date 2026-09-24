@@ -1,10 +1,7 @@
-/// 完整转写页（设计稿 07 / 12 号屏）。
+/// 完整转写页（屏 07 常规 / 屏 12 超长）。
 ///
-/// **对应用户痛点「转写超长」**：
-/// - 顶部 InfoBar 给出总时长 / 说话人数 / 总字数；
-/// - 说话人过滤 chips（含「全部」）就地收敛列表；
-/// - 列表虚拟化（`ListView.builder`），上千条片段也只渲染可见行；
-/// - 右上角进入搜索，按关键词过滤片段。
+/// 超长态（≥200 段）自动补上「分段加载中」胶囊；页内搜索命中后展示命中条
+/// （`找到 N 处「关键词」` + `i / N` + 上/下一处 + 关闭）并高亮命中片段。
 library;
 
 import 'dart:async';
@@ -14,25 +11,21 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../backend/backend_api.dart';
 import '../../domain/meeting.dart';
 import '../../domain/segment.dart';
 import '../../domain/speaker.dart';
 import '../providers/app_providers.dart';
-import '../theme/app_theme.dart';
+import '../screens/transcript_screen.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
-import '../utils/minutes_outline.dart';
 import '../utils/speaker_view.dart';
-import '../widgets/app_button.dart';
 import '../widgets/app_toast.dart';
-import '../widgets/app_top_bar.dart';
-import '../widgets/cta_row.dart';
-import '../widgets/empty_state.dart';
-import '../widgets/info_bar.dart';
-import '../widgets/search_field.dart';
+import '../widgets/filter_chips.dart';
 import '../widgets/speaker_chips.dart';
-import '../widgets/transcript_card.dart';
+import '../widgets/transcript_tile.dart';
+
+/// 超出该段数时展示「分段加载中」胶囊（对齐屏 12 的长内容形态）。
+const int kLongTranscriptThreshold = 200;
 
 /// 完整转写页。
 class TranscriptPage extends ConsumerStatefulWidget {
@@ -47,234 +40,235 @@ class TranscriptPage extends ConsumerStatefulWidget {
 }
 
 class _TranscriptPageState extends ConsumerState<TranscriptPage> {
-  final TextEditingController _search = TextEditingController();
-  StreamSubscription<List<TranscriptSegment>>? _subscription;
   Meeting? _meeting;
   List<TranscriptSegment> _segments = const <TranscriptSegment>[];
   List<Speaker> _speakers = const <Speaker>[];
+  StreamSubscription<List<TranscriptSegment>>? _subscription;
   bool _loading = true;
-  bool _searching = false;
-  String _query = '';
-  String? _selectedSpeakerId;
+  int _filter = 0;
+  String _keyword = '';
+  List<int> _hits = const <int>[];
+  int _hitCursor = 0;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_bootstrap());
+    unawaited(_load());
   }
 
   @override
   void dispose() {
     unawaited(_subscription?.cancel());
-    _search.dispose();
     super.dispose();
   }
 
-  Future<void> _bootstrap() async {
-    final BackendApi api = await ref.read(backendProvider.future);
-    final Meeting? meeting = await api.getMeeting(widget.meetingId);
-    if (!mounted) return;
-    setState(() {
-      _meeting = meeting;
-      _segments = meeting?.segments ?? const <TranscriptSegment>[];
-      _speakers = meeting == null || meeting.speakers.isEmpty
-          ? deriveSpeakers(_segments, meetingId: widget.meetingId)
-          : meeting.speakers;
-      _loading = false;
-    });
-    _subscription = api.watchSegments(widget.meetingId).listen(
-      (List<TranscriptSegment> segments) {
-        if (!mounted) return;
-        setState(() {
-          _segments = segments;
-          if (_speakers.isEmpty && segments.isNotEmpty) {
-            _speakers = deriveSpeakers(segments, meetingId: widget.meetingId);
-          }
-        });
-      },
+  Future<void> _load() async {
+    try {
+      final api = await ref.read(backendProvider.future);
+      final Meeting? meeting = await api.getMeeting(widget.meetingId);
+      if (!mounted) return;
+      setState(() {
+        _meeting = meeting;
+        _speakers = meeting?.speakers ?? const <Speaker>[];
+        _loading = false;
+      });
+      _subscription = api.watchSegments(widget.meetingId).listen(
+        (List<TranscriptSegment> segments) {
+          if (!mounted) return;
+          setState(() {
+            _segments = segments;
+            if (_speakers.isEmpty && segments.isNotEmpty) {
+              _speakers = deriveSpeakers(segments, meetingId: widget.meetingId);
+            }
+            if (_keyword.isNotEmpty) _recomputeHits();
+          });
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ref.read(toastProvider.notifier).show(
+            '转写加载失败：$error',
+            tone: ToastTone.warning,
+          );
+    }
+  }
+
+  void _recomputeHits() {
+    final List<int> hits = <int>[];
+    for (int i = 0; i < _segments.length; i++) {
+      if (_segments[i].text.contains(_keyword)) hits.add(i);
+    }
+    _hits = hits;
+    _hitCursor = hits.isEmpty ? 0 : 1;
+  }
+
+  /// 唯一的说话人过滤 chip（按序号升序）。
+  List<SpeakerChipView> _chipViews() {
+    final Map<int, String> byOrdinal = <int, String>{};
+    for (final TranscriptSegment segment in _segments) {
+      final SpeakerView view = speakerViewFor(
+        speakerId: segment.speakerId,
+        speakers: _speakers,
+      );
+      byOrdinal.putIfAbsent(view.ordinal, () => view.name);
+    }
+    final List<int> keys = byOrdinal.keys.toList()..sort();
+    return <SpeakerChipView>[
+      for (final int ordinal in keys)
+        SpeakerChipView(ordinal: ordinal, label: byOrdinal[ordinal]!),
+    ];
+  }
+
+  List<TranscriptItemView> _allItems() => <TranscriptItemView>[
+        for (int i = 0; i < _segments.length; i++) _viewAt(i),
+      ];
+
+  TranscriptItemView _viewAt(int index) {
+    final TranscriptSegment segment = _segments[index];
+    final SpeakerView view = speakerViewFor(
+      speakerId: segment.speakerId,
+      speakers: _speakers,
+    );
+    final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
+    return TranscriptItemView(
+      ordinal: view.ordinal,
+      speakerLabel: view.name,
+      timeLabel: formatClock(segment.startTime),
+      text: segment.text,
+      highlight: highlight,
+      expandNote: highlight ? '展开这段 · ${formatCharCount(segment.text.length)}' : null,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final Meeting? meeting = _meeting;
-    final List<TranscriptSegment> visible = _visibleSegments();
-    final int chars = countChars(visible.map((TranscriptSegment s) => s.text).join());
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: <Widget>[
-            AppTopBar(
-              title: '完整转写',
-              subtitle: meeting?.title,
-              leadingIcon: Icons.chevron_left_rounded,
-              leadingTooltip: '返回',
-              onLeading: () => _leave(context),
-              trailingIcon: _searching ? Icons.close_rounded : Icons.search_rounded,
-              trailingTooltip: _searching ? '退出搜索' : '搜索转写',
-              onTrailing: () => setState(() {
-                _searching = !_searching;
-                if (!_searching) {
-                  _search.clear();
-                  _query = '';
-                }
+    final List<TranscriptItemView> items = _allItems();
+    final List<SpeakerChipView> chips = _chipViews();
+    final int charCount = _segments.fold<int>(0, (int sum, TranscriptSegment s) => sum + s.text.replaceAll(RegExp(r'\s'), '').length);
+
+    return TranscriptScreen(
+      meetingName: meeting?.title ?? '完整转写',
+      infoText: formatTranscriptInfo(
+        durationMs: meeting?.durationMs ?? 0,
+        speakerCount: meeting?.speakerCount ?? chips.length,
+      ),
+      charCountText: formatCharCount(charCount),
+      filters: <FilterChipView>[
+        FilterChipView(label: '全部', selected: _filter == 0),
+        for (final SpeakerChipView chip in chips)
+          FilterChipView(
+            label: chip.label,
+            ordinal: chip.ordinal,
+            selected: _filter == chip.ordinal,
+          ),
+      ],
+      selectedFilter: _filter,
+      onFilterChanged: (int index) => setState(() {
+        _filter = index == 0 ? 0 : chips[index - 1].ordinal;
+      }),
+      items: items,
+      hit: _hits.isEmpty
+          ? null
+          : TranscriptHitView(
+              total: _hits.length,
+              current: _hitCursor,
+              keyword: _keyword,
+              onPrev: () => setState(
+                () => _hitCursor = _hitCursor > 1 ? _hitCursor - 1 : _hits.length,
+              ),
+              onNext: () => setState(
+                () => _hitCursor = _hitCursor < _hits.length ? _hitCursor + 1 : 1,
+              ),
+              onClose: () => setState(() {
+                _keyword = '';
+                _hits = const <int>[];
+                _hitCursor = 0;
               }),
             ),
-            if (_loading)
-              const Expanded(child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
-            else if (meeting == null)
-              const Expanded(
-                child: EmptyState(
-                  icon: Icons.search_off_rounded,
-                  title: '会议不存在',
-                  description: '它可能已被删除',
-                ),
-              )
-            else ...<Widget>[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-                child: AppInfoBar(
-                  left: formatTranscriptInfo(
-                    durationMs: meeting.durationMs,
-                    speakerCount: _speakers.length,
-                  ),
-                  right: formatCharCount(chars),
-                ),
-              ),
-              if (_searching) ...<Widget>[
-                const SizedBox(height: AppSpacing.gapSm),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-                  child: AppSearchField(
-                    controller: _search,
-                    hintText: '搜索转写内容…',
-                    onChanged: (String value) => setState(() => _query = value.trim()),
-                    onClear: () => setState(() => _query = ''),
-                  ),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.gapSm),
-              if (_speakers.isNotEmpty)
-                SpeakerChips(
-                  speakers: _speakers,
-                  showAll: true,
-                  selectedId: _selectedSpeakerId,
-                  onSelected: (String? id) => setState(() => _selectedSpeakerId = id),
-                ),
-              const SizedBox(height: AppSpacing.gapSm),
-              Expanded(
-                child: visible.isEmpty
-                    ? EmptyState(
-                        icon: Icons.article_outlined,
-                        title: _segments.isEmpty ? '暂无转写内容' : '没有匹配的片段',
-                        description: _segments.isEmpty
-                            ? '实时转写为空，或终稿仍在生成中'
-                            : '换个关键词或切回「全部」说话人',
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.page,
-                          0,
-                          AppSpacing.page,
-                          AppSpacing.gapLg,
-                        ),
-                        itemCount: visible.length,
-                        separatorBuilder: (BuildContext context, int index) =>
-                            const SizedBox(height: AppSpacing.gap),
-                        itemBuilder: (BuildContext context, int index) => TranscriptTile(
-                          segment: visible[index],
-                          speakers: _speakers,
-                        ),
-                      ),
-              ),
-              BottomBar(
-                child: CtaRow(
-                  children: <Widget>[
-                    Expanded(
-                      child: AppGhostButton(
-                        label: '复制全文',
-                        icon: Icons.copy_rounded,
-                        expanded: true,
-                        onPressed: visible.isEmpty
-                            ? null
-                            : () => unawaited(_copy(visible)),
-                      ),
-                    ),
-                    Expanded(
-                      child: AppPrimaryButton(
-                        label: '导出 Markdown',
-                        icon: Icons.file_download_outlined,
-                        onPressed: visible.isEmpty
-                            ? null
-                            : () => unawaited(_export(meeting.title, visible)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+      segmentLoadingText: _segments.length >= kLongTranscriptThreshold
+          ? '分段加载中 · 已显示 ${formatThousands(_segments.length)} 段'
+          : null,
+      onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
+      onBack: () => context.go('/meeting/${widget.meetingId}'),
+      onSearch: () => unawaited(_promptSearch()),
+      onCopyAll: () => unawaited(_copyAll()),
+      onExportMarkdown: () => unawaited(_exportMarkdown(meeting)),
     );
   }
 
-  List<TranscriptSegment> _visibleSegments() {
-    final String query = _query.toLowerCase();
-    if (query.isEmpty && _selectedSpeakerId == null) return _segments;
-    return _segments.where((TranscriptSegment segment) {
-      if (_selectedSpeakerId != null && segment.speakerId != _selectedSpeakerId) {
-        return false;
-      }
-      if (query.isEmpty) return true;
-      return segment.text.toLowerCase().contains(query);
-    }).toList(growable: false);
-  }
-
-  void _leave(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go('/history');
-    }
-  }
-
-  String _plainText(List<TranscriptSegment> segments) {
-    final StringBuffer buffer = StringBuffer();
-    for (final TranscriptSegment segment in segments) {
-      final SpeakerView view = speakerViewFor(
-        speakerId: segment.speakerId,
-        speakers: _speakers,
-        fallbackName: segment.speakerName,
-      );
-      buffer.writeln('[${formatClock(segment.startTime)}] ${view.name}：${segment.text}');
-    }
-    return buffer.toString();
-  }
-
-  Future<void> _copy(List<TranscriptSegment> segments) async {
-    await Clipboard.setData(ClipboardData(text: _plainText(segments)));
+  Future<void> _promptSearch() async {
+    final TextEditingController controller = TextEditingController(text: _keyword);
+    final String? keyword = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('在转写中搜索'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '输入关键词，如「激活」'),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('搜索'),
+          ),
+        ],
+      ),
+    );
     if (!mounted) return;
-    ref.read(toastProvider.notifier).show('全文已复制', tone: ToastTone.success);
+    setState(() {
+      _keyword = keyword ?? '';
+      _recomputeHits();
+    });
+    if (_keyword.isNotEmpty && _hits.isEmpty) {
+      _toast('未找到「$_keyword」');
+    }
   }
 
-  Future<void> _export(String title, List<TranscriptSegment> segments) async {
+  Future<void> _copyAll() async {
+    final String text = _segments
+        .map((TranscriptSegment s) => '${formatClock(s.startTime)} ${s.text}')
+        .join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ref.read(toastProvider.notifier).show(
+          '全文已复制到剪贴板',
+          tone: ToastTone.success,
+          duration: const Duration(milliseconds: 2200),
+        );
+  }
+
+  Future<void> _exportMarkdown(Meeting? meeting) async {
+    final String content = _segments
+        .map((TranscriptSegment s) => '- **${formatClock(s.startTime)}** ${s.text}')
+        .join('\n');
     try {
-      final StringBuffer buffer = StringBuffer()
-        ..writeln('# $title · 完整转写')
-        ..writeln()
-        ..writeln(_plainText(segments));
       final String path = await exportTextFile(
-        fileName: '${sanitizeFileName(title)}-转写',
-        content: buffer.toString(),
+        fileName: '${meeting?.title ?? 'transcript'}-转写',
+        content: content,
+        extension: '.md',
       );
       if (!mounted) return;
-      ref.read(toastProvider.notifier).show('已导出：$path', tone: ToastTone.success);
+      ref.read(toastProvider.notifier).show(
+            '已导出：$path',
+            tone: ToastTone.success,
+            duration: const Duration(milliseconds: 2200),
+          );
     } catch (error) {
       if (!mounted) return;
       ref.read(toastProvider.notifier).show('导出失败：$error', tone: ToastTone.warning);
     }
   }
+
+  void _toast(String text) =>
+      ref.read(toastProvider.notifier).show(text, tone: ToastTone.info);
 }

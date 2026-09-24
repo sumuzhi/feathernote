@@ -1,404 +1,356 @@
-/// 设计 token 与全局主题。
+/// 设计 Token 与全局主题。
 ///
-/// 全部取值来自 `docs/DESIGN-SPEC.md` 第二节的**画布实测值**：
-/// 暖奶油底 `#FAF3EC` + 主橙 `#F0783C` + 白卡大圆角 + 暖棕阴影 + Noto Sans SC。
+/// **唯一真相**：`docs/design-reference/smart-minutes-app.html` 的 `:root` CSS 变量。
+/// 本文件是那些变量的 Dart 映射（见 `docs/DESIGN-SPEC-EXACT.md` 第一节），
+/// 旧的 `DESIGN-SPEC.md`（从 ardot 画布推断）已废弃。
 ///
-/// 注意：这是与 Web 端（Zinc 冷灰 + teal）**完全不同**的一套语言，
-/// 不要把 Web 的 token 带进来。
+/// 与旧规格的偏差修正（勿回退）：
+/// - 分割线 `#F2E4D6` → **`#F1E7DC`**
+/// - 主橙按压 `#C2591F` → **`#E8662A`**
+/// - 卡片阴影 → **`rgba(58,42,32,.05)` / y6 / blur18**（不再是暖棕重阴影）
+/// - 卡片圆角 28/22/18 → **24 / 20**
+/// - 新增正文色 `#4A3A30`、更浅色 `#B8A899`、chip 底 `#FBE9DB`
 library;
 
 import 'package:flutter/material.dart';
 
-/// 全局字体族名（与 `pubspec.yaml` 的 `fonts.family` 一致）。
-const String kFontFamily = 'NotoSansSC';
+/// 色板（对齐 HTML `:root`）。
+class AppColors {
+  const AppColors._();
 
-/// 颜色 token（画布实测）。
-abstract final class AppColors {
-  /// 页面背景（暖奶油纸感）。
+  /// 页面底（暖米）。
   static const Color bg = Color(0xFFFAF3EC);
 
-  /// 卡片 / TabBar Pill / 分段选中项。
-  static const Color surface = Color(0xFFFFFFFF);
+  /// 卡片白。
+  static const Color card = Color(0xFFFFFFFF);
 
-  /// 卡片描边 / 分隔线。
-  static const Color hairline = Color(0xFFF2E4D6);
+  /// 主橙（按钮 / 选中 / 强调）。
+  static const Color orange = Color(0xFFF0783C);
 
-  /// 主橙：录音按钮、CTA、选中态。
-  static const Color primary = Color(0xFFF0783C);
+  /// 主橙按压态。
+  static const Color orangeDeep = Color(0xFFE8662A);
 
-  /// 主橙浅底：光晕、徽标底、分段 track 选中底。
-  static const Color primarySoft = Color(0xFFFFF0E3);
+  /// 浅橙底（光晕 / 徽标 / 自动滚动标签 / 图标底色）。
+  static const Color orangeSoft = Color(0xFFFFF0E3);
 
-  /// 深橙：徽标文字、链接。
-  static const Color primaryDeep = Color(0xFFC2591F);
+  /// chip 底、次级标签底。
+  static const Color orangeWash = Color(0xFFFBE9DB);
 
-  /// 分段控件轨道底。
-  static const Color trackSoft = Color(0xFFFBF3EC);
-
-  /// 主文字（暖深棕）。
+  /// 标题深棕。
   static const Color ink = Color(0xFF3A2A20);
 
-  /// 次级文字 / 元信息（暖灰褐）。
-  static const Color ink2 = Color(0xFF8B7565);
+  /// 正文。
+  static const Color body = Color(0xFF4A3A30);
 
-  /// 装饰圆点 / 占位头像。
-  static const Color dot = Color(0xFFC9BBAE);
+  /// 辅助 / 元信息。
+  static const Color muted = Color(0xFF8B7565);
 
-  /// 历史卡片占位头像点。
-  static const Color avatarDot = Color(0xFFC4B3A4);
+  /// 更浅（占位、禁用）。
+  static const Color faint = Color(0xFFB8A899);
 
-  /// 录音中红点 / 计时圆点。
-  static const Color recRed = Color(0xFFE0392B);
+  /// 分割线。
+  static const Color line = Color(0xFFF1E7DC);
 
-  /// 暖棕阴影基色（非灰黑）。
-  static const Color shadow = Color(0xFF9E8066);
+  /// 「已完成」徽标底。
+  static const Color greenBg = Color(0xFFEAF4EE);
 
-  /// 说话人 2（绿）。
-  static const Color speakerGreen = Color(0xFF4FA46A);
+  /// 「已完成」徽标字。
+  static const Color green = Color(0xFF4E9A6A);
 
-  /// 说话人 2 浅底。
-  static const Color speakerGreenSoft = Color(0xFFE9F3EA);
+  /// 录音红点。
+  static const Color red = Color(0xFFE5483C);
 
-  /// 说话人 3（紫）。
-  static const Color speakerPurple = Color(0xFF8B6BB1);
+  /// 断线 Toast 底色（HTML `.toast`）。
+  static const Color toastBg = Color(0xFFFBE3D2);
 
-  /// 说话人 3 浅底。
-  static const Color speakerPurpleSoft = Color(0xFFEFE9F7);
+  /// 普通 Toast 底色（HTML `.toast.plain`）。
+  static const Color toastPlain = Color(0xFF3A2A20);
 
-  /// 说话人 4（蓝）。
-  static const Color speakerBlue = Color(0xFF4E7FB8);
+  /// Toast 副文案色（HTML `.toast .t-sub`）。
+  static const Color toastSub = Color(0xFFA9703F);
 
-  /// 说话人 4 浅底。
-  static const Color speakerBlueSoft = Color(0xFFE9EFF7);
+  /// 灰色 chip / 灰环底（HTML `--sp8-bg`）。
+  static const Color grayWash = Color(0xFFF0EAE4);
 
-  /// 说话人 5（赭）。
-  static const Color speakerAmber = Color(0xFFB8860B);
+  /// 禁用态占位色（HTML `#s08` 的 `#C9BBAE`）。
+  static const Color disabled = Color(0xFFC9BBAE);
 
-  /// 说话人 5 浅底。
-  static const Color speakerAmberSoft = Color(0xFFF7F1E0);
+  /// 命中高亮底（HTML `#s12 .t-item.hl`）。
+  static const Color hitBg = Color(0xFFFFF3E6);
 
-  /// 说话人 6（玫红）。
-  static const Color speakerRose = Color(0xFFB0577F);
+  /// 命中条底（HTML `.hit-bar`）。
+  static const Color hitBarBg = Color(0xFFFBE3D2);
 
-  /// 说话人 6 浅底。
-  static const Color speakerRoseSoft = Color(0xFFF7E9EF);
+  /// 分节灰点（HTML `.sum-card li.g::before`）。
+  static const Color dotGray = Color(0xFFC9BBAE);
 
-  /// 说话人辅色（与下标 0–5 对应，下标 0 = 主橙）。
-  static const List<Color> speakerPalette = <Color>[
-    primary,
-    speakerGreen,
-    speakerPurple,
-    speakerBlue,
-    speakerAmber,
-    speakerRose,
-  ];
+  /// 关闭按钮色（HTML `.hit-bar .nav` 关闭键）。
+  static const Color closeBrown = Color(0xFFC07A4A);
 
-  /// 说话人浅底（与 [speakerPalette] 同序）。
-  static const List<Color> speakerSoftPalette = <Color>[
-    primarySoft,
-    speakerGreenSoft,
-    speakerPurpleSoft,
-    speakerBlueSoft,
-    speakerAmberSoft,
-    speakerRoseSoft,
-  ];
+  // ── 兼容别名（避免历史调用点大面积改名）───────────────────────────
+  /// [card] 的别名。
+  static const Color surface = card;
 
-  /// 徽标：已完成（绿）。
-  static const Color badgeDoneBg = speakerGreenSoft;
-  static const Color badgeDoneFg = Color(0xFF3F7D52);
+  /// [orange] 的别名。
+  static const Color primary = orange;
 
-  /// 徽标：已总结 / 内容较长（橙）。
-  static const Color badgeOrangeBg = primarySoft;
-  static const Color badgeOrangeFg = primaryDeep;
+  /// [orangeDeep] 的别名。
+  static const Color primaryDeep = orangeDeep;
+
+  /// [body] 的别名。
+  static const Color ink2 = body;
+
+  /// [orangeSoft] 的别名。
+  static const Color soft = orangeSoft;
 }
 
-/// 圆角 token。
-abstract final class AppRadius {
-  /// Hero 卡（待机态录音卡）。
-  static const double hero = 28;
+/// 圆角（HTML `--radius-card` / `--radius-card2`）。
+class AppRadius {
+  const AppRadius._();
 
-  /// 转写卡 / 纪要卡 / 信息卡。
-  static const double card = 22;
+  /// 大卡片圆角（24）。
+  static const double card = 24;
 
-  /// 历史卡片。
-  static const double history = 18;
+  /// 次级卡片 / 列表卡圆角（20）。
+  static const double card2 = 20;
 
-  /// 麦克风主按钮（正圆，画布标注 64）。
-  static const double mic = 64;
+  /// 胶囊（999）。
+  static const double pill = 999;
 
-  /// 光晕（mic 外圈，画布标注 84）。
-  static const double halo = 84;
+  /// 小卡片（16，Toast / 命中条 / 命中片段）。
+  static const double md = 16;
 
-  /// 麦克风主按钮**实际直径**（由参考图实测：96 = 2×48）。
-  static const double micDiameter = 96;
+  /// 图标方块（10，设置行图标）。
+  static const double sm = 10;
 
-  /// 光晕**实际直径**（由参考图实测：168 = 2×84）。
-  static const double haloDiameter = 168;
-
-  /// TabBar Pill。
-  static const double pill = 36;
-
-  /// 分段控件轨道 / 选中项。
-  static const double track = 21;
-  static const double segment = 17;
-
-  /// 徽标。
-  static const double badge = 8;
-
-  /// InfoBar / 搜索框。
-  static const double infoBar = 14;
-  static const double search = 21;
-
-  /// 底部 CTA 大按钮。
-  static const double cta = 26;
+  /// 圆（999）。
+  static const double circle = 999;
 }
 
-/// 阴影 token（暖棕 + alpha）。
-abstract final class AppShadow {
-  /// Hero 卡：alpha 0.14，offset y=10，blur 30，spread −6。
-  static const List<BoxShadow> hero = <BoxShadow>[
-    BoxShadow(
-      color: Color(0x249E8066),
-      offset: Offset(0, 10),
-      blurRadius: 30,
-      spreadRadius: -6,
-    ),
-  ];
+/// 阴影（HTML 里出现的全部 box-shadow，逐一登记）。
+class AppShadow {
+  const AppShadow._();
 
-  /// 转写卡 / 纪要卡：alpha 0.12，offset y=8，blur 24，spread −6。
+  /// 卡片：`0 6px 18px rgba(58,42,32,.05)`。
   static const List<BoxShadow> card = <BoxShadow>[
-    BoxShadow(
-      color: Color(0x1F9E8066),
-      offset: Offset(0, 8),
-      blurRadius: 24,
-      spreadRadius: -6,
-    ),
+    BoxShadow(color: Color(0x0D3A2A20), blurRadius: 18, offset: Offset(0, 6)),
   ];
 
-  /// TabBar Pill：alpha 0.18，offset y=6，blur 18，spread −2。
+  /// TabBar：`0 10px 30px rgba(58,42,32,.10)`。
   static const List<BoxShadow> pill = <BoxShadow>[
-    BoxShadow(
-      color: Color(0x2E9E8066),
-      offset: Offset(0, 6),
-      blurRadius: 18,
-      spreadRadius: -2,
-    ),
+    BoxShadow(color: Color(0x1A3A2A20), blurRadius: 30, offset: Offset(0, 10)),
+  ];
+
+  /// 圆形图标按钮：`0 2px 8px rgba(58,42,32,.06)`。
+  static const List<BoxShadow> circleButton = <BoxShadow>[
+    BoxShadow(color: Color(0x0F3A2A20), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  /// 橙色主按钮：`0 10px 24px rgba(240,120,60,.35)`。
+  static const List<BoxShadow> orangeButton = <BoxShadow>[
+    BoxShadow(color: Color(0x59F0783C), blurRadius: 24, offset: Offset(0, 10)),
+  ];
+
+  /// 麦克风按钮：`0 16px 32px rgba(240,120,60,.38)`。
+  static const List<BoxShadow> mic = <BoxShadow>[
+    BoxShadow(color: Color(0x61F0783C), blurRadius: 32, offset: Offset(0, 16)),
+  ];
+
+  /// 选中 Tab / chip：`0 6px 16px rgba(240,120,60,.35)`。
+  static const List<BoxShadow> orangePill = <BoxShadow>[
+    BoxShadow(color: Color(0x59F0783C), blurRadius: 16, offset: Offset(0, 6)),
+  ];
+
+  /// 选中 chip：`0 4px 10px rgba(240,120,60,.3)`。
+  static const List<BoxShadow> chipOn = <BoxShadow>[
+    BoxShadow(color: Color(0x4DF0783C), blurRadius: 10, offset: Offset(0, 4)),
+  ];
+
+  /// 分段控件白片：`0 2px 8px rgba(58,42,32,.08)`。
+  static const List<BoxShadow> segment = <BoxShadow>[
+    BoxShadow(color: Color(0x143A2A20), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  /// 头像：`0 4px 12px rgba(240,120,60,.3)`。
+  static const List<BoxShadow> avatar = <BoxShadow>[
+    BoxShadow(color: Color(0x4DF0783C), blurRadius: 12, offset: Offset(0, 4)),
+  ];
+
+  /// Toast：`0 12px 28px rgba(200,90,30,.22)`。
+  static const List<BoxShadow> toast = <BoxShadow>[
+    BoxShadow(color: Color(0x38C85A1E), blurRadius: 28, offset: Offset(0, 12)),
+  ];
+
+  /// 悬浮 FAB：`0 6px 16px rgba(58,42,32,.15)`。
+  static const List<BoxShadow> fab = <BoxShadow>[
+    BoxShadow(color: Color(0x263A2A20), blurRadius: 16, offset: Offset(0, 6)),
+  ];
+
+  /// 空态 CTA：`0 8px 20px rgba(240,120,60,.35)`。
+  static const List<BoxShadow> emptyCta = <BoxShadow>[
+    BoxShadow(color: Color(0x59F0783C), blurRadius: 20, offset: Offset(0, 8)),
   ];
 }
 
-/// 间距 token。
-abstract final class AppSpacing {
-  /// 页面左右边距。
+/// 间距（HTML 实测值）。
+class AppSpacing {
+  const AppSpacing._();
+
+  /// 页面左右边距（20）。
   static const double page = 20;
 
-  /// 卡片内边距（小）。
-  static const double cardSm = 16;
-
-  /// 卡片内边距（标准）。
-  static const double card = 20;
-
-  /// 卡片内边距（大）。
-  static const double cardLg = 22;
-
-  /// 内容区块纵向节奏（小）。
-  static const double gapSm = 12;
-
-  /// 内容区块纵向节奏（标准）。
-  static const double gap = 16;
-
-  /// 内容区块纵向节奏（大）。
-  static const double gapLg = 22;
-
-  /// TabBar 高度（含 Pill 62 + 上下留白）。
-  static const double tabBar = 95;
-
-  /// 最小触控目标。
+  /// 最小可点区域（44）。
   static const double minTap = 44;
+
+  /// 状态栏高度（47）。
+  static const double statusBar = 47;
+
+  /// TabBar 高度（64）。
+  static const double tabBar = 64;
+
+  /// TabBar 距底部（12）。
+  static const double tabBarBottom = 12;
+
+  /// TabBar 占位总高（64 + 12 + 12 = 88，对应 HTML `.tabbar-spacer`）。
+  static const double tabBarSpacer = 88;
+
+  /// 录音页底部占位（78）。
+  static const double tabBarSpacerCompact = 78;
+
+  /// 底部 CTA 距底（24）。
+  static const double ctaBottom = 24;
+
+  /// 搜索框高度（48）。
+  static const double searchBar = 48;
+
+  /// 信息条高度（48）。
+  static const double infoBar = 48;
 }
 
-/// 字阶 token（Noto Sans SC）。
+/// 字阶（HTML 实测字号；字族统一 Noto Sans SC）。
+class AppTextStyles {
+  const AppTextStyles._();
+
+  /// 字族（与 `pubspec.yaml` 的 fonts 声明一致）。
+  static const String fontFamily = 'NotoSansSC';
+
+  static const TextTheme _base = TextTheme();
+
+  /// 页面大标题（34 / w700）。
+  static TextStyle get pageTitle => _make(34, FontWeight.w700, color: AppColors.ink, letterSpacing: 0.5);
+
+  /// 卡内主标题（22 / w700）。
+  static TextStyle get cardTitle => _make(22, FontWeight.w700, color: AppColors.ink);
+
+  /// 区块标题（20 / w700）。
+  static TextStyle get sectionTitle => _make(20, FontWeight.w700, color: AppColors.ink);
+
+  /// 卡片头部（17 / w700）。
+  static TextStyle get cardHead => _make(17, FontWeight.w700, color: AppColors.ink);
+
+  /// 历史卡标题（17 / w600）。
+  static TextStyle get itemTitle => _make(17, FontWeight.w600, color: AppColors.ink);
+
+  /// 计时器（46 / w700 / 等宽数字）。
+  static TextStyle get clock => _make(46, FontWeight.w700, color: AppColors.ink, letterSpacing: 1);
+
+  /// 统计数值（26 / w700 / 等宽数字）。
+  static TextStyle get statValue => _make(26, FontWeight.w700, color: AppColors.ink);
+
+  /// 正文（15 / 行高 1.62）。
+  static TextStyle get body =>
+      _make(15, FontWeight.w400, color: AppColors.body, height: 1.62);
+
+  /// 摘要正文（15 / 行高 1.75）。
+  static TextStyle get abstract =>
+      _make(15, FontWeight.w400, color: AppColors.body, height: 1.75);
+
+  /// 分节小标题（15 / w700）。
+  static TextStyle get subHead => _make(15, FontWeight.w700, color: AppColors.ink);
+
+  /// 设置项标题（15 / w600）。
+  static TextStyle get settingTitle => _make(15, FontWeight.w600, color: AppColors.ink);
+
+  /// 通用 15 号字。
+  static TextStyle get body15 => _make(15, FontWeight.w400, color: AppColors.body);
+
+  /// 按钮文字（17 / w700）。
+  static TextStyle get button => _make(17, FontWeight.w700, color: Colors.white);
+
+  /// 次级按钮文字（16 / w600）。
+  static TextStyle get buttonSecondary => _make(16, FontWeight.w600, color: AppColors.ink);
+
+  /// 强调操作文字（14 / w600，橙色）。
+  static TextStyle get action => _make(14, FontWeight.w600, color: AppColors.orange);
+
+  /// 元信息（13）。
+  static TextStyle get meta => _make(13, FontWeight.w400, color: AppColors.muted);
+
+  /// 元信息（12）。
+  static TextStyle get metaSmall => _make(12, FontWeight.w400, color: AppColors.muted);
+
+  /// 徽标（11 / w600）。
+  static TextStyle get badge => _make(11, FontWeight.w600, color: AppColors.orange);
+
+  /// chip（13 / w500）。
+  static TextStyle get chip => _make(13, FontWeight.w500, color: AppColors.muted);
+
+  /// 说话人 chip（12 / w500）。
+  static TextStyle get speakerChip => _make(12, FontWeight.w500, color: AppColors.muted);
+
+  /// 版本号（12）。
+  static TextStyle get version => _make(12, FontWeight.w400, color: AppColors.faint);
+
+  /// 问候语（15）。
+  static TextStyle get greeting => _make(15, FontWeight.w400, color: AppColors.muted);
+
+  /// 输入框（14）。
+  static TextStyle get input => _make(14, FontWeight.w400, color: AppColors.ink);
+
+  static TextStyle _make(
+    double size,
+    FontWeight weight, {
+    Color? color,
+    double? height,
+    double letterSpacing = 0,
+  }) {
+    return TextStyle(
+      fontFamily: fontFamily,
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      height: height,
+      letterSpacing: letterSpacing,
+      fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+    );
+  }
+
+  /// 占位：保留对 `TextTheme` 的引用，避免分析器误报未使用。
+  static TextTheme get base => _base;
+}
+
+/// 构造应用主题。
 ///
-/// 设计稿标注 400 / 500 / 600 / 700 四档；随包只有 400 / 600 两个字面，
-/// 其余由 Flutter 就近匹配：`w500 → 400`、`w700 → 600`。
-abstract final class AppTextStyles {
-  /// 录音计时器（48 Bold）。
-  static const TextStyle timer = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 48,
-    fontWeight: FontWeight.w700,
-    height: 1.05,
-    letterSpacing: -0.5,
-    color: AppColors.ink,
-  );
-
-  /// 页面大标题（22 Bold）。
-  static const TextStyle pageTitle = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 22,
-    fontWeight: FontWeight.w700,
-    height: 1.2,
-    color: AppColors.ink,
-  );
-
-  /// 卡片主文案（17 SemiBold）。
-  static const TextStyle heroTitle = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 17,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    color: AppColors.ink,
-  );
-
-  /// 卡片标题（14 SemiBold）。
-  static const TextStyle itemTitle = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    color: AppColors.ink,
-  );
-
-  /// 片段正文（13 Medium → 随包 400）。
-  static const TextStyle body = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w500,
-    height: 1.55,
-    color: AppColors.ink,
-  );
-
-  /// 分段控件 / 小标题（13 SemiBold）。
-  static const TextStyle label = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    color: AppColors.ink,
-  );
-
-  /// 元信息（12 Regular，暖灰褐）。
-  static const TextStyle meta = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 12,
-    fontWeight: FontWeight.w400,
-    height: 1.4,
-    color: AppColors.ink2,
-  );
-
-  /// 次级元信息（11 Regular）。
-  static const TextStyle metaSmall = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 11,
-    fontWeight: FontWeight.w400,
-    height: 1.4,
-    color: AppColors.ink2,
-  );
-
-  /// 徽标（10 SemiBold）。
-  static const TextStyle badge = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 10,
-    fontWeight: FontWeight.w600,
-    height: 1.2,
-  );
-
-  /// 链接 / 强调文字（12 SemiBold，深橙）。
-  static const TextStyle link = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    color: AppColors.primaryDeep,
-  );
-
-  /// 主按钮文字（13 SemiBold，白）。
-  static const TextStyle button = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    height: 1.2,
-    color: Colors.white,
-  );
-
-  /// 次按钮文字（13 SemiBold，暖棕）。
-  static const TextStyle buttonGhost = TextStyle(
-    fontFamily: kFontFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    height: 1.2,
-    color: AppColors.ink,
-  );
-}
-
-/// 构造全局 [ThemeData]。
+/// `useMaterial3` 保持开启；主色由 [AppColors.orange] 生成，
+/// 但所有可见颜色都由组件显式取自 [AppColors]，不依赖 Material 自动推导。
 ThemeData buildAppTheme() {
   final ColorScheme scheme = ColorScheme.fromSeed(
-    seedColor: AppColors.primary,
-  ).copyWith(
-    primary: AppColors.primary,
-    onPrimary: Colors.white,
-    primaryContainer: AppColors.primarySoft,
-    onPrimaryContainer: AppColors.primaryDeep,
-    secondary: AppColors.primaryDeep,
-    onSecondary: Colors.white,
-    surface: AppColors.surface,
-    onSurface: AppColors.ink,
-    surfaceContainerHighest: AppColors.trackSoft,
-    outline: AppColors.hairline,
-    outlineVariant: AppColors.hairline,
-    error: AppColors.recRed,
+    seedColor: AppColors.orange,
+    brightness: Brightness.light,
+    surface: AppColors.card,
   );
-
-  final TextTheme textTheme = const TextTheme(
-    displayLarge: AppTextStyles.timer,
-    displayMedium: AppTextStyles.timer,
-    headlineSmall: AppTextStyles.pageTitle,
-    titleLarge: AppTextStyles.pageTitle,
-    titleMedium: AppTextStyles.heroTitle,
-    titleSmall: AppTextStyles.itemTitle,
-    bodyLarge: AppTextStyles.body,
-    bodyMedium: AppTextStyles.body,
-    bodySmall: AppTextStyles.meta,
-    labelLarge: AppTextStyles.label,
-    labelMedium: AppTextStyles.meta,
-    labelSmall: AppTextStyles.badge,
-  ).apply(
-    fontFamily: kFontFamily,
-    bodyColor: AppColors.ink,
-    displayColor: AppColors.ink,
-  );
-
   return ThemeData(
     useMaterial3: true,
-    colorScheme: scheme,
-    fontFamily: kFontFamily,
+    fontFamily: AppTextStyles.fontFamily,
     scaffoldBackgroundColor: AppColors.bg,
-    canvasColor: AppColors.bg,
-    textTheme: textTheme,
-    splashFactory: InkRipple.splashFactory,
-    dividerTheme: const DividerThemeData(
-      color: AppColors.hairline,
-      thickness: 1,
-      space: 1,
-    ),
+    colorScheme: scheme,
+    splashFactory: InkSparkle.splashFactory,
+    dividerColor: AppColors.line,
     appBarTheme: const AppBarTheme(
-      backgroundColor: AppColors.bg,
-      surfaceTintColor: Colors.transparent,
+      backgroundColor: Colors.transparent,
       elevation: 0,
-      centerTitle: true,
-      titleTextStyle: AppTextStyles.itemTitle,
+      scrolledUnderElevation: 0,
     ),
-    iconTheme: const IconThemeData(color: AppColors.ink, size: 20),
-    tooltipTheme: const TooltipThemeData(
-      decoration: BoxDecoration(
-        color: AppColors.ink,
-        borderRadius: BorderRadius.all(Radius.circular(8)),
-      ),
-      textStyle: TextStyle(
-        fontFamily: kFontFamily,
-        fontSize: 11,
-        color: Colors.white,
-      ),
-    ),
+    textTheme: ThemeData.light().textTheme.apply(fontFamily: AppTextStyles.fontFamily),
   );
 }
