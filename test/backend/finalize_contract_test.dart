@@ -189,6 +189,9 @@ class _BlockingSubmitEngine implements Engine {
       const Stream<StreamEvent>.empty();
 
   @override
+  bool isRealtimeRunning(String sessionId) => false;
+
+  @override
   bool feedRealtime(String sessionId, Uint8List pcm16le) => false;
 
   @override

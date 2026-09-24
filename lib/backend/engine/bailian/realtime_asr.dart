@@ -46,6 +46,25 @@ enum RealtimeState {
   closed,
 }
 
+/// 携带可读原因的实时链路异常（`toString()` 即中文提示，UI/日志可直接展示）。
+class RealtimeFailure implements Exception {
+  /// 构造异常。
+  RealtimeFailure(this.message);
+
+  /// 可读原因。
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// 实时任务启动超时：从发起连接到收到 `task-started` 的容忍上限。
+///
+/// 历史 Bug：握手后服务端**既不回 `task-started` 也不报错**时，会话会永远停在
+/// `connecting`，音频帧只进 `_pending`，UI 却毫无反馈（「在收音但没有转写」）。
+/// 超过该时长仍未就绪，即判定失败并显式上报。
+const Duration kRealtimeStartTimeout = Duration(seconds: 10);
+
 /// WebSocket 的最小抽象（便于单测注入替身，不触网）。
 abstract class RealtimeSocket {
   /// 入站消息流（文本帧为 `String`）。
@@ -167,10 +186,17 @@ class RealtimeTask {
       headers['X-DashScope-WorkSpace'] = cfg.dashscopeWorkspaceId;
     }
     try {
+      logInfo('asr', '正在连接实时服务 task=$taskId url=$url');
       _socket = await _socketFactory(url, headers);
     } catch (error) {
       state = RealtimeState.failed;
-      handlers.onError?.call(error);
+      // 连接阶段失败（DNS / TLS / 401 鉴权 / 域名错误）必须带上 URL 与原因，
+      // 否则「音频在收音却没有转写」将无从定位。
+      logWarn(
+        'asr',
+        '实时连接失败 task=$taskId url=$url 原因=${error.runtimeType}: $error',
+      );
+      handlers.onError?.call(RealtimeFailure('连接失败（$url）：$error'));
       _resolve();
       return;
     }
@@ -241,13 +267,19 @@ class RealtimeTask {
         break;
       case 'task-failed':
         state = RealtimeState.failed;
-        handlers.onFailed?.call(
-          (header['error_code'] as String?) ?? WsError.engine,
-          (header['error_message'] as String?) ?? '实时任务失败',
+        final String code = (header['error_code'] as String?) ?? WsError.engine;
+        final String message = (header['error_message'] as String?) ?? '实时任务失败';
+        // 服务端错误体（鉴权失败 / 模型不存在 / 参数非法）完整落日志，便于一击定位。
+        logWarn(
+          'asr',
+          '实时任务失败 task=$taskId code=$code message=$message 原始=$data',
         );
+        handlers.onFailed?.call(code, message);
         _resolve();
         break;
       default:
+        // 未识别事件（含协议升级新增字段）留痕，但不打扰用户。
+        logDebug('asr', '实时未识别事件 task=$taskId event=$event');
         break;
     }
   }
@@ -327,6 +359,7 @@ class BailianRealtimeSession {
     required this.onError,
     this.maxRestart = 3,
     this.socketFactory,
+    this.startTimeout = kRealtimeStartTimeout,
   }) : chunkBytes = ((cfg.realtimeFrameMs / 1000) * cfg.realtimeSampleRate).round() * 2,
        ringBytes = ((cfg.realtimeRingMs / 1000) * cfg.realtimeSampleRate).round() * 2;
 
@@ -351,6 +384,9 @@ class BailianRealtimeSession {
   /// 连接工厂（测试注入）。
   final RealtimeSocketFactory? socketFactory;
 
+  /// 启动超时（收到 `task-started` 的容忍上限；单测可缩短）。
+  final Duration startTimeout;
+
   /// 向百炼单次下发的字节数（100ms@16k 单声道 16bit = 3200B）。
   final int chunkBytes;
 
@@ -363,10 +399,14 @@ class BailianRealtimeSession {
   final Map<int, int> _revById = <int, int>{};
 
   RealtimeTask? _task;
+  Timer? _startTimer;
   bool _closed = false;
   bool _finishing = false;
   bool _restarted = false;
   int _restartCount = 0;
+
+  /// 最近一次失败原因（诊断用；成功启动后清空）。
+  String? lastError;
 
   /// 会议时钟（已推送的音频毫秒数）。
   int meetingClockMs = 0;
@@ -393,11 +433,39 @@ class BailianRealtimeSession {
       socketFactory: socketFactory,
     );
     _task = task;
+    // 启动看门狗：握手后若迟迟不 `task-started`（服务端静默 / 连接被静默关闭），
+    // 到点即判失败并上报，避免音频帧无声无息地堆在 `_pending` 里。
+    _startTimer?.cancel();
+    _startTimer = Timer(startTimeout, _onStartTimeout);
     await task.start();
+  }
+
+  /// 启动超时：仍未就绪即判失败（含连接被静默关闭的情形）。
+  void _onStartTimeout() {
+    _startTimer = null;
+    final RealtimeTask? task = _task;
+    if (_closed || _finishing) return;
+    // 已就绪 / 已经明确失败（连接失败或 task-failed 已上报）→ 不重复告警。
+    if (task == null ||
+        task.state == RealtimeState.running ||
+        task.state == RealtimeState.failed) {
+      return;
+    }
+    final String reason =
+        '实时转写连接超时（${startTimeout.inSeconds}s 内未就绪，state=${task.state.name}）';
+    lastError = reason;
+    logWarn('asr', '$reason url=${task.url} session=$sessionId');
+    onError(RealtimeFailure('$reason，请依赖会后终稿'));
+    // 中止这条无望的连接；后续帧不再尝试下发（已在 UI 明确告知）。
+    task.abort();
   }
 
   /// 任务就绪：置运行态；重连时先回放环形缓冲，再接管新帧。
   void _onStarted() {
+    // 已就绪 → 撤下启动看门狗。
+    _startTimer?.cancel();
+    _startTimer = null;
+    lastError = null;
     if (_restarted && _ring.isNotEmpty) {
       final BytesBuilder replay = BytesBuilder(copy: false);
       for (final Uint8List chunk in _ring) {
@@ -524,6 +592,8 @@ class BailianRealtimeSession {
     final RealtimeTask? task = _task;
     if (task == null) return;
     _finishing = true;
+    _startTimer?.cancel();
+    _startTimer = null;
     _drain();
     if (_pending.isNotEmpty && task.state == RealtimeState.running) {
       task.sendAudio(Uint8List.fromList(_pending));
@@ -539,6 +609,8 @@ class BailianRealtimeSession {
   /// 关闭（含清理）。
   void close() {
     _closed = true;
+    _startTimer?.cancel();
+    _startTimer = null;
     final RealtimeTask? task = _task;
     _task = null;
     task?.abort();

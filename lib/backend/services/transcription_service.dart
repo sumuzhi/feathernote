@@ -170,8 +170,31 @@ class TranscriptionService {
   final StreamController<TranscriptEvent> _events = StreamController<TranscriptEvent>.broadcast();
   final Map<String, _SessionRuntime> _runtimes = <String, _SessionRuntime>{};
 
+  /// 「会话不存在导致丢帧」的已告警会话集合（每个会话只告警一次，防刷屏）。
+  final Set<String> _missingRuntimeWarned = <String>{};
+
+  /// 最近一次引擎错误（供自检面板展示；无错误为 null）。
+  String? _lastEngineError;
+
   /// 对外事件流（UI / debug 适配层订阅）。
   Stream<TranscriptEvent> get events => _events.stream;
+
+  /// 最近一次引擎错误文案（自检用；无错误返回 null）。
+  String? get lastEngineError => _lastEngineError;
+
+  /// 指定会话的实时识别是否已「就绪」（收到 `task-started`）。
+  ///
+  /// 这是区分「音频没到后端」与「到了但会话没连上」的关键读数。
+  bool isRealtimeRunning(String? sessionId) =>
+      sessionId == null ? false : engine.isRealtimeRunning(sessionId);
+
+  /// 指定会话后端实际收到的音频帧数（诊断用；会话不存在返回 0）。
+  int framesForSession(String? sessionId) =>
+      sessionId == null ? 0 : (_runtimes[sessionId]?.frameCount ?? 0);
+
+  /// 指定会话已产出的实时句子数（诊断用；会话不存在返回 0）。
+  int segmentCountForSession(String? sessionId) =>
+      sessionId == null ? 0 : (sessionStore.get(sessionId)?.segments.length ?? 0);
 
   /// 后置注入终稿轮询器。
   void attachFinalizePoller(FinalizePoller poller) => finalizePoller = poller;
@@ -193,6 +216,8 @@ class TranscriptionService {
     );
     final _SessionRuntime runtime = await _SessionRuntime.open(meetingId);
     _runtimes[sessionId] = runtime;
+    _missingRuntimeWarned.remove(sessionId);
+    _lastEngineError = null;
 
     final StreamSubscription<StreamEvent> subscription = engine
         .startRealtimeSession(sessionId: sessionId, sampleRate: sampleRate)
@@ -200,6 +225,7 @@ class TranscriptionService {
           (StreamEvent event) => _handleRealtimeEvent(sessionId, meetingId, event),
           onError: (Object error) {
             logWarn('transcription', '实时引擎错误 session=$sessionId：$error');
+            _lastEngineError = error.toString();
             _emit(
               EngineErrorEvent(code: 'E_ENGINE', message: error.toString()),
             );
@@ -223,8 +249,21 @@ class TranscriptionService {
   /// 上送一帧音频。
   void onAudioFrame(String sessionId, AudioFrame frame) {
     final _SessionRuntime? runtime = _runtimes[sessionId];
-    if (runtime == null) return;
-    if (runtime.pcmBytes == 0) {
+    if (runtime == null) {
+      // 历史 Bug：这里曾 `return` 吃掉帧且**不留任何痕迹**，导致「麦克风在响、
+      // 波形在动（波形由本地 PCM 驱动），但后端一句都没有」难以定位。
+      // 现在：首次告警写日志并上报一次 UI 错误，之后的同会话重复帧只写 debug。
+      if (_missingRuntimeWarned.add(sessionId)) {
+        final String message = '实时会话未建立，音频未上送（session=$sessionId）';
+        logWarn('transcription', '$message：帧已丢弃（同会话后续不再重复告警）');
+        _lastEngineError = message;
+        _emit(EngineErrorEvent(code: 'E_NO_SESSION', message: message));
+      } else {
+        logDebug('transcription', '会话不存在，继续丢弃音频帧 session=$sessionId');
+      }
+      return;
+    }
+    if (runtime.frameCount == 0) {
       // 每个会话只打一次：确认「Dart 侧上送的帧」真的到了后端。
       logInfo(
         'transcription',
@@ -234,6 +273,7 @@ class TranscriptionService {
     // U6：边录边追加写，不整份驻留内存。
     runtime.sink.add(frame.pcm);
     runtime.pcmBytes += frame.pcm.length;
+    runtime.frameCount += 1;
     final SessionState? state = sessionStore.get(sessionId);
     if (state != null) {
       state.tracker.accept(frame.seq, frame.startMs, frame.endMs);
@@ -248,6 +288,7 @@ class TranscriptionService {
   /// 关闭实时会话（可先 flush 收尾）。
   Future<void> closeSession(String sessionId, {bool flush = false}) async {
     final _SessionRuntime? runtime = _runtimes.remove(sessionId);
+    _missingRuntimeWarned.remove(sessionId);
     if (runtime == null) return;
     if (flush) {
       try {
@@ -317,7 +358,8 @@ class TranscriptionService {
     logInfo(
       'transcription',
       '会议已停止 meeting=$meetingId 片段=${normalized.length} 时长=${updated.durationMs}ms '
-      'PCM=${runtime?.pcmBytes ?? 0}B WAV=${audioKey == null ? '未归档' : '已归档'}',
+      'PCM=${runtime?.pcmBytes ?? 0}B 帧=${runtime?.frameCount ?? 0} '
+      'WAV=${audioKey == null ? '未归档' : '已归档'}',
     );
 
     // 3) 触发终稿链路（失败不影响停止流程本身）。
@@ -448,6 +490,9 @@ class _SessionRuntime {
 
   /// 已写入的 PCM 字节数。
   int pcmBytes = 0;
+
+  /// 后端实际收到的音频帧数（诊断用）。
+  int frameCount = 0;
 
   /// PCM 写入器。
   IOSink get sink => _sink;

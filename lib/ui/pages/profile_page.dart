@@ -4,6 +4,8 @@
 /// 不是写死的演示值；开关为本地偏好（暂未落库）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +31,24 @@ class ProfilePage extends ConsumerStatefulWidget {
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _diarization = true;
   bool _keepAudio = false;
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // 自检面板需要「活读数」：录音中每秒刷新一次，便于用户/我们对照
+    // 「帧数 / 会话是否就绪 / 已产句子数」实时定位链路断点。
+    _tick = Timer.periodic(const Duration(seconds: 1), (Timer _) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _tick = null;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +57,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         asyncMeetings.value ?? const <MeetingSummary>[];
     final AsyncValue<HealthStatus> asyncHealth = ref.watch(healthProvider);
     final HealthStatus? health = asyncHealth.value;
+    final RealtimeDiagnostics diagnostics =
+        ref.watch(backendProvider).value?.diagnostics ??
+            const RealtimeDiagnostics.empty();
+    final String? degradedReason =
+        ref.watch(backendBundleProvider).value?.degradedReason;
     final AppConfigView config = _configView();
 
     int totalMs = 0;
@@ -123,6 +148,45 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             ),
           ],
         ),
+        ProfileSectionView(
+          title: '实时链路自检',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.cable_rounded,
+              title: '引擎 / 降级',
+              subtitle: degradedReason == null ? '实时链路 · 端化运行' : '已降级：$degradedReason',
+              value: diagnostics.engineName,
+              onTap: () => _toast('引擎：${diagnostics.engineName}'),
+            ),
+            ProfileSettingView(
+              icon: Icons.bolt_rounded,
+              title: '实时会话',
+              subtitle: diagnostics.active
+                  ? '会话 ${_short(diagnostics.sessionId)} · 会议 ${_short(diagnostics.meetingId)}'
+                  : '当前无活动录音',
+              value: diagnostics.realtimeRunning ? '已就绪' : '未连接',
+              onTap: () => _toast(
+                diagnostics.realtimeRunning ? '实时会话已就绪（收到 task-started）' : '实时会话未连接',
+              ),
+            ),
+            ProfileSettingView(
+              icon: Icons.graphic_eq_rounded,
+              title: '已收帧 / 落盘',
+              subtitle: '后端实际收到的音频证据',
+              value: '${diagnostics.framesReceived} 帧 · ${diagnostics.pcmBytes ~/ 1024}KB',
+              onTap: () => _toast('帧=${diagnostics.framesReceived} · PCM=${diagnostics.pcmBytes}B'),
+            ),
+            ProfileSettingView(
+              icon: Icons.subtitles_rounded,
+              title: '已产句子',
+              subtitle: diagnostics.lastError == null
+                  ? '实时转写产出'
+                  : '最近错误：${_short(diagnostics.lastError)}',
+              value: '${diagnostics.sentenceCount} 句',
+              onTap: () => _toast('已产 ${diagnostics.sentenceCount} 句'),
+            ),
+          ],
+        ),
       ],
       versionText: '版本 ${config.version} · 端化运行',
       onSettings: () => _toast('设置'),
@@ -165,6 +229,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
   void _toast(String text) =>
       ref.read(toastProvider.notifier).show(text, tone: ToastTone.info);
+
+  /// 把过长的 ID / 错误文案压缩到一行可读（自检面板用）。
+  static String _short(String? value, {int max = 28}) {
+    if (value == null || value.isEmpty) return '—';
+    return value.length <= max ? value : '${value.substring(0, max)}…';
+  }
 }
 
 /// 「我的」页展示用的配置投影（避免直接依赖 `AppConfig` 的 40 个字段）。

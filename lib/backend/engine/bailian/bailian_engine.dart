@@ -65,6 +65,10 @@ class BailianEngine implements Engine {
   }
 
   @override
+  bool isRealtimeRunning(String sessionId) =>
+      _sessions[sessionId]?.session.isRunning ?? false;
+
+  @override
   bool feedRealtime(String sessionId, Uint8List pcm16le) {
     final _SessionBinding? binding = _sessions[sessionId];
     if (binding == null) return false;

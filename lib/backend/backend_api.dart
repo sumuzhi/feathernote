@@ -61,6 +61,66 @@ class HealthStatus {
   };
 }
 
+/// 实时链路自检快照（「我的」页 debug 面板读取）。
+///
+/// 一眼区分两类故障：
+/// - `framesReceived == 0` → **帧没到后端**（麦克风 / 上送链路问题）；
+/// - `framesReceived > 0 && sentenceCount == 0` → **帧到了但服务端不返结果**
+///   （`realtimeRunning == false` 即会话未就绪：鉴权 / 模型 / 域名问题）。
+class RealtimeDiagnostics {
+  /// 构造快照。
+  const RealtimeDiagnostics({
+    required this.engineName,
+    required this.active,
+    required this.realtimeRunning,
+    required this.framesReceived,
+    required this.pcmBytes,
+    required this.sentenceCount,
+    this.sessionId,
+    this.meetingId,
+    this.lastError,
+  });
+
+  /// 空快照（未装配 / 未开始录音）。
+  const RealtimeDiagnostics.empty()
+    : engineName = '—',
+      active = false,
+      realtimeRunning = false,
+      framesReceived = 0,
+      pcmBytes = 0,
+      sentenceCount = 0,
+      sessionId = null,
+      meetingId = null,
+      lastError = null;
+
+  /// 引擎名（`bailian` / `mock`）。
+  final String engineName;
+
+  /// 是否处于活动录音会话中。
+  final bool active;
+
+  /// 会话是否已就绪（收到服务端 `task-started`）。
+  final bool realtimeRunning;
+
+  /// 后端实际收到的音频帧数。
+  final int framesReceived;
+
+  /// 后端已落盘的 PCM 字节数。
+  final int pcmBytes;
+
+  /// 已产出的实时句子数。
+  final int sentenceCount;
+
+  /// 活动会话 ID。
+  final String? sessionId;
+
+  /// 活动会议 ID。
+  final String? meetingId;
+
+  /// 最近一次引擎错误。
+  final String? lastError;
+}
+
 /// 后端门面抽象。
 abstract class BackendApi {
   /// 初始化（建库 / 预热）。
@@ -74,6 +134,9 @@ abstract class BackendApi {
   /// 录音链路排障时用它对齐「Dart 侧上送了多少」与「后端真正收下并写盘多少」，
   /// 从而区分「麦克风没出数据」与「数据在传输/写入环节丢了」。
   int get activePcmBytes => 0;
+
+  /// 实时链路自检快照（**仅诊断用**；默认空快照，真实读数由实现给出）。
+  RealtimeDiagnostics get diagnostics => const RealtimeDiagnostics.empty();
 
   // ── 会议 CRUD（对应 /api/meetings*）──
 
@@ -286,6 +349,19 @@ class BackendApiImpl implements BackendApi {
 
   @override
   int get activePcmBytes => transcriptionService.pcmBytesForSession(_activeSessionId);
+
+  @override
+  RealtimeDiagnostics get diagnostics => RealtimeDiagnostics(
+    engineName: engine.name,
+    active: _activeSessionId != null,
+    realtimeRunning: transcriptionService.isRealtimeRunning(_activeSessionId),
+    framesReceived: transcriptionService.framesForSession(_activeSessionId),
+    pcmBytes: transcriptionService.pcmBytesForSession(_activeSessionId),
+    sentenceCount: transcriptionService.segmentCountForSession(_activeSessionId),
+    sessionId: _activeSessionId,
+    meetingId: _activeMeetingId,
+    lastError: transcriptionService.lastEngineError,
+  );
 
   @override
   Future<void> stopRecording(String meetingId) async {

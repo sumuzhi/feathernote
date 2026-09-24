@@ -78,6 +78,12 @@ abstract class Engine {
   /// 开启实时识别会话，返回事件流；调用方负责 [feedRealtime] 喂音频。
   Stream<StreamEvent> startRealtimeSession({required String sessionId, required int sampleRate});
 
+  /// 指定会话是否已「就绪」（已收到服务端 `task-started`，可接收音频）。
+  ///
+  /// 这是诊断「音频在收音但没有转写」的关键读数：为 false 时帧只会被缓冲，
+  /// 不会有任何句子产出。
+  bool isRealtimeRunning(String sessionId);
+
   /// 喂一包 PCM 到指定实时会话；返回是否实际发送。
   bool feedRealtime(String sessionId, Uint8List pcm16le);
 

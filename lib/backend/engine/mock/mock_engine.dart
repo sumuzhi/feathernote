@@ -54,6 +54,9 @@ class MockEngine implements Engine {
   }
 
   @override
+  bool isRealtimeRunning(String sessionId) => _sessions.containsKey(sessionId);
+
+  @override
   bool feedRealtime(String sessionId, Uint8List pcm16le) {
     final _MockSession? session = _sessions[sessionId];
     if (session == null) return false;
