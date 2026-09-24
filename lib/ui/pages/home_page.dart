@@ -58,7 +58,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (!mounted) return;
     if (meetingId != null) {
       context.go('/meeting/$meetingId');
+      return;
     }
+    // 兜底：理论上录音中必有 meetingId；若异常为空，也要给用户明确去处。
+    ref.read(toastProvider.notifier).show(
+          '本次录音未生成会议记录，请到历史页查看',
+          tone: ToastTone.warning,
+        );
+    context.go('/history');
   }
 
   Future<void> _close() async {

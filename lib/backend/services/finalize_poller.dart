@@ -84,13 +84,19 @@ class FinalizePoller {
 
   /// 启动终稿链路（**并发幂等**）。
   ///
-  /// 返回时保证 `finalize_status='pending'` 已落盘；上传 / 提交失败则抛错。
+  /// 契约：**返回时只保证 `finalize_status='pending'` 已落盘**，
+  /// 上传整段 WAV / 提交 filetrans / 轮询全部在后台继续，不阻塞调用方。
+  ///
+  /// 为什么必须这样：停录路径如果把「上传 + 提交」await 在关键路径上，
+  /// 弱网或大文件时 UI 的「结束并生成」会一直转圈（`uploadTimeoutMs` 默认 120s）。
+  /// 因此这里在 pending 落盘后立即 complete；只有「会议不存在 / pending 落盘失败」
+  /// 这类**同步可判定**的错误才通过返回的 Future 抛出。
   Future<String> start(String meetingId, {required String wavPath, bool diarization = true}) {
     final Future<String>? existing = _inflight[meetingId];
     if (existing != null) return existing;
 
-    final Completer<String> deferred = Completer<String>();
-    final Future<String> submitted = deferred.future;
+    final Completer<String> accepted = Completer<String>();
+    final Future<String> submitted = accepted.future;
     _inflight[meetingId] = submitted;
 
     void release() {
@@ -107,9 +113,18 @@ class FinalizePoller {
             meeting.copyWith(finalizeStatus: FinalizeStatus.pending),
           );
           onProgress?.call(meetingId, 'pending', null);
-          await _run(meetingId, wavPath, diarization, deferred);
+          // 2) 契约点：pending 已落盘 → 立刻交还控制权（taskId 由进度回调补全）。
+          if (!accepted.isCompleted) accepted.complete('');
+          // 3) 上传 / 提交 / 轮询后台化。
+          await _run(meetingId, wavPath, diarization);
         } catch (error) {
-          if (!deferred.isCompleted) deferred.completeError(error);
+          if (!accepted.isCompleted) {
+            accepted.completeError(error);
+          }
+          logWarn('finalize', '终稿链路启动失败 meeting=$meetingId：$error');
+          await _persistFailed(meetingId, error.toString());
+          onProgress?.call(meetingId, 'failed', null);
+          onFailed?.call(meetingId, error);
         } finally {
           release();
         }
@@ -118,12 +133,8 @@ class FinalizePoller {
     return submitted;
   }
 
-  Future<void> _run(
-    String meetingId,
-    String wavPath,
-    bool diarization,
-    Completer<String> deferred,
-  ) async {
+  /// 后台执行段：上传 → 提交 → 轮询 → 落盘 / 广播。不参与 [start] 的返回契约。
+  Future<void> _run(String meetingId, String wavPath, bool diarization) async {
     try {
       final String taskId = await _withRetry<String>(
         () => engine.submitFiletrans(wavPathOrUrl: wavPath, diarization: diarization),
@@ -133,7 +144,7 @@ class FinalizePoller {
       );
       _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'pending');
       logInfo('finalize', 'filetrans 已提交 meeting=$meetingId task=$taskId');
-      if (!deferred.isCompleted) deferred.complete(taskId);
+      onProgress?.call(meetingId, 'pending', taskId);
 
       final FiletransResult result = await _withRetry<FiletransResult>(
         () => engine.waitFiletrans(taskId, interval: Duration(milliseconds: cfg.filetransPollIntervalMs)),
@@ -158,7 +169,6 @@ class FinalizePoller {
         status: 'failed',
         error: message,
       );
-      if (!deferred.isCompleted) deferred.completeError(error);
       await _persistFailed(meetingId, message);
       onProgress?.call(meetingId, 'failed', null);
       onFailed?.call(meetingId, error);

@@ -44,6 +44,12 @@ const int kMicActualSampleRateHz = int.fromEnvironment(
 /// 目标采样率（百炼实时 ASR 契约值）。
 const int kTargetSampleRateHz = 16000;
 
+/// 停录收尾的最长等待时间。
+///
+/// 收尾正常是毫秒级（落库 + 归档 + 后台触发终稿）；超过该时长即视为卡住，
+/// 让 UI 恢复可交互而不是无限转圈。
+const Duration kStopTimeout = Duration(seconds: 10);
+
 /// 录音阶段。
 enum RecorderPhase {
   /// 待机。
@@ -326,6 +332,11 @@ class RecorderController extends Notifier<RecorderUiState> {
   }
 
   /// 结束录音并返回会议 ID（由页面负责跳转到纪要页）。
+  ///
+  /// **收尾超时兜底**：`stopRecording` 内部包含「逐字稿落库 + WAV 归档 +
+  /// 后台触发终稿」；正常情况下毫秒级返回。若因 IO / 网络异常卡住，
+  /// 这里最多等 [kStopTimeout]，超时不再卡在 `stopping`，而是回到待机并提示
+  /// 「已在后台继续处理」，用户可在历史页查看终稿状态。
   Future<String?> stopAndGenerate() async {
     final String? meetingId = state.meetingId;
     if (meetingId == null) return null;
@@ -334,15 +345,24 @@ class RecorderController extends Notifier<RecorderUiState> {
     _emit(state.copyWith(phase: RecorderPhase.stopping));
     _stopTicker();
     await _releaseHardware();
-    try {
-      await _api?.stopRecording(meetingId);
-      logInfo('recorder', '录音已停止 meeting=$meetingId');
-    } catch (error) {
-      logWarn('recorder', '停止流程报错：$error');
-      ref.read(toastProvider.notifier).show(
-        '收尾失败，转写可能不完整：${_readable(error)}',
-        tone: ToastTone.warning,
-      );
+    final BackendApi? api = _api;
+    if (api != null) {
+      try {
+        await api.stopRecording(meetingId).timeout(kStopTimeout);
+        logInfo('recorder', '录音已停止 meeting=$meetingId');
+      } on TimeoutException {
+        logWarn('recorder', '收尾超时（${kStopTimeout.inSeconds}s），已转后台 meeting=$meetingId');
+        ref.read(toastProvider.notifier).show(
+          '收尾超时，已在后台继续处理，可在历史页查看终稿状态',
+          tone: ToastTone.warning,
+        );
+      } catch (error) {
+        logWarn('recorder', '停止流程报错：$error');
+        ref.read(toastProvider.notifier).show(
+          '收尾失败，转写可能不完整：${_readable(error)}',
+          tone: ToastTone.warning,
+        );
+      }
     }
     if (_disposed) return meetingId;
     _emit(const RecorderUiState.idle());

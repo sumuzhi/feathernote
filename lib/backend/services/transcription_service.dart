@@ -309,19 +309,51 @@ class TranscriptionService {
     );
 
     // 3) 触发终稿链路（失败不影响停止流程本身）。
+    //
+    // **不要 await**：终稿链路包含「上传整段 WAV + 提交 filetrans」，
+    // 弱网 / 大文件下可能耗时数十秒到数分钟。停录必须在这里立即返回，
+    // 否则「结束并生成」按钮会一直转圈（历史 Bug）。
+    // 失败统一落成 finalize_status=failed 并广播进度，由 UI 提示。
     if (upload && audioKey != null) {
       final String? wavPath = await _resolveArchivePath(audioKey);
       if (wavPath != null) {
-        await startFinalize(meetingId, wavPath: wavPath);
+        unawaited(_triggerFinalizeInBackground(meetingId, wavPath));
       }
     }
     return updated;
   }
 
+  /// 后台触发终稿链路：失败落成 `finalize_status=failed` + 广播，不冒泡到停录流程。
+  Future<void> _triggerFinalizeInBackground(String meetingId, String wavPath) async {
+    try {
+      await startFinalize(meetingId, wavPath: wavPath);
+    } catch (error) {
+      logWarn('transcription', '终稿链路失败 meeting=$meetingId：$error');
+      await _markFinalizeFailed(meetingId, error.toString());
+    }
+  }
+
+  /// 终稿链路失败时的兜底落盘 + 广播。
+  Future<void> _markFinalizeFailed(String meetingId, String message) async {
+    try {
+      final Meeting? meeting = await persistence.loadMeeting(meetingId);
+      if (meeting == null) return;
+      await persistence.saveMeeting(
+        meeting.copyWith(
+          finalizeStatus: FinalizeStatus.failed,
+          finalizeError: message,
+        ),
+      );
+      _emit(FinalizeProgress(meetingId: meetingId, status: 'failed', error: message));
+    } catch (error) {
+      logWarn('transcription', '落盘终稿失败状态时出错 meeting=$meetingId：$error');
+    }
+  }
+
   /// 触发终稿转写链路（委托 [FinalizePoller]）。
   Future<void> startFinalize(String meetingId, {required String wavPath, bool diarization = true}) async {
     final FinalizePoller? poller = finalizePoller;
-    if (poller == null) throw AppError(ErrorCode.internal, 'finalizePoller 未装配');
+    if (poller == null) throw const AppError(ErrorCode.internal, 'finalizePoller 未装配');
     await poller.start(meetingId, wavPath: wavPath, diarization: diarization);
   }
 
