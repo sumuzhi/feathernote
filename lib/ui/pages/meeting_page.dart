@@ -12,6 +12,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../backend/services/transcription_service.dart';
+import '../../core/log/log.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
@@ -42,6 +44,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   bool _generating = false;
   String? _error;
   StreamSubscription<String>? _generationSubscription;
+  StreamSubscription<TranscriptEvent>? _eventSubscription;
+  String? _finalizeError;
 
   @override
   void initState() {
@@ -52,12 +56,19 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   @override
   void dispose() {
     unawaited(_generationSubscription?.cancel());
+    unawaited(_eventSubscription?.cancel());
     super.dispose();
   }
 
   Future<void> _load() async {
     try {
       final api = await ref.read(backendProvider.future);
+      // 订阅终稿进度：finalize_status 变 done → 自动刷新；变 failed → 展示可读原因。
+      // （历史缺陷：文案承诺「完成后自动刷新」，但页面从未订阅，实际不会刷新。）
+      _eventSubscription ??= api.events.listen(
+        _onTranscriptEvent,
+        onError: (Object error) => logWarn('meeting', '纪要页事件流错误：$error'),
+      );
       final Meeting? meeting = await api.getMeeting(widget.meetingId);
       if (!mounted) return;
       setState(() {
@@ -76,6 +87,33 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         _error = '$error';
         _loading = false;
       });
+    }
+  }
+
+  /// 终稿进度事件：只处理本会议的 done / failed。
+  void _onTranscriptEvent(TranscriptEvent event) {
+    if (event is! FinalizeProgress || event.meetingId != widget.meetingId) return;
+    switch (event.status) {
+      case 'done':
+        unawaited(_onFinalizeDone());
+      case 'failed':
+        if (!mounted) return;
+        setState(() => _finalizeError = event.error ?? '终稿处理失败');
+        unawaited(_refresh());
+      default:
+        break;
+    }
+  }
+
+  /// 终稿完成：先刷新会议详情（拿到终稿逐字稿），必要时用终稿重生成纪要。
+  Future<void> _onFinalizeDone() async {
+    final int before = _meeting?.segments.length ?? -1;
+    await _refresh();
+    final Meeting? after = _meeting;
+    if (!mounted || after == null) return;
+    final bool transcriptChanged = after.segments.length != before;
+    if (transcriptChanged || !after.hasMinutes) {
+      await _generate(force: true);
     }
   }
 
@@ -132,7 +170,6 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     }
 
     final Outline bundle = _outlineOf(meeting);
-    final bool finalizePending = meeting.finalizeStatus == FinalizeStatus.pending;
     final String badgeText = meeting.hasMinutes
         ? '已完成'
         : (_generating ? '生成中' : '待生成');
@@ -144,7 +181,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
           '${formatSpeakerCount(meeting.speakerCount)} · '
           '${formatDayTime(meeting.createdAt)}',
       badgeText: badgeText,
-      notice: finalizePending ? '终稿处理中 · 完成后自动刷新纪要' : null,
+      notice: _noticeFor(meeting),
       minutes: bundle.view,
       onClose: () => context.go('/history'),
       onShare: _share,
@@ -194,6 +231,21 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
             '导出失败：$error',
             tone: ToastTone.warning,
           );
+    }
+  }
+
+  /// 顶部提示条文案：**与行为一致**（终稿 pending 会自动刷新 → 明说；
+  /// failed 展示可读原因，不骗用户）。
+  String? _noticeFor(Meeting meeting) {
+    switch (meeting.finalizeStatus) {
+      case FinalizeStatus.pending:
+        return '终稿处理中 · 完成后自动刷新纪要';
+      case FinalizeStatus.failed:
+        final String reason = meeting.finalizeError ?? _finalizeError ?? '未知原因';
+        return '终稿失败：$reason（逐字稿保留实时稿）';
+      case FinalizeStatus.done:
+      case FinalizeStatus.none:
+        return null;
     }
   }
 
