@@ -45,6 +45,29 @@ class MeetingDao extends DatabaseAccessor<AppDatabase> with _$MeetingDaoMixin {
         MeetingsCompanion(title: Value<String>(title)),
       );
 
+  /// **窄更新**：只写纪要相关列（`minutes_md` / `status` / `minutes_partial` /
+  /// `minutes_error`），**绝不触碰** `segments` / `speakers` / `duration_ms` /
+  /// `audio_key` / `finalize_status` 等列。
+  ///
+  /// 存在意义：纪要落盘若走「读整对象 → 改 → 整体写回」，会用一份**过期副本**
+  /// 覆盖掉期间已落库的逐字稿（「读-改-写覆盖」；曾导致 segments 被擦成 0）。
+  /// 用列级 UPDATE 从根上杜绝该类覆盖。
+  Future<int> updateMinutes(
+    String id, {
+    required String? minutesMd,
+    required String status,
+    required int minutesPartial,
+    required String? minutesError,
+  }) =>
+      (update(meetings)..where((Meetings tbl) => tbl.id.equals(id))).write(
+        MeetingsCompanion(
+          minutesMd: Value<String?>(minutesMd),
+          status: Value<String>(status),
+          minutesPartial: Value<int>(minutesPartial),
+          minutesError: Value<String?>(minutesError),
+        ),
+      );
+
   /// 删除一行（子表由 `ON DELETE CASCADE` 清理）。
   Future<int> deleteById(String id) =>
       (delete(meetings)..where((Meetings tbl) => tbl.id.equals(id))).go();

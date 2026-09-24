@@ -126,6 +126,24 @@ class _FakeRepo implements MeetingRepository {
   Future<void> saveMeeting(Meeting meeting) async => saved[meeting.id] = meeting;
 
   @override
+  Future<void> updateMinutes(
+    String id, {
+    String? minutesMd,
+    MeetingStatus? status,
+    bool? minutesPartial,
+    String? minutesError,
+    bool clearMinutesError = false,
+  }) async {
+    final Meeting? m = saved[id];
+    if (m == null) return;
+    saved[id] = m.copyWith(
+      minutesMd: minutesMd,
+      status: status,
+      minutesPartial: minutesPartial,
+      minutesError: minutesError,
+    );
+  }
+  @override
   Future<void> saveFiletransRaw(String meetingId, String json) async {}
 
   @override

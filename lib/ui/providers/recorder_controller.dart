@@ -502,9 +502,13 @@ class RecorderController extends Notifier<RecorderUiState> {
           '收尾超时（${kStopTimeout.inSeconds}s），已转后台 meeting=$meetingId '
           '耗时=${watch.elapsedMilliseconds}ms',
         );
+        // 超时**不等于就绪**：逐字稿可能仍在后台落库。这里不改返回契约
+        // （仍返回 meetingId 让 UI 跳详情页），但由详情页保证「逐字稿落库后才生成纪要」
+        // （见 MeetingPage._ensureTranscriptThenGenerate），避免空稿被抢跑生成无源摘要。
         ref.read(toastProvider.notifier).show(
-          '收尾超时，已在后台继续处理，可在历史页查看终稿状态',
+          '收尾仍在后台进行（逐字稿落库中），进入详情页后将自动等待并生成纪要',
           tone: ToastTone.warning,
+          duration: const Duration(seconds: 5),
         );
       } catch (error) {
         logWarn('recorder', '停止流程报错 耗时=${watch.elapsedMilliseconds}ms：$error');

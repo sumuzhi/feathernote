@@ -26,6 +26,7 @@ import 'package:smart_minutes_flutter/backend/storage/audio_archive.dart';
 import 'package:smart_minutes_flutter/backend/storage/meeting_repository.dart';
 import 'package:smart_minutes_flutter/core/config/app_config.dart';
 import 'package:smart_minutes_flutter/core/pcm/audio_frame.dart';
+import 'package:smart_minutes_flutter/domain/enums.dart';
 import 'package:smart_minutes_flutter/domain/meeting.dart';
 import 'package:smart_minutes_flutter/domain/segment.dart';
 
@@ -353,6 +354,24 @@ class _FakeRepo implements MeetingRepository {
   @override
   Future<void> saveMeeting(Meeting meeting) async => _saved[meeting.id] = meeting;
 
+  @override
+  Future<void> updateMinutes(
+    String id, {
+    String? minutesMd,
+    MeetingStatus? status,
+    bool? minutesPartial,
+    String? minutesError,
+    bool clearMinutesError = false,
+  }) async {
+    final Meeting? m = _saved[id];
+    if (m == null) return;
+    _saved[id] = m.copyWith(
+      minutesMd: minutesMd,
+      status: status,
+      minutesPartial: minutesPartial,
+      minutesError: minutesError,
+    );
+  }
   @override
   Future<void> saveFiletransRaw(String meetingId, String json) async {}
 

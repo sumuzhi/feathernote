@@ -18,6 +18,26 @@ abstract class MeetingRepository {
   /// 保存会议（upsert meeting + segments + speakers）。
   Future<void> saveMeeting(Meeting meeting);
 
+  /// **窄更新纪要**：只更新纪要相关字段（`minutes_md` / `status` /
+  /// `minutes_partial` / `minutes_error`），**绝不回写** `segments` / `speakers` /
+  /// `duration_ms` / `audio_key` / `finalize_status`。
+  ///
+  /// 语义：
+  /// - 传 `null` 表示**保持原值不变**；
+  /// - 需要清空 `minutes_error` 时显式传 `clearMinutesError: true`；
+  /// - 会议不存在时静默返回。
+  ///
+  /// 这是「纪要生成落盘」的唯一写入路径 —— 从根上杜绝「读整对象 → 改 → 整体
+  /// 写回」用过期副本覆盖逐字稿（曾导致落库 segments 被擦成 0）。
+  Future<void> updateMinutes(
+    String id, {
+    String? minutesMd,
+    MeetingStatus? status,
+    bool? minutesPartial,
+    String? minutesError,
+    bool clearMinutesError = false,
+  });
+
   /// 读取会议（不存在返回 null）。
   Future<Meeting?> loadMeeting(String id);
 
@@ -86,6 +106,44 @@ class DriftMeetingRepository implements MeetingRepository {
     final List<TranscriptSegmentRow> segments = await db.segmentDao.listByMeeting(id);
     final List<SpeakerRow> speakers = await db.speakerDao.listByMeeting(id);
     return meetingFromRow(row, segments, speakers);
+  }
+
+  @override
+  Future<void> updateMinutes(
+    String id, {
+    String? minutesMd,
+    MeetingStatus? status,
+    bool? minutesPartial,
+    String? minutesError,
+    bool clearMinutesError = false,
+  }) async {
+    final MeetingRow? row = await db.meetingDao.getById(id);
+    if (row == null) {
+      logWarn('storage', '窄更新纪要：会议不存在 id=$id');
+      return;
+    }
+    // 只算纪要四列；其余列（segments / speakers / 终稿 / 音频）一律不碰。
+    final String nextStatus = (status ?? MeetingStatus.fromValue(row.status)).value;
+    final int nextPartial = (minutesPartial ?? (row.minutesPartial != 0)) ? 1 : 0;
+    final String? nextError =
+        clearMinutesError ? null : (minutesError ?? row.minutesError);
+    await db.meetingDao.updateMinutes(
+      id,
+      minutesMd: minutesMd ?? row.minutesMd,
+      status: nextStatus,
+      minutesPartial: nextPartial,
+      minutesError: nextError,
+    );
+    logInfo(
+      'storage',
+      '纪要已窄更新（只写纪要列）',
+      <String, Object?>{
+        'id': id,
+        'minutesChars': (minutesMd ?? row.minutesMd ?? '').length,
+        'status': nextStatus,
+        'partial': nextPartial,
+      },
+    );
   }
 
   @override

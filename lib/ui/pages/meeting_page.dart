@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../backend/services/transcription_service.dart';
+import '../../core/error/app_error.dart';
 import '../../core/log/log.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
@@ -76,7 +77,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         _loading = false;
       });
       if (meeting != null && !meeting.hasMinutes) {
-        await _generate();
+        await _ensureTranscriptThenGenerate();
       } else {
         // 已有纪要（含异常兜底）→ 解除首页的生成锁。
         ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
@@ -88,6 +89,49 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         _loading = false;
       });
     }
+  }
+
+  /// 「生成前置」守卫：**逐字稿落库确认之前绝不生成纪要**。
+  ///
+  /// 背景：停录收尾（`onStop`）可能仍在后台进行（UI 超时抢跑）。若此刻立即生成，
+  /// 会读到 0 段逐字稿 → LLM 产出无源摘要（历史缺陷）。故这里轮询等待：
+  /// 直到「逐字稿非空」或「终稿状态已从 none 变化」（= onStop 已完成落库并触发终稿），
+  /// 再触发生成；真正为空则明确提示、不生成。
+  Future<void> _ensureTranscriptThenGenerate() async {
+    final DateTime deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (mounted) {
+      final Meeting? m = _meeting;
+      if (m == null) return;
+      // 逐字稿已落库（非空），或终稿已进入 pending/done/failed（onStop 必经此刻），即可推进。
+      if (m.segments.isNotEmpty || m.finalizeStatus != FinalizeStatus.none) break;
+      if (DateTime.now().isAfter(deadline)) break;
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+      await _refresh();
+    }
+    if (!mounted) return;
+    final Meeting? m = _meeting;
+    if (m == null) return;
+
+    if (m.segments.isNotEmpty) {
+      await _generate();
+      return;
+    }
+    // 逐字稿仍为空：
+    if (m.finalizeStatus == FinalizeStatus.pending) {
+      // 终稿在处理中，完成后 `_onFinalizeDone` 会带终稿逐字稿强制重生成 —— 保持生成锁。
+      logInfo('meeting', '逐字稿暂空但终稿处理中，等待终稿完成后再生成 meeting=${widget.meetingId}');
+      return;
+    }
+    // 确实没有逐字稿（全程静音 / 引擎无输出）：明确提示，不再生成无源纪要。
+    ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
+    if (m.finalizeStatus == FinalizeStatus.failed) {
+      setState(() => _finalizeError = m.finalizeError ?? '终稿处理失败');
+    }
+    ref.read(toastProvider.notifier).show(
+          '未获取到逐字稿，暂无法生成纪要',
+          tone: ToastTone.warning,
+        );
   }
 
   /// 终稿进度事件：只处理本会议的 done / failed。
@@ -138,7 +182,15 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       failure = error;
     }
     if (!mounted) return;
-    if (failure != null) setState(() => _error = '$failure');
+    if (failure != null) {
+      final String message =
+          failure is AppError ? failure.message : '$failure';
+      setState(() => _error = message);
+      ref.read(toastProvider.notifier).show(
+            '纪要生成失败：$message',
+            tone: ToastTone.warning,
+          );
+    }
     await _refresh();
     // 生成结束（成功或失败都算结束）→ 解除首页「本会话生成中」锁，
     // 让用户返回首页后可以立刻开始下一段录音。
@@ -255,7 +307,12 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         ? _streamBuffer
         : (meeting.minutesMd ?? '');
     if (raw.trim().isEmpty) {
-      return _generating ? Outline.generating() : Outline.empty(error: _error);
+      return _generating
+          ? Outline.generating()
+          : Outline.empty(
+              error: _error,
+              onRetry: _error == null ? null : () => _generate(force: true),
+            );
     }
     final MinutesOutline outline = parseMinutesOutline(raw);
     final int chars = outline.summaryChars > 0
@@ -290,6 +347,10 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         // 携带已加载的会议对象：转写页首帧即可渲染内容，避免「空态→内容」闪烁。
         onOpenTranscript: () =>
             context.go('/meeting/${meeting.id}/transcript', extra: meeting),
+        // 生成失败（如空逐字稿 / 网络）时提供「重新生成」入口。
+        onRetry: (_error != null && !_generating)
+            ? () => _generate(force: true)
+            : null,
       ),
       chars: chars,
     );
@@ -308,13 +369,14 @@ class Outline {
   const Outline({required this.view, required this.chars});
 
   /// 空态。
-  factory Outline.empty({String? error}) => Outline(
+  factory Outline.empty({String? error, VoidCallback? onRetry}) => Outline(
         view: MinutesView(
           title: '✦ AI 结构化纪要',
           modelTag: '待生成',
           abstractText: error == null ? '纪要尚未生成。' : '纪要生成失败：$error',
           sections: const <MinutesSectionView>[],
           transcriptChars: '0 字 ›',
+          onRetry: onRetry,
         ),
         chars: 0,
       );

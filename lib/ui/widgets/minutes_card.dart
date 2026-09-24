@@ -49,6 +49,7 @@ class MinutesView {
     this.onExpandAbstract,
     this.onOpenTranscript,
     this.onMore,
+    this.onRetry,
   });
 
   /// 卡片标题（「✦ AI 结构化纪要」）。
@@ -80,6 +81,9 @@ class MinutesView {
 
   /// 点击某分节的「查看全部 N 条」（回传分节下标）。
   final ValueChanged<int>? onMore;
+
+  /// 点击「重新生成纪要」（仅生成失败 / 空逐字稿等场景提供）。
+  final VoidCallback? onRetry;
 }
 
 /// AI 结构化纪要卡。
@@ -115,6 +119,22 @@ class MinutesCard extends StatelessWidget {
           ),
           const SizedBox(height: 13),
           Text(view.abstractText, style: AppTextStyles.abstract),
+          if (view.onRetry != null)
+            GestureDetector(
+              onTap: view.onRetry,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 12, 0, 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.refresh_rounded, size: 14, color: AppColors.orange),
+                    const SizedBox(width: 6),
+                    Text('重新生成纪要', style: AppTextStyles.action),
+                  ],
+                ),
+              ),
+            ),
           if (view.expandNote != null)
             GestureDetector(
               onTap: view.onExpandAbstract,

@@ -64,6 +64,18 @@ class MinutesService {
       return;
     }
 
+    // **空逐字稿守卫**：绝不给 LLM 喂空输入。历史缺陷：停录收尾尚未落库时，
+    // 详情页"抢跑"生成 → 读到 0 段逐字稿 → LLM 产出 979 字**无源摘要**（垃圾）。
+    // 这里直接拒绝并返回可读错误，由 UI 提示 + 重试。
+    if (meeting.segments.isEmpty) {
+      logWarn(
+        'minutes',
+        '逐字稿为空，拒绝生成纪要 meeting=$meetingId（避免无源摘要；'
+        'finalizeStatus=${meeting.finalizeStatus.value}）',
+      );
+      throw const AppError(ErrorCode.badRequest, '逐字稿为空，暂无法生成纪要');
+    }
+
     final List<LlmMessage> messages = await buildMinutesMessages(meeting);
     final bool hadComplete = meeting.minutesMd != null && !meeting.minutesPartial;
     final StringBuffer markdown = StringBuffer();
@@ -145,22 +157,41 @@ class MinutesService {
     return buffer.toString();
   }
 
-  /// 静默落盘（失败仅告警，不抛出，避免掩盖生成错误）。
-  Future<bool> _saveQuietly(Meeting meeting, String meetingId, String note) async {
+  /// 静默**窄更新**纪要列（失败仅告警，不抛出，避免掩盖生成错误）。
+  ///
+  /// 只写 `minutes_md` / `status` / `minutes_partial` / `minutes_error`，
+  /// **绝不回写** `segments` / `speakers` / `duration_ms` / `audio_key` /
+  /// `finalize_status` —— 从根上杜绝「读-改-写覆盖」把逐字稿擦成空。
+  Future<bool> _updateMinutesQuietly(
+    String meetingId, {
+    required String note,
+    String? minutesMd,
+    MeetingStatus? status,
+    bool? minutesPartial,
+    String? minutesError,
+    bool clearMinutesError = false,
+  }) async {
     try {
-      await persistence.saveMeeting(meeting);
-      logInfo(
-        'minutes',
-        '$note meeting=$meetingId 长度=${(meeting.minutesMd ?? '').length}',
+      await persistence.updateMinutes(
+        meetingId,
+        minutesMd: minutesMd,
+        status: status,
+        minutesPartial: minutesPartial,
+        minutesError: minutesError,
+        clearMinutesError: clearMinutesError,
       );
+      logInfo('minutes', '$note meeting=$meetingId');
       return true;
     } catch (error) {
-      logWarn('minutes', '纪要落盘失败 meeting=$meetingId：$error');
+      logWarn('minutes', '纪要窄更新失败 meeting=$meetingId：$error');
       return false;
     }
   }
 
   /// 按结局落盘（三种退出，见库级文档）。
+  ///
+  /// **只走窄更新**（[MeetingRepository.updateMinutes]），绝不整体回写 Meeting，
+  /// 以免用生成开始时的过期副本覆盖期间已落库的逐字稿。
   Future<void> _persistOutcome(
     Meeting meeting,
     String meetingId, {
@@ -174,37 +205,33 @@ class MinutesService {
     if (failure != null) {
       if (hadComplete) {
         // 已有完整纪要 → 绝不覆盖，仅记录错误。
-        await _saveQuietly(
-          meeting.copyWith(minutesError: readableError(failure)),
+        await _updateMinutesQuietly(
           meetingId,
-          '生成失败，保留原完整纪要',
+          note: '生成失败，保留原完整纪要',
+          minutesError: readableError(failure),
         );
         return;
       }
-      await _saveQuietly(
-        meeting.copyWith(
-          minutesMd: hasContent ? markdown : meeting.minutesMd,
-          status: MeetingStatus.stopped,
-          minutesPartial: true,
-          minutesError: readableError(failure),
-        ),
+      await _updateMinutesQuietly(
         meetingId,
-        '残篇已落盘（生成中断）',
+        note: '残篇已落盘（生成中断）',
+        minutesMd: hasContent ? markdown : null,
+        status: MeetingStatus.stopped,
+        minutesPartial: true,
+        minutesError: readableError(failure),
       );
       return;
     }
 
     if (completed) {
       if (hasContent) {
-        await _saveQuietly(
-          meeting.copyWith(
-            minutesMd: markdown,
-            status: MeetingStatus.minutesReady,
-            minutesPartial: false,
-            minutesError: null,
-          ),
+        await _updateMinutesQuietly(
           meetingId,
-          '纪要已落盘',
+          note: '纪要已落盘',
+          minutesMd: markdown,
+          status: MeetingStatus.minutesReady,
+          minutesPartial: false,
+          clearMinutesError: true,
         );
       }
       return;
@@ -212,15 +239,13 @@ class MinutesService {
 
     // 订阅方主动取消：保留进度但降级为残篇（不标完成）。
     if (hasContent && !hadComplete) {
-      await _saveQuietly(
-        meeting.copyWith(
-          minutesMd: markdown,
-          status: MeetingStatus.stopped,
-          minutesPartial: true,
-          minutesError: meeting.minutesError ?? '生成中断（未完成）',
-        ),
+      await _updateMinutesQuietly(
         meetingId,
-        '残篇已落盘（订阅方取消）',
+        note: '残篇已落盘（订阅方取消）',
+        minutesMd: markdown,
+        status: MeetingStatus.stopped,
+        minutesPartial: true,
+        minutesError: meeting.minutesError ?? '生成中断（未完成）',
       );
     }
   }
