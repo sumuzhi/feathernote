@@ -9,6 +9,83 @@ import 'secrets.dart';
 
 export 'secrets.dart' show Secrets;
 
+// ── 实时模型白名单（根因防护：模型名写错 → 会话起不来 → 实时零句子） ──
+//
+// 背景：百炼 ASR 的**实时（streaming / realtime）**型号与**终稿（filetrans）**
+// 型号是两套**互不相同**的白名单。历史上 `BAILIAN_REALTIME_MODEL` 被误写成
+// `qwen-audio-3.1-asr-flash-streaming`（3.1 只存在于 filetrans 线），服务端
+// `run-task` 直接拒绝 → 帧全堆在 `_pending` → 实时零句子 → 逐字稿为空。
+// 这里做一次"收敛到白名单"的轻校验：不在白名单就回退并**醒目告警**。
+
+/// 已知可用的**实时（streaming / realtime）** ASR 模型白名单。
+///
+/// 来源：阿里云百炼 ASR 官方模型列表（实时线）。**不含** filetrans 模型
+/// （终稿线用的是 `qwen-audio-3.1-asr-flash-filetrans`，见 [AppConfig.filetransModel]）。
+const Set<String> kKnownRealtimeModels = <String>{
+  'qwen-audio-3.0-asr-flash-streaming',
+  'qwen3-asr-flash-realtime',
+  'fun-asr-realtime',
+  'fun-asr-mtl-realtime',
+  'fun-asr-flash-8k-realtime',
+  'paraformer-realtime-v2',
+  'paraformer-realtime-v1',
+  'paraformer-realtime-8k-v2',
+  'paraformer-realtime-8k-v1',
+};
+
+/// 实时模型缺省 / 回退默认值（白名单内、官方推荐、任意采样率且不限时长）。
+const String kDefaultRealtimeModel = 'qwen-audio-3.0-asr-flash-streaming';
+
+/// 实时模型解析结果：原值 / 采用值 / 是否发生回退。
+class RealtimeModelResolution {
+  /// 构造解析结果。
+  const RealtimeModelResolution({
+    required this.original,
+    required this.effective,
+    required this.fellBack,
+  });
+
+  /// 原始（配置里写的）值；空串表示未显式配置。
+  final String original;
+
+  /// 最终实际生效的值（一定在白名单内）。
+  final String effective;
+
+  /// 是否因原值不在白名单而发生了回退。
+  final bool fellBack;
+}
+
+/// 把任意来源的实时模型名收敛到白名单内。
+///
+/// - 白名单内 → 原样采用；
+/// - 不在白名单（如 `qwen-audio-3.1-asr-flash-streaming`）→ **回退**到
+///   [kDefaultRealtimeModel]，并置 `fellBack = true`；
+/// - 空串 → 采用默认值，但不视为"回退"（只是未配置）。
+///
+/// 该函数是纯函数，便于单测（P2 回归）。
+RealtimeModelResolution resolveRealtimeModel(String? raw) {
+  final String original = (raw ?? '').trim();
+  if (original.isEmpty) {
+    return const RealtimeModelResolution(
+      original: '',
+      effective: kDefaultRealtimeModel,
+      fellBack: false,
+    );
+  }
+  if (kKnownRealtimeModels.contains(original)) {
+    return RealtimeModelResolution(
+      original: original,
+      effective: original,
+      fellBack: false,
+    );
+  }
+  return RealtimeModelResolution(
+    original: original,
+    effective: kDefaultRealtimeModel,
+    fellBack: true,
+  );
+}
+
 /// 全局冻结配置。
 class AppConfig {
   /// 构造配置（所有字段显式给出，缺省值来自原 Node 版默认值）。
@@ -197,6 +274,7 @@ class AppConfig {
   ///
   /// 优先使用 `--dart-define` 注入的值；未注入时回落到默认值。
   factory AppConfig.defaults() {
+    final RealtimeModelResolution realtime = _resolveRealtimeModel();
     return AppConfig(
       engineProvider: _readString('ENGINE_PROVIDER', 'bailian'),
       dashscopeApiKey: Secrets.dashscopeApiKey.isNotEmpty
@@ -206,7 +284,7 @@ class AppConfig {
           ? Secrets.dashscopeWorkspaceId
           : _readString('DASHSCOPE_WORKSPACE_ID', ''),
       bailianRegion: _readString('BAILIAN_REGION', 'cn-beijing'),
-      realtimeModel: _readString('BAILIAN_REALTIME_MODEL', 'qwen-audio-3.0-asr-flash-streaming'),
+      realtimeModel: realtime.effective,
       realtimeWsUrl: _readString('BAILIAN_REALTIME_WS_URL', ''),
       realtimeSampleRate: _readInt('BAILIAN_REALTIME_SAMPLE_RATE', 16000),
       realtimeFrameMs: _readInt('BAILIAN_REALTIME_FRAME_MS', 100),
@@ -274,6 +352,30 @@ class AppConfig {
 
   /// 应用日志级别到全局日志器。
   void applyLogLevel() => setLogLevel(logLevel);
+
+  /// 一行汇总**实际生效**的全部模型名（启动日志 / 自检面板 / 诊断导出用）。
+  ///
+  /// 目的：让"模型名写错"这类问题在启动那一刻就**肉眼可见**，
+  /// 不必等实时零句子才发现。
+  String describeModels() =>
+      'engine=$engineProvider realtime=$realtimeModel '
+      'filetrans=$filetransModel llm=$llmModel';
+
+  /// 解析并收敛实时模型名（不在白名单 → 回退 + 醒目告警）。
+  static RealtimeModelResolution _resolveRealtimeModel() {
+    final RealtimeModelResolution resolution = resolveRealtimeModel(
+      _readString('BAILIAN_REALTIME_MODEL', kDefaultRealtimeModel),
+    );
+    if (resolution.fellBack) {
+      logWarn(
+        'config',
+        '实时模型名不在白名单内，已自动回退 —— 原值=${resolution.original} '
+        '采用值=${resolution.effective}（白名单 ${kKnownRealtimeModels.length} 个，'
+        '含 $kDefaultRealtimeModel）',
+      );
+    }
+    return resolution;
+  }
 
   /// 读取字符串型 `--dart-define` 值。
   static String _readString(String key, String fallback) {

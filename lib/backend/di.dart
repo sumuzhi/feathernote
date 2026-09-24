@@ -66,6 +66,10 @@ Future<BackendBundle> createBackend({AppConfig? config}) async {
   final AppConfig cfg = config ?? AppConfig.defaults();
   cfg.applyLogLevel();
 
+  // 启动即回显「实际生效的全部模型名」——模型名写错（如实时线误用 3.1）
+  // 是"实时零句子 / 逐字稿为空"的高发根因，必须在第一屏日志里可见。
+  logInfo('config', '生效模型 ${cfg.describeModels()}');
+
   final List<String> problems = cfg.validate();
   final String? degradedReason = problems.isEmpty ? null : problems.first;
   final bool useMock = cfg.useMockEngine || degradedReason != null;

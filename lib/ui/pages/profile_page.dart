@@ -156,6 +156,17 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           title: '实时链路自检',
           rows: <ProfileSettingView>[
             ProfileSettingView(
+              icon: Icons.badge_outlined,
+              title: '生效模型名（realtime）',
+              subtitle: 'filetrans ${config.filetransModel} · llm ${config.llmModel}',
+              value: config.realtimeModel,
+              onTap: () => _toast(
+                'realtime=${config.realtimeModel}\n'
+                'filetrans=${config.filetransModel}\n'
+                'llm=${config.llmModel}',
+              ),
+            ),
+            ProfileSettingView(
               icon: Icons.cable_rounded,
               title: '引擎 / 降级',
               subtitle: degradedReason == null ? '实时链路 · 端化运行' : '已降级：$degradedReason',
@@ -241,6 +252,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     return AppConfigView(
       llmModel: config.llmModel,
       realtimeModel: config.realtimeModel,
+      filetransModel: config.filetransModel,
       summaryStrategy: config.summaryStrategy,
       languageLabel: language,
       version: config.version,
@@ -278,9 +290,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final RealtimeDiagnostics diag =
         ref.read(backendProvider).value?.diagnostics ??
             const RealtimeDiagnostics.empty();
+    final config = ref.read(appConfigProvider);
     final List<String> header = <String>[
       '==== 智能会议纪要 · 诊断日志 ====',
       '导出时间: ${DateTime.now().toIso8601String()}',
+      '生效模型: ${config.describeModels()}',
       '引擎: ${diag.engineName}',
       '实时会话: ${diag.active ? (diag.realtimeRunning ? '已连接' : '未连接') : '无活动录音'}',
       'session: ${diag.sessionId ?? '—'}',
@@ -313,6 +327,7 @@ class AppConfigView {
   const AppConfigView({
     required this.llmModel,
     required this.realtimeModel,
+    required this.filetransModel,
     required this.summaryStrategy,
     required this.languageLabel,
     required this.version,
@@ -323,6 +338,9 @@ class AppConfigView {
 
   /// 实时转写模型。
   final String realtimeModel;
+
+  /// 终稿（filetrans）模型。
+  final String filetransModel;
 
   /// 摘要策略。
   final String summaryStrategy;

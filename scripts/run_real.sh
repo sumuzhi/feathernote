@@ -33,16 +33,51 @@ if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
   exit 1
 fi
 
+# ── 实时模型白名单回退（根因防护） ───────────────────────────────────────────
+# 百炼 ASR 的「实时(streaming/realtime)」与「终稿(filetrans)」是**两套不同**白名单。
+# 历史 .env 里 BAILIAN_REALTIME_MODEL=qwen-audio-3.1-asr-flash-streaming，
+# 但 3.1 只存在于 filetrans 线 —— 实时线**不存在**该模型 → 服务端 run-task 被拒
+# → 帧全堆在待发队列 → **实时零句子 → 逐字稿为空**。
+# 策略：不在白名单 → 醒目警告 + 回退到白名单默认值；在白名单 → 尊重用户设置。
+KNOWN_REALTIME_MODELS=(
+  "qwen-audio-3.0-asr-flash-streaming"
+  "qwen3-asr-flash-realtime"
+  "fun-asr-realtime"
+  "fun-asr-mtl-realtime"
+  "fun-asr-flash-8k-realtime"
+  "paraformer-realtime-v2"
+  "paraformer-realtime-v1"
+  "paraformer-realtime-8k-v2"
+  "paraformer-realtime-8k-v1"
+)
+REALTIME_MODEL_DEFAULT="qwen-audio-3.0-asr-flash-streaming"
+
+REALTIME_MODEL_ORIG="${BAILIAN_REALTIME_MODEL:-}"
+REALTIME_MODEL_EFFECTIVE="$REALTIME_MODEL_DEFAULT"
+REALTIME_MODEL_FELLBACK=0
+if [[ -n "$REALTIME_MODEL_ORIG" ]]; then
+  for model in "${KNOWN_REALTIME_MODELS[@]}"; do
+    if [[ "$REALTIME_MODEL_ORIG" == "$model" ]]; then
+      REALTIME_MODEL_EFFECTIVE="$REALTIME_MODEL_ORIG"
+      break
+    fi
+  done
+  if [[ "$REALTIME_MODEL_EFFECTIVE" != "$REALTIME_MODEL_ORIG" ]]; then
+    REALTIME_MODEL_FELLBACK=1
+  fi
+fi
+# 用收敛后的值覆盖环境变量，供 --dart-define 与回显统一使用。
+BAILIAN_REALTIME_MODEL="$REALTIME_MODEL_EFFECTIVE"
+export BAILIAN_REALTIME_MODEL
+
 FLUTTER="${FLUTTER_BIN:-/Users/sumuzhi/.workbuddy/binaries/flutter/flutter/bin/flutter}"
 
 DEFINES=(
   "--dart-define=DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY"
   "--dart-define=DASHSCOPE_WORKSPACE_ID=${DASHSCOPE_WORKSPACE_ID:-}"
   "--dart-define=BAILIAN_REGION=${BAILIAN_REGION:-cn-beijing}"
-  # 实时模型默认值与 Flutter 侧 / 原 Node 项目 config.js 默认值保持一致（3.0）。
-  # 注意：若 SM_ENV_FILE 指向的 .env 已设置 BAILIAN_REALTIME_MODEL（原项目 .env 为 3.1），
-  # 则该环境变量会覆盖此默认值——真实运行以 .env 为准，见启动时打印的 realtime 行。
-  "--dart-define=BAILIAN_REALTIME_MODEL=${BAILIAN_REALTIME_MODEL:-qwen-audio-3.0-asr-flash-streaming}"
+  # 实时模型：取自上面的白名单回退结果（REALTIME_MODEL_EFFECTIVE 必在白名单内）。
+  "--dart-define=BAILIAN_REALTIME_MODEL=${REALTIME_MODEL_EFFECTIVE}"
   "--dart-define=BAILIAN_FILETRANS_MODEL=${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
   "--dart-define=BAILIAN_LLM_MODEL=${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
   "--dart-define=ENGINE_PROVIDER=${ENGINE_PROVIDER:-bailian}"
@@ -55,11 +90,19 @@ DEFINES=(
 
 echo "已注入真实百炼配置："
 echo "  region        = ${BAILIAN_REGION:-cn-beijing}"
-echo "  realtime      = ${BAILIAN_REALTIME_MODEL:-qwen-audio-3.0-asr-flash-streaming}"
+if [[ "$REALTIME_MODEL_FELLBACK" -eq 1 ]]; then
+  echo "  ⚠️  realtime      = ${REALTIME_MODEL_EFFECTIVE}"
+  echo "                  ↳ 已回退！原值 \"${REALTIME_MODEL_ORIG}\" 不在实时模型白名单内（疑似非法模型名），已改用默认值"
+elif [[ -z "$REALTIME_MODEL_ORIG" ]]; then
+  echo "  realtime      = ${REALTIME_MODEL_EFFECTIVE}  （.env 未设置，采用默认值）"
+else
+  echo "  realtime      = ${REALTIME_MODEL_EFFECTIVE}  （来自 .env，白名单校验通过）"
+fi
 echo "  filetrans     = ${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
 echo "  llm           = ${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
 echo "  log level     = ${LOG_LEVEL:-debug}"
 echo "  api key 长度  = ${#DASHSCOPE_API_KEY}（值不打印）"
+echo "  ↑ 实时/终稿是两套白名单：realtime 走 streaming 型号，filetrans 走 filetrans 型号，勿混用"
 
 CMD="${1:-run}"
 case "$CMD" in
