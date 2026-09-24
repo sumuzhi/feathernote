@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 麦克风采集（record 插件也会合并声明，这里显式写出便于审计）。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 录音期间的前台服务：Android 14+ 起 microphone 类型必须显式声明，
+         否则系统会在切后台 / 锁屏时提前掐断麦克风流（表现为「只录一小会儿」）。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Android 13+ 前台服务通知需要该权限（否则通知不显示、服务可能起不来）。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="smart_minutes_flutter"
         android:name="${applicationName}"
@@ -25,6 +33,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 录音前台服务：flutter_foreground_task 要求由 App 侧声明（勿改 service name）。 -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="true"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -224,6 +224,13 @@ class TranscriptionService {
   void onAudioFrame(String sessionId, AudioFrame frame) {
     final _SessionRuntime? runtime = _runtimes[sessionId];
     if (runtime == null) return;
+    if (runtime.pcmBytes == 0) {
+      // 每个会话只打一次：确认「Dart 侧上送的帧」真的到了后端。
+      logInfo(
+        'transcription',
+        '后端收到首帧 session=$sessionId seq=${frame.seq} startMs=${frame.startMs} ${frame.pcm.length}B',
+      );
+    }
     // U6：边录边追加写，不整份驻留内存。
     runtime.sink.add(frame.pcm);
     runtime.pcmBytes += frame.pcm.length;
@@ -233,6 +240,10 @@ class TranscriptionService {
     }
     engine.feedRealtime(sessionId, frame.pcm);
   }
+
+  /// 指定会话已落盘的 PCM 字节数（诊断用；会话不存在返回 0）。
+  int pcmBytesForSession(String? sessionId) =>
+      sessionId == null ? 0 : (_runtimes[sessionId]?.pcmBytes ?? 0);
 
   /// 关闭实时会话（可先 flush 收尾）。
   Future<void> closeSession(String sessionId, {bool flush = false}) async {
@@ -305,7 +316,8 @@ class TranscriptionService {
     }
     logInfo(
       'transcription',
-      '会议已停止 meeting=$meetingId 片段=${normalized.length} 时长=${updated.durationMs}ms',
+      '会议已停止 meeting=$meetingId 片段=${normalized.length} 时长=${updated.durationMs}ms '
+      'PCM=${runtime?.pcmBytes ?? 0}B WAV=${audioKey == null ? '未归档' : '已归档'}',
     );
 
     // 3) 触发终稿链路（失败不影响停止流程本身）。

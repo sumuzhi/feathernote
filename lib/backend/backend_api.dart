@@ -69,6 +69,12 @@ abstract class BackendApi {
   /// 释放资源。
   Future<void> dispose();
 
+  /// 活动会话已实际落盘的 PCM 字节数（**仅诊断用**，默认 0）。
+  ///
+  /// 录音链路排障时用它对齐「Dart 侧上送了多少」与「后端真正收下并写盘多少」，
+  /// 从而区分「麦克风没出数据」与「数据在传输/写入环节丢了」。
+  int get activePcmBytes => 0;
+
   // ── 会议 CRUD（对应 /api/meetings*）──
 
   /// 创建会议（默认 `recording` 状态）。
@@ -277,6 +283,9 @@ class BackendApiImpl implements BackendApi {
 
   /// 当前活动会议 ID（供 UI / debug 层读取）。
   String? get activeMeetingId => _activeMeetingId;
+
+  @override
+  int get activePcmBytes => transcriptionService.pcmBytesForSession(_activeSessionId);
 
   @override
   Future<void> stopRecording(String meetingId) async {

@@ -1,6 +1,6 @@
 /// 录音控制器：把麦克风 PCM 接到 [BackendApi]（进程内门面）驱动页面状态。
 ///
-/// 链路：`AudioRecorder.startStream` → 分帧（20ms/640B）→ `BackendApi.pushAudioFrame`
+/// 链路：`MicSource.startStream` → 分帧（20ms/640B）→ `BackendApi.pushAudioFrame`
 /// → 实时 ASR 事件（`BackendApi.events`）→ 上屏；
 /// 停止时 `BackendApi.stopRecording` 负责「收尾 → 写 WAV → 归档 → 触发终稿」。
 ///
@@ -10,6 +10,12 @@
 /// WAV 头与 `meetings.sample_rate` 仍写 16000（重采样后的真实值）。
 ///
 /// **U6 内存**：这里只做**逐帧转发**，不缓存整段音频；2 小时录音的内存占用是常数级。
+///
+/// **「只录到 1 秒」的三重防线**（历史 Bug）：
+/// 1. `MicSource` 抽象层把 `record` 插件隔离，起流前的权限 / 编码器支持可校验；
+/// 2. `pcmStream` 同时挂 `onError` 与 **`onDone`** —— 流被意外关闭不再静默；
+/// 3. **看门狗**：录音中连续 [kMicStallTimeout] 收不到任何 chunk 即视为断流，
+///    与 `onDone` 走同一条恢复路径（自动重启一次，仍失败则收尾并提示）。
 library;
 
 import 'dart:async';
@@ -17,7 +23,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:record/record.dart';
 
 import '../../backend/backend_api.dart';
 import '../../backend/services/session_store.dart';
@@ -27,6 +32,8 @@ import '../../core/ids.dart';
 import '../../core/log/log.dart';
 import '../../core/pcm/audio_frame.dart';
 import '../../core/pcm/resampler.dart';
+import '../../core/platform/mic_source.dart';
+import '../../core/platform/recording_foreground_service.dart';
 import '../../domain/meeting.dart';
 import '../../domain/recording_mode.dart';
 import '../../domain/segment.dart';
@@ -34,6 +41,12 @@ import '../../domain/speaker.dart';
 import '../utils/formatters.dart';
 import '../widgets/app_toast.dart';
 import 'app_providers.dart';
+
+/// 麦克风来源工厂。
+///
+/// 生产环境是 [RecordMicSource]；`flutter test` 里覆盖为假实现即可驱动完整录音状态机。
+final Provider<MicSource Function()> micSourceFactoryProvider =
+    Provider<MicSource Function()>((Ref ref) => RecordMicSource.new);
 
 /// 设备真实采集采样率（U1 逃生舱；默认与请求值一致 = 不做重采样）。
 const int kMicActualSampleRateHz = int.fromEnvironment(
@@ -49,6 +62,16 @@ const int kTargetSampleRateHz = 16000;
 /// 收尾正常是毫秒级（落库 + 归档 + 后台触发终稿）；超过该时长即视为卡住，
 /// 让 UI 恢复可交互而不是无限转圈。
 const Duration kStopTimeout = Duration(seconds: 10);
+
+/// 麦克风静默判定阈值（秒）：录音中连续这么多个看门狗周期没有收到任何 chunk
+/// 即视为断流。用「tick 计数」而不是墙上时钟，保证可被假时钟测试覆盖。
+const int kMicStallSeconds = 3;
+
+/// 单次录音内允许的自动重启次数（防抖，避免无限重启打转）。
+const int kMaxMicRestarts = 1;
+
+/// 音频诊断采样周期。
+const Duration kAudioDiagInterval = Duration(seconds: 1);
 
 /// 录音阶段。
 enum RecorderPhase {
@@ -161,7 +184,7 @@ class RecorderUiState {
 
 /// 录音控制器。
 class RecorderController extends Notifier<RecorderUiState> {
-  AudioRecorder? _recorder;
+  MicSource? _mic;
   // ignore: cancel_subscriptions  （两个订阅都在 _releaseHardware 中统一取消）
   StreamSubscription<Uint8List>? _pcmSubscription;
   // ignore: cancel_subscriptions
@@ -170,16 +193,48 @@ class RecorderController extends Notifier<RecorderUiState> {
   final _FrameSlicer _slicer = _FrameSlicer();
   BackendApi? _api;
   Timer? _ticker;
+  Timer? _watchdog;
+  Timer? _diagTimer;
   int _resumedAtMs = 0;
   int _elapsedBaseMs = 0;
   int _lastWavePushMs = 0;
   bool _disposed = false;
 
+  // ── 诊断 / 恢复计数（「只录到 1 秒」的取证埋点）──
+  int _chunkCount = 0;
+  int _frameCount = 0;
+  int _lastChunkAtMs = 0;
+  int _restarts = 0;
+  int _stallTicks = 0;
+  int _lastWatchdogChunkCount = 0;
+  bool _loggedFirstChunk = false;
+  bool _loggedFirstFrame = false;
+  bool _recovering = false;
+
+  /// 本会话收到的 PCM chunk 数（诊断 / 测试用）。
+  int get chunkCount => _chunkCount;
+
+  /// 本会话切出的音频帧数（诊断 / 测试用）。
+  int get frameCount => _frameCount;
+
+  /// 本会话触发的麦克风自动重启次数（诊断 / 测试用）。
+  int get restartCount => _restarts;
+
+  /// 本会话已上送的 PCM 字节数（= 帧数 × 640B）。
+  int get pushedBytes => _frameCount * frameBytes;
+
+  /// 后端活动会话实际落盘的 PCM 字节数（诊断用；无后端返回 -1）。
+  int get backendPcmBytes => _api?.activePcmBytes ?? -1;
+
   @override
   RecorderUiState build() {
     ref.onDispose(() {
       _disposed = true;
+      _stopTicker();
+      _stopWatchdog();
+      _stopDiagnostics();
       unawaited(_releaseHardware());
+      unawaited(RecordingForegroundService.instance.stop());
     });
     return const RecorderUiState.idle();
   }
@@ -238,27 +293,53 @@ class RecorderController extends Notifier<RecorderUiState> {
       );
       if (_disposed) return;
 
-      final AudioRecorder recorder = AudioRecorder();
-      _recorder = recorder;
-      final bool granted = await recorder.hasPermission();
+      final MicSource mic = ref.read(micSourceFactoryProvider)();
+      _mic = mic;
+
+      // 1) 权限：`record` 的 hasPermission() 默认会主动申请（request: true）。
+      final bool granted = await mic.hasPermission();
+      logInfo('recorder', '麦克风权限 granted=$granted');
       if (!granted) {
         throw const AppError(ErrorCode.badRequest, '未获得麦克风权限，请在系统设置中开启后重试');
       }
-      final Stream<Uint8List> pcmStream = await recorder.startStream(_recordConfig());
+
+      // 2) 设备能力：不支持 PCM16 流式采集时给出可读错误，而不是静默无数据。
+      final bool pcmOk = await mic.isPcmSupported();
+      logInfo('recorder', 'PCM16 采集支持=$pcmOk');
+      if (!pcmOk) {
+        throw const AppError(ErrorCode.badRequest, '当前设备不支持 PCM16 流式采集，无法录音');
+      }
+
+      // 3) 前台服务（Android）：Android 14+ 未起 microphone 型前台服务时，
+      //    麦克风流可能被系统提前掐断（「只录一小会儿」的典型诱因）。
+      await RecordingForegroundService.instance.start();
+
+      // 4) 起流。
+      final Stream<Uint8List> pcmStream = await mic.startStream(
+        sampleRateHz: kTargetSampleRateHz,
+        channels: 1,
+      );
       _resampler = kMicActualSampleRateHz == kTargetSampleRateHz
           ? null
           : Resampler(fromHz: kMicActualSampleRateHz, toHz: kTargetSampleRateHz);
       _slicer.reset();
-      _pcmSubscription = pcmStream.listen(
-        _onPcmChunk,
-        onError: (Object error) => _failWith('录音中断：$error'),
-        cancelOnError: false,
-      );
+      _chunkCount = 0;
+      _frameCount = 0;
+      _restarts = 0;
+      _stallTicks = 0;
+      _lastWatchdogChunkCount = 0;
+      _loggedFirstChunk = false;
+      _loggedFirstFrame = false;
+      _recovering = false;
+      _lastChunkAtMs = _nowMs();
+      _pcmSubscription = _listenPcm(pcmStream);
 
       _elapsedBaseMs = 0;
       _resumedAtMs = DateTime.now().millisecondsSinceEpoch;
       _lastWavePushMs = 0;
       _startTicker();
+      _startWatchdog();
+      _startDiagnostics();
       ref.read(waveformProvider.notifier).reset();
       ref.read(recordingClockProvider.notifier).set(0);
 
@@ -278,7 +359,10 @@ class RecorderController extends Notifier<RecorderUiState> {
       logInfo('recorder', '开始录音 meeting=${meeting.id} session=$sessionId');
     } catch (error) {
       await _releaseHardware();
+      await RecordingForegroundService.instance.stop();
       _stopTicker();
+      _stopWatchdog();
+      _stopDiagnostics();
       if (_disposed) return;
       _emit(
         state.copyWith(
@@ -295,15 +379,15 @@ class RecorderController extends Notifier<RecorderUiState> {
 
   /// 暂停 / 继续。
   Future<void> togglePause() async {
-    final AudioRecorder? recorder = _recorder;
-    if (recorder == null) return;
+    final MicSource? mic = _mic;
+    if (mic == null) return;
     if (state.phase == RecorderPhase.recording) {
       _elapsedBaseMs = elapsedMs;
       _resumedAtMs = 0;
       _emit(state.copyWith(phase: RecorderPhase.paused));
       _stopTicker();
       try {
-        await recorder.pause();
+        await mic.pause();
       } catch (error) {
         logWarn('recorder', '暂停失败：$error');
         _failWith('暂停失败：$error');
@@ -314,8 +398,10 @@ class RecorderController extends Notifier<RecorderUiState> {
       _resumedAtMs = DateTime.now().millisecondsSinceEpoch;
       _emit(state.copyWith(phase: RecorderPhase.recording));
       _startTicker();
+      // 重置看门狗基准，避免恢复瞬间被误判为断流。
+      _lastChunkAtMs = _nowMs();
       try {
-        await recorder.resume();
+        await mic.resume();
       } catch (error) {
         logWarn('recorder', '继续失败：$error');
         _failWith('继续失败：$error');
@@ -344,12 +430,23 @@ class RecorderController extends Notifier<RecorderUiState> {
     _resumedAtMs = 0;
     _emit(state.copyWith(phase: RecorderPhase.stopping));
     _stopTicker();
+    _stopWatchdog();
+    _stopDiagnostics();
+    // 收尾前先打一次总账，供「只录到 1 秒」类问题定位。
+    logInfo(
+      'recorder',
+      '收尾总账 meeting=$meetingId 已录=${_elapsedBaseMs}ms chunk=$_chunkCount '
+      '帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B 重启=$_restarts',
+    );
     await _releaseHardware();
     final BackendApi? api = _api;
     if (api != null) {
       try {
         await api.stopRecording(meetingId).timeout(kStopTimeout);
-        logInfo('recorder', '录音已停止 meeting=$meetingId');
+        logInfo(
+          'recorder',
+          '录音已停止 meeting=$meetingId 后端落盘=${api.activePcmBytes}B',
+        );
       } on TimeoutException {
         logWarn('recorder', '收尾超时（${kStopTimeout.inSeconds}s），已转后台 meeting=$meetingId');
         ref.read(toastProvider.notifier).show(
@@ -364,6 +461,7 @@ class RecorderController extends Notifier<RecorderUiState> {
         );
       }
     }
+    await RecordingForegroundService.instance.stop();
     if (_disposed) return meetingId;
     _emit(const RecorderUiState.idle());
     ref.read(waveformProvider.notifier).reset();
@@ -375,6 +473,8 @@ class RecorderController extends Notifier<RecorderUiState> {
   Future<void> discard() async {
     final String? meetingId = state.meetingId;
     _stopTicker();
+    _stopWatchdog();
+    _stopDiagnostics();
     await _releaseHardware();
     if (meetingId != null) {
       try {
@@ -384,6 +484,7 @@ class RecorderController extends Notifier<RecorderUiState> {
         logWarn('recorder', '丢弃录音失败：$error');
       }
     }
+    await RecordingForegroundService.instance.stop();
     if (_disposed) return;
     _emit(const RecorderUiState.idle());
     ref.read(waveformProvider.notifier).reset();
@@ -392,30 +493,116 @@ class RecorderController extends Notifier<RecorderUiState> {
 
   // ── 内部实现 ──
 
-  RecordConfig _recordConfig() => const RecordConfig(
-    encoder: AudioEncoder.pcm16bits,
-    sampleRate: kTargetSampleRateHz,
-    numChannels: 1,
-    // U3：固定新实现（advanced recorder），legacy 仅供极端兼容场景。
-    androidConfig: AndroidRecordConfig(useLegacy: false),
-    autoGain: false,
-    echoCancel: false,
-    noiseSuppress: false,
-  );
+  StreamSubscription<Uint8List> _listenPcm(Stream<Uint8List> stream) {
+    return stream.listen(
+      _onPcmChunk,
+      onError: (Object error) {
+        logWarn('recorder', '麦克风流错误：$error');
+        _failWith('录音中断：$error');
+        unawaited(_recoverMic('流错误：$error'));
+      },
+      // 历史 Bug：只处理了 onError，流被意外关闭（onDone）时毫无反馈，
+      // 于是 UI 一直显示「录音中」但音频早已停止。
+      onDone: () {
+        logWarn('recorder', '麦克风流已结束（onDone）：chunk=$_chunkCount 帧=$_frameCount');
+        unawaited(_recoverMic('输入流被系统关闭'));
+      },
+      cancelOnError: false,
+    );
+  }
 
   void _onPcmChunk(Uint8List chunk) {
+    _lastChunkAtMs = _nowMs();
+    _chunkCount++;
+    if (!_loggedFirstChunk) {
+      _loggedFirstChunk = true;
+      logInfo('recorder', '首个 PCM chunk=${chunk.length}B（开始收到音频）');
+    }
     final Resampler? resampler = _resampler;
     final Uint8List pcm = resampler == null ? chunk : resampler.convert(chunk);
     if (pcm.isEmpty) return;
     final List<AudioFrame> frames = _slicer.push(pcm);
     for (final AudioFrame frame in frames) {
+      _frameCount++;
+      if (!_loggedFirstFrame) {
+        _loggedFirstFrame = true;
+        logInfo('recorder', '首个音频帧 seq=${frame.seq} startMs=${frame.startMs} ${frame.pcm.length}B');
+      }
       _api?.pushAudioFrame(frame);
       _pushWaveLevel(frame.pcm);
     }
   }
 
+  /// 麦克风异常中断的统一恢复路径：先试着重启一次，仍不行就收尾并提示。
+  Future<void> _recoverMic(String reason) async {
+    if (_disposed) return;
+    if (state.phase != RecorderPhase.recording && state.phase != RecorderPhase.paused) {
+      return;
+    }
+    if (_recovering) return;
+    _recovering = true;
+    try {
+      if (_restarts >= kMaxMicRestarts) {
+        logWarn('recorder', '麦克风中断（$reason）且已达重启上限 $_restarts，转入收尾');
+        await _abortAfterMicFailure(reason);
+        return;
+      }
+      _restarts++;
+      logWarn('recorder', '麦克风中断（$reason），尝试第 $_restarts 次自动重启');
+      ref.read(toastProvider.notifier).show(
+        '录音中断（$reason），正在自动恢复…',
+        tone: ToastTone.warning,
+      );
+      final MicSource? mic = _mic;
+      if (mic == null) {
+        await _abortAfterMicFailure(reason);
+        return;
+      }
+      final Stream<Uint8List> pcm = await mic.startStream(
+        sampleRateHz: kTargetSampleRateHz,
+        channels: 1,
+      );
+      if (_disposed) return;
+      await _pcmSubscription?.cancel();
+      _lastChunkAtMs = _nowMs();
+      _pcmSubscription = _listenPcm(pcm);
+      logInfo('recorder', '麦克风已自动恢复（第 $_restarts 次）');
+    } catch (error) {
+      logWarn('recorder', '麦克风自动恢复失败：$error');
+      await _abortAfterMicFailure('$reason / 恢复失败：${_readable(error)}');
+    } finally {
+      _recovering = false;
+    }
+  }
+
+  /// 不可恢复的麦克风中断：收尾当前会议（保留已录内容）并回到待机。
+  Future<void> _abortAfterMicFailure(String reason) async {
+    final String? meetingId = state.meetingId;
+    _stopTicker();
+    _stopWatchdog();
+    _stopDiagnostics();
+    await _releaseHardware();
+    if (meetingId != null) {
+      try {
+        await _api?.stopRecording(meetingId).timeout(kStopTimeout);
+      } catch (error) {
+        logWarn('recorder', '中断后的收尾失败：$error');
+      }
+    }
+    await RecordingForegroundService.instance.stop();
+    if (_disposed) return;
+    _emit(const RecorderUiState.idle());
+    ref.read(waveformProvider.notifier).reset();
+    ref.read(recordingClockProvider.notifier).reset();
+    ref.read(toastProvider.notifier).show(
+      '录音已中断并自动收尾（$reason），本次内容已保留，可在历史页查看',
+      tone: ToastTone.warning,
+      duration: const Duration(seconds: 5),
+    );
+  }
+
   void _pushWaveLevel(Uint8List pcm) {
-    final int now = DateTime.now().millisecondsSinceEpoch;
+    final int now = _nowMs();
     if (now - _lastWavePushMs < 60) return;
     _lastWavePushMs = now;
     ref.read(waveformProvider.notifier).push(_levelOf(pcm));
@@ -433,6 +620,56 @@ class RecorderController extends Notifier<RecorderUiState> {
     _ticker?.cancel();
     _ticker = null;
   }
+
+  /// 看门狗：录音中长时间收不到 chunk（流被静默掐断）也能被发现。
+  void _startWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(const Duration(seconds: 1), (Timer _) {
+      if (_disposed) return;
+      // 暂停 / 恢复中本来就不产数据，不做静默判定。
+      if (state.phase != RecorderPhase.recording || _recovering) {
+        _lastWatchdogChunkCount = _chunkCount;
+        _stallTicks = 0;
+        return;
+      }
+      if (_chunkCount != _lastWatchdogChunkCount) {
+        _lastWatchdogChunkCount = _chunkCount;
+        _stallTicks = 0;
+        return;
+      }
+      _stallTicks++;
+      if (_stallTicks < kMicStallSeconds) return;
+      _stallTicks = 0;
+      _lastWatchdogChunkCount = _chunkCount;
+      unawaited(_recoverMic('连续 $kMicStallSeconds 秒未收到音频数据'));
+    });
+  }
+
+  void _stopWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = null;
+  }
+
+  /// 每秒输出一次音频诊断（「只录到 1 秒」类问题的现场记录）。
+  void _startDiagnostics() {
+    _diagTimer?.cancel();
+    _diagTimer = Timer.periodic(kAudioDiagInterval, (Timer _) {
+      if (_disposed) return;
+      logInfo(
+        'recorder',
+        '音频诊断 已录=${elapsedMs}ms chunk=$_chunkCount 帧=$_frameCount '
+        '上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B '
+        '距上次chunk=${_nowMs() - _lastChunkAtMs}ms 阶段=${state.phase.name} 重启=$_restarts',
+      );
+    });
+  }
+
+  void _stopDiagnostics() {
+    _diagTimer?.cancel();
+    _diagTimer = null;
+  }
+
+  int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
   void _onTranscriptEvent(TranscriptEvent transcriptEvent) {
     if (_disposed) return;
@@ -508,16 +745,16 @@ class RecorderController extends Notifier<RecorderUiState> {
     final StreamSubscription<TranscriptEvent>? events = _eventSubscription;
     _eventSubscription = null;
     await events?.cancel();
-    final AudioRecorder? recorder = _recorder;
-    _recorder = null;
-    if (recorder != null) {
+    final MicSource? mic = _mic;
+    _mic = null;
+    if (mic != null) {
       try {
-        await recorder.stop();
+        await mic.stop();
       } catch (error) {
         logWarn('recorder', '停止麦克风失败：$error');
       }
       try {
-        await recorder.dispose();
+        await mic.dispose();
       } catch (error) {
         logWarn('recorder', '释放麦克风失败：$error');
       }
@@ -586,7 +823,7 @@ double _levelOf(Uint8List pcm) {
   if (count == 0) return 0;
   final double rms = math.sqrt(sum / count);
   final double normalized = (rms / 5000).clamp(0.0, 1.0);
-  // 0.6 次幂：提升小音量在视觉上的可见度。
+  // 0.6 次幂：提升小音量在视觉上的可见性。
   return math.pow(normalized, 0.6).toDouble();
 }
 
