@@ -23,6 +23,8 @@ class RecordHeroCard extends StatelessWidget {
     required this.onModeChanged,
     required this.onMicTap,
     this.recording = false,
+    this.busy = false,
+    this.busyHint,
   });
 
   /// 状态行主文案（待机中 / 录音中）。
@@ -51,6 +53,15 @@ class RecordHeroCard extends StatelessWidget {
 
   /// 是否录音中（麦克风按钮呼吸光晕）。
   final bool recording;
+
+  /// 是否「忙」（启动中 / 收尾中 / 上一段仍在生成）。
+  ///
+  /// 忙时麦克风按钮原地变成 spinner 且**不可点击**，并在副文案下方给出
+  /// [busyHint] 说明原因 —— 而不是整页遮罩或静默禁用。
+  final bool busy;
+
+  /// 忙态原因（如「上一段正在生成纪要…」）。
+  final String? busyHint;
 
   @override
   Widget build(BuildContext context) {
@@ -84,11 +95,19 @@ class RecordHeroCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          _MicButton(recording: recording, onTap: onMicTap),
+          _MicButton(recording: recording, busy: busy, onTap: onMicTap),
           const SizedBox(height: 22),
           Text(title, style: AppTextStyles.cardTitle),
           const SizedBox(height: 8),
           Text(subtitle, style: AppTextStyles.meta),
+          if (busy && busyHint != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              busyHint!,
+              style: AppTextStyles.metaSmall,
+              textAlign: TextAlign.center,
+            ),
+          ],
           AppSegmentedControl(
             labels: modes,
             selectedIndex: selectedMode,
@@ -100,11 +119,16 @@ class RecordHeroCard extends StatelessWidget {
   }
 }
 
-/// 172px 光晕 + 124px 麦克风按钮。
+/// 172px 光晕 + 124px 麦克风按钮；[busy] 时按钮原地变为 spinner 且不可点击。
 class _MicButton extends StatefulWidget {
-  const _MicButton({required this.recording, required this.onTap});
+  const _MicButton({
+    required this.recording,
+    required this.busy,
+    required this.onTap,
+  });
 
   final bool recording;
+  final bool busy;
   final VoidCallback onTap;
 
   @override
@@ -184,14 +208,29 @@ class _MicButtonState extends State<_MicButton>
             },
             child: Semantics(
               button: true,
-              label: '开始录音',
+              enabled: !widget.busy,
+              label: widget.busy ? '正在处理，请稍候' : '开始录音',
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: widget.onTap,
+                  // busy 时不接收点击：避免上一段仍在生成时又开一段录音。
+                  onTap: widget.busy ? null : widget.onTap,
                   customBorder: const CircleBorder(),
-                  child: const Center(
-                    child: Icon(Icons.mic_rounded, size: 44, color: Colors.white),
+                  child: Center(
+                    child: widget.busy
+                        ? const SizedBox(
+                            width: 34,
+                            height: 34,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.mic_rounded,
+                            size: 44,
+                            color: Colors.white,
+                          ),
                   ),
                 ),
               ),

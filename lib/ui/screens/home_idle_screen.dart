@@ -31,6 +31,8 @@ class HomeIdleScreen extends StatelessWidget {
     required this.onTabTap,
     this.selectedTab = 0,
     this.onAvatarTap,
+    this.busy = false,
+    this.busyHint,
   });
 
   /// 问候语（「早上好，苏木」）。
@@ -71,6 +73,12 @@ class HomeIdleScreen extends StatelessWidget {
 
   /// 点击右上头像。
   final VoidCallback? onAvatarTap;
+
+  /// 是否「忙」（启动中 / 收尾中 / 上一段仍在生成纪要）。
+  final bool busy;
+
+  /// 忙态原因（显示在 Hero 副文案下方）。
+  final String? busyHint;
 
   /// 屏 01 的演示态（供「屏幕目录」直接使用 HTML 文案与数据）。
   factory HomeIdleScreen.demo({
@@ -136,6 +144,8 @@ class HomeIdleScreen extends StatelessWidget {
             selectedMode: selectedMode,
             onModeChanged: onModeChanged,
             onMicTap: onMicTap,
+            busy: busy,
+            busyHint: busyHint,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.page, 26, AppSpacing.page, 0),

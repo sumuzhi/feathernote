@@ -41,6 +41,7 @@ class RecordingScreen extends StatelessWidget {
     this.topOverlay,
     this.selectedTab = 0,
     this.scrollController,
+    this.stopping = false,
   });
 
   /// 顶栏标题（「录音中」）。
@@ -102,6 +103,9 @@ class RecordingScreen extends StatelessWidget {
 
   /// 转写列表滚动控制器（自动滚到底用）。
   final ScrollController? scrollController;
+
+  /// 是否正在收尾（「结束并生成」就地 loading，三键禁用）。
+  final bool stopping;
 
   @override
   Widget build(BuildContext context) {
@@ -199,6 +203,7 @@ class RecordingScreen extends StatelessWidget {
           ),
           controls.RecordingControls(
             paused: paused,
+            stopping: stopping,
             onPauseToggle: onPauseToggle,
             onStop: onStop,
             onBookmark: onBookmark,

@@ -36,6 +36,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   final ScrollController _liveScroll = ScrollController();
   bool _starting = false;
+  bool _stopping = false;
 
   @override
   void dispose() {
@@ -45,6 +46,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _start() async {
     if (_starting) return;
+    // 上一段仍在生成纪要 / 终稿时不允许再开一段（按钮本身也已禁用，这里兜底）。
+    if (ref.read(generationInProgressProvider) != null) return;
     setState(() => _starting = true);
     try {
       await ref.read(recorderProvider.notifier).startRecording();
@@ -53,14 +56,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
   }
 
+  /// 「结束并生成」：按钮就地 loading → 拿到 meetingId 立即跳详情页。
+  ///
+  /// 纪要 / 终稿在后台继续跑（[RecorderController.stopAndGenerate] 已改为秒级返回），
+  /// 因此这里拿到 meetingId 就跳，不做整页遮罩。
   Future<void> _stop() async {
-    final String? meetingId = await ref.read(recorderProvider.notifier).stopAndGenerate();
+    if (_stopping) return;
+    setState(() => _stopping = true);
+    final String? meetingId =
+        await ref.read(recorderProvider.notifier).stopAndGenerate();
     if (!mounted) return;
     if (meetingId != null) {
+      // 上锁：从详情页返回首页时，若本会话仍在生成，开始录音保持禁用。
+      ref.read(generationInProgressProvider.notifier).begin(meetingId);
       context.go('/meeting/$meetingId');
       return;
     }
-    // 兜底：理论上录音中必有 meetingId；若异常为空，也要给用户明确去处。
+    // 兜底：理论上录音中必有 meetingId；为空时提示 + 停首页，绝不卡在 loading。
+    setState(() => _stopping = false);
     ref.read(toastProvider.notifier).show(
           '本次录音未生成会议记录，请到历史页查看',
           tone: ToastTone.warning,
@@ -71,6 +84,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _close() async {
     final RecorderUiState state = ref.read(recorderProvider);
     if (!state.isActive) return;
+    // 收尾中不允许丢弃：避免与正在落库 / 归档的流程打架。
+    if (_stopping || state.phase == RecorderPhase.stopping) return;
     final bool discard = await _confirmDiscard();
     if (!mounted || !discard) return;
     await ref.read(recorderProvider.notifier).discard();
@@ -100,10 +115,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final RecorderUiState recorder = ref.watch(recorderProvider);
-    if (!recorder.isActive) {
-      return _buildIdle(context);
+    // 收尾中也继续显示录音屏（让「结束并生成」按钮原地转圈），
+    // 拿到 meetingId 后才跳详情页。
+    if (recorder.isActive || recorder.phase == RecorderPhase.stopping) {
+      return _buildRecording(context, recorder);
     }
-    return _buildRecording(context, recorder);
+    return _buildIdle(context);
   }
 
   Widget _buildIdle(BuildContext context) {
@@ -123,11 +140,17 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
     ];
     final RecordingMode mode = ref.watch(recorderProvider).mode;
+    // 生成锁：本会话纪要 / 终稿仍在生成时禁用开始录音，并给出可见原因。
+    final bool generating = ref.watch(generationInProgressProvider) != null;
+    final bool busy = _starting || _stopping || generating;
+    final String? busyHint = generating
+        ? '上一段正在生成纪要…'
+        : (_starting ? '正在启动录音…' : (_stopping ? '正在结束并生成…' : null));
 
     return HomeIdleScreen(
       greeting: '${greetingFor(now)}，$kUserDisplayName',
       userName: kUserDisplayName,
-      heroStatusText: _starting ? '启动中' : '待机中',
+      heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
       modes: const <String>['会议', '访谈', '灵感'],
       selectedMode: mode.index,
@@ -139,6 +162,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       onAvatarTap: () => context.go('/profile'),
       onTabTap: _onTabTap,
       selectedTab: 0,
+      busy: busy,
+      busyHint: busyHint,
     );
   }
 
@@ -172,6 +197,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       liveTagPaused: reconnecting,
       dimTitle: reconnecting,
       paused: state.phase == RecorderPhase.paused,
+      stopping: state.phase == RecorderPhase.stopping,
       scrollController: _liveScroll,
       showBackToBottom: chips.length > 4,
       onBackToBottom: () {

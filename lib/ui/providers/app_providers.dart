@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../backend/backend_api.dart';
 import '../../backend/di.dart';
 import '../../core/config/app_config.dart';
+import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
 import '../widgets/app_toast.dart';
 
@@ -154,3 +155,84 @@ class ToastController extends Notifier<ToastMessage?> {
 /// 提示 provider。
 final NotifierProvider<ToastController, ToastMessage?> toastProvider =
     NotifierProvider<ToastController, ToastMessage?>(ToastController.new);
+
+/// 生成锁的兜底上限。
+///
+/// 纪要 / 终稿正常在数秒到数十秒内结束；超过该时长仍未收到任何「结束」信号
+/// （网络挂起、进程异常、会议被外部删除等），强制解锁，**绝不用一个永久标志
+/// 把录音永久锁死**。
+const Duration kGenerationLockMax = Duration(seconds: 90);
+
+/// 「本会话正在生成纪要 / 终稿」的会议 ID（`null` = 无）。
+///
+/// 生命周期：
+/// - `begin(meetingId)`：首页「结束并生成」拿到 meetingId 后调用（只锁本会话）；
+/// - `end(meetingId)`：纪要页的生成流结束 / 失败事件调用（幂等，非本会话忽略）；
+/// - **兜底**：监听会议表，被跟踪会议一旦「已有纪要且终稿不再 pending」或已不存在，
+///   自动解锁；再加一个 [kGenerationLockMax] 超时兜底。
+///
+/// 首页据此禁用「开始录音」，避免用户在上一段仍在生成时又开一段。
+class SessionGenerationController extends Notifier<String?> {
+  Timer? _guard;
+
+  @override
+  String? build() {
+    ref.onDispose(() {
+      _guard?.cancel();
+      _guard = null;
+    });
+    // 兜底：会议表（drift 流）任一变化都会走到这里。
+    ref.listen<AsyncValue<List<MeetingSummary>>>(
+      meetingsProvider,
+      (
+        AsyncValue<List<MeetingSummary>>? previous,
+        AsyncValue<List<MeetingSummary>> next,
+      ) {
+        final String? tracked = state;
+        if (tracked == null) return;
+        final List<MeetingSummary>? list = next.value;
+        if (list == null) return;
+        MeetingSummary? meeting;
+        for (final MeetingSummary item in list) {
+          if (item.id == tracked) {
+            meeting = item;
+            break;
+          }
+        }
+        // 会议已不存在，或已经不再「生成中」→ 解锁。
+        if (meeting == null || !_isGenerating(meeting)) {
+          end(tracked);
+        }
+      },
+    );
+    return null;
+  }
+
+  /// 标记「本会话的 [meetingId] 正在生成纪要 / 终稿」。
+  void begin(String meetingId) {
+    if (meetingId.isEmpty) return;
+    if (state != meetingId) state = meetingId;
+    _guard?.cancel();
+    _guard = Timer(kGenerationLockMax, () => end(meetingId));
+  }
+
+  /// 生成结束（幂等）。[meetingId] 不匹配时忽略。
+  void end([String? meetingId]) {
+    final String? tracked = state;
+    if (tracked == null) return;
+    if (meetingId != null && meetingId != tracked) return;
+    _guard?.cancel();
+    _guard = null;
+    state = null;
+  }
+
+  /// 「仍在生成中」判定：纪要未完成，或终稿仍 pending。
+  static bool _isGenerating(MeetingSummary meeting) =>
+      !meeting.hasMinutes || meeting.finalizeStatus == FinalizeStatus.pending;
+}
+
+/// 生成锁 provider（详见 [SessionGenerationController]）。
+final NotifierProvider<SessionGenerationController, String?> generationInProgressProvider =
+    NotifierProvider<SessionGenerationController, String?>(
+  SessionGenerationController.new,
+);

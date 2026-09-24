@@ -66,6 +66,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       });
       if (meeting != null && !meeting.hasMinutes) {
         await _generate();
+      } else {
+        // 已有纪要（含异常兜底）→ 解除首页的生成锁。
+        ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
       }
     } catch (error) {
       if (!mounted) return;
@@ -99,6 +102,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     if (!mounted) return;
     if (failure != null) setState(() => _error = '$failure');
     await _refresh();
+    // 生成结束（成功或失败都算结束）→ 解除首页「本会话生成中」锁，
+    // 让用户返回首页后可以立刻开始下一段录音。
+    ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
     if (!mounted) return;
     setState(() => _generating = false);
   }
