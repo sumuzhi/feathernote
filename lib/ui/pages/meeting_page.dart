@@ -259,7 +259,6 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     ref.read(toastProvider.notifier).show(
           '纪要已复制，可直接分享',
           tone: ToastTone.success,
-          duration: const Duration(milliseconds: 2200),
         );
   }
 
@@ -275,7 +274,6 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       ref.read(toastProvider.notifier).show(
             '已导出：$path',
             tone: ToastTone.success,
-            duration: const Duration(milliseconds: 2200),
           );
     } catch (error) {
       if (!mounted) return;

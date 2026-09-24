@@ -128,26 +128,18 @@ class ToastController extends Notifier<ToastMessage?> {
     return null;
   }
 
-  /// 展示一条提示。
-  void show(
-    String text, {
-    ToastTone tone = ToastTone.info,
-    bool sticky = false,
-    Duration duration = const Duration(seconds: 3),
-  }) {
+  /// 展示一条提示（**统一 [kToastDuration]（3 秒）后自动消失**）。
+  ///
+  /// 刻意**不提供** `duration` / `sticky` 参数：从结构上杜绝任何调用点把提示改成
+  /// 常驻或改长 —— 「所有 Toast 一律 3 秒自动消失」这条产品约定不可被绕过。
+  /// 需要「更强可见性」的场景（断线 / 引擎错误）改由**页面内持久状态条**承担，
+  /// 不靠延长 toast（见 `home_page.dart` 的 `reconnecting` → `topOverlay`）。
+  void show(String text, {ToastTone tone = ToastTone.info}) {
     if (_disposed) return;
     _timer?.cancel();
     _nonce++;
-    state = ToastMessage(
-      text: text,
-      tone: tone,
-      sticky: sticky,
-      duration: duration,
-      nonce: _nonce,
-    );
-    if (!sticky) {
-      _timer = Timer(duration, clear);
-    }
+    state = ToastMessage(text: text, tone: tone, nonce: _nonce);
+    _timer = Timer(kToastDuration, clear);
   }
 
   /// 清除提示。

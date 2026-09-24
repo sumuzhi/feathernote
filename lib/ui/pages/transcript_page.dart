@@ -258,7 +258,6 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
     ref.read(toastProvider.notifier).show(
           '全文已复制到剪贴板',
           tone: ToastTone.success,
-          duration: const Duration(milliseconds: 2200),
         );
   }
 
@@ -276,7 +275,6 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       ref.read(toastProvider.notifier).show(
             '已导出：$path',
             tone: ToastTone.success,
-            duration: const Duration(milliseconds: 2200),
           );
     } catch (error) {
       if (!mounted) return;

@@ -274,7 +274,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       ref.read(toastProvider.notifier).show(
         '诊断日志已导出：$path',
         tone: ToastTone.success,
-        duration: const Duration(seconds: 6),
       );
     } catch (error) {
       if (!mounted) return;

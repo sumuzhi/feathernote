@@ -13,6 +13,13 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
+/// **全局统一的 Toast 显示时长（3 秒）**。
+///
+/// 产品约定：所有提示一律「显示 3 秒后自动消失」，不允许任何调用点覆盖。
+/// 为从结构上保证这一点，`ToastController.show()` **不再暴露** duration / sticky
+/// 参数（见 `app_providers.dart`），本常量是唯一时长来源。
+const Duration kToastDuration = Duration(seconds: 3);
+
 /// 提示语气。
 enum ToastTone {
   /// 中性信息（如「已添加书签」）。
@@ -26,13 +33,14 @@ enum ToastTone {
 }
 
 /// 提示内容。
+///
+/// **不携带 duration / sticky**：所有 toast 一律 [kToastDuration]（3 秒）自动消失，
+/// 由 `ToastController.show()` 统一调度 —— 调用点无法覆盖时长或改为常驻。
 class ToastMessage {
   /// 构造提示。
   const ToastMessage({
     required this.text,
     this.tone = ToastTone.info,
-    this.sticky = false,
-    this.duration = const Duration(seconds: 3),
     this.nonce = 0,
   });
 
@@ -41,12 +49,6 @@ class ToastMessage {
 
   /// 语气。
   final ToastTone tone;
-
-  /// 是否常驻（需显式清除，如「正在重连…」）。
-  final bool sticky;
-
-  /// 自动消失时长。
-  final Duration duration;
 
   /// 递增序号：同文案再次弹出时也能触发动画（`==` 因此不同）。
   final int nonce;
@@ -57,12 +59,10 @@ class ToastMessage {
       other is ToastMessage &&
           other.text == text &&
           other.tone == tone &&
-          other.sticky == sticky &&
-          other.duration == duration &&
           other.nonce == nonce;
 
   @override
-  int get hashCode => Object.hash(text, tone, sticky, duration, nonce);
+  int get hashCode => Object.hash(text, tone, nonce);
 }
 
 /// 普通提示条（深色底，对齐 HTML `.toast.plain`）。

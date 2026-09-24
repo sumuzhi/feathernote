@@ -515,7 +515,6 @@ class RecorderController extends Notifier<RecorderUiState> {
         ref.read(toastProvider.notifier).show(
           '收尾仍在后台进行（逐字稿落库中），进入详情页后将自动等待并生成纪要',
           tone: ToastTone.warning,
-          duration: const Duration(seconds: 5),
         );
       } catch (error) {
         logWarn('recorder', '停止流程报错 耗时=${watch.elapsedMilliseconds}ms：$error');
@@ -681,7 +680,6 @@ class RecorderController extends Notifier<RecorderUiState> {
     ref.read(toastProvider.notifier).show(
       '录音已中断并自动收尾（$reason），本次内容已保留，可在历史页查看',
       tone: ToastTone.warning,
-      duration: const Duration(seconds: 5),
     );
   }
 
@@ -776,10 +774,14 @@ class RecorderController extends Notifier<RecorderUiState> {
         _emit(state.copyWith(speakers: speakers));
       case EngineErrorEvent(:final String message):
         _emit(state.copyWith(reconnecting: true));
+        // 统一 3 秒 toast（不再常驻 sticky）。更强的可见性**不靠延长 toast**，
+        // 而由**页面内持久状态条**承担：`reconnecting == true` 时首页顶部常驻
+        // `AppActionToast`（「网络连接中断 · 正在本地缓存音频，恢复后自动续传」+ 重试按钮），
+        // 直到 `TranscriptReplace` 到达把 `reconnecting` 置回 false 才消失。
+        // 因此这条 toast 3 秒后自动消失时，用户仍能看到持续的重连提示，错误不会「一闪而过」。
         ref.read(toastProvider.notifier).show(
           message.isEmpty ? '网络波动，正在自动重连…' : message,
           tone: ToastTone.warning,
-          sticky: true,
         );
       case MeetingStopped():
         break;

@@ -249,12 +249,7 @@ class _GalleryScreenHostState extends ConsumerState<GalleryScreenHost> {
   }
 
   void _toast(String text) {
-    ref.read(toastProvider.notifier).show(
-          text,
-          tone: ToastTone.success,
-          // HTML JS 里约 2.2s 后移除。
-          duration: const Duration(milliseconds: 2200),
-        );
+    ref.read(toastProvider.notifier).show(text, tone: ToastTone.success);
   }
 
   List<SpeakerChipView> _speakerChips(int count, {bool grayLast = false}) {
