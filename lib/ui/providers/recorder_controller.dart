@@ -212,6 +212,9 @@ class RecorderController extends Notifier<RecorderUiState> {
   bool _loggedFirstFrame = false;
   bool _recovering = false;
 
+  /// 暂停期间被忽略的 chunk 数（诊断用；正常行为，非错误）。
+  int _droppedWhilePaused = 0;
+
   /// 本会话收到的 PCM chunk 数（诊断 / 测试用）。
   int get chunkCount => _chunkCount;
 
@@ -352,6 +355,7 @@ class RecorderController extends Notifier<RecorderUiState> {
       _loggedFirstChunk = false;
       _loggedFirstFrame = false;
       _recovering = false;
+      _droppedWhilePaused = 0;
       _lastChunkAtMs = _nowMs();
       _pcmSubscription = _listenPcm(pcmStream);
       logInfo('recorder', '步骤⑧监听已挂载 耗时=${watch.elapsedMilliseconds}ms');
@@ -415,6 +419,11 @@ class RecorderController extends Notifier<RecorderUiState> {
       _resumedAtMs = 0;
       _emit(state.copyWith(phase: RecorderPhase.paused));
       _stopTicker();
+      logInfo(
+        'recorder',
+        '已暂停（不采集、不投递；已录数据保留）已录=${_elapsedBaseMs}ms '
+        'chunk=$_chunkCount 帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B',
+      );
       try {
         await mic.pause();
       } catch (error) {
@@ -429,6 +438,14 @@ class RecorderController extends Notifier<RecorderUiState> {
       _startTicker();
       // 重置看门狗基准，避免恢复瞬间被误判为断流。
       _lastChunkAtMs = _nowMs();
+      _lastWatchdogChunkCount = _chunkCount;
+      _stallTicks = 0;
+      _droppedWhilePaused = 0;
+      logInfo(
+        'recorder',
+        '已继续（接续同一会话与同一 PCM 写流，不新建 session）已录=${_elapsedBaseMs}ms '
+        'chunk=$_chunkCount 帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B',
+      );
       try {
         await mic.resume();
       } catch (error) {
@@ -549,6 +566,16 @@ class RecorderController extends Notifier<RecorderUiState> {
   }
 
   void _onPcmChunk(Uint8List chunk) {
+    // 暂停语义：**暂停 = 停止采集新音频 + 停止向后端投递新帧**；已录数据保留在
+    // 分帧器与后端 PCM 写流里，恢复后从同一 `seq` 接续（不新建 session、
+    // 不重开 `$meetingId.pcm`、不丢暂停前内容）。
+    if (state.phase == RecorderPhase.paused) {
+      _droppedWhilePaused++;
+      if (_droppedWhilePaused == 1) {
+        logInfo('recorder', '暂停中：忽略麦克风新数据（不投递后端，恢复后接续）');
+      }
+      return;
+    }
     _lastChunkAtMs = _nowMs();
     _chunkCount++;
     if (!_loggedFirstChunk) {
@@ -580,6 +607,12 @@ class RecorderController extends Notifier<RecorderUiState> {
       return;
     }
     if (_recovering) return;
+    // 暂停是「有意停流」：此时输入流结束/报错不是故障，不重启、不计次，
+    // 恢复后若真的没数据，交给看门狗兜底（避免暂停把重启次数白白耗尽）。
+    if (state.phase == RecorderPhase.paused) {
+      logInfo('recorder', '暂停期间输入流结束（$reason）：暂不重启，恢复后由看门狗兜底');
+      return;
+    }
     _recovering = true;
     try {
       if (_restarts >= kMaxMicRestarts) {

@@ -140,7 +140,13 @@ class SessionStore {
   /// 读取会话态。
   SessionState? get(String sessionId) => _sessions[sessionId];
 
-  /// 取或建。
+  /// 取或建（**带合并语义**）。
+  ///
+  /// 历史 Bug：旧实现是 `_sessions[sessionId] ?? create(...)` —— 同 `sessionId`
+  /// 已存在时**不更新 `meetingId`**，一旦先以空/旧 `meetingId` 建过会话，
+  /// 之后 `findByMeeting(meetingId)` 就再也查不到它 → 停录时逐字稿丢失
+  /// （表现为「实时能上屏、落库逐字稿为空」）。现在改为：已存在时把
+  /// `meetingId` / `title` / `sampleRate` **补齐或纠正**，绝不丢已有片段。
   SessionState getOrCreate(
     String sessionId, {
     String meetingId = '',
@@ -148,14 +154,30 @@ class SessionStore {
     int? startedAtMs,
     int sampleRate = 16000,
   }) {
-    return _sessions[sessionId] ??
-        create(
-          sessionId,
-          meetingId: meetingId,
-          title: title,
-          startedAtMs: startedAtMs,
-          sampleRate: sampleRate,
-        );
+    final SessionState? existing = _sessions[sessionId];
+    if (existing != null) {
+      if (meetingId.isNotEmpty && existing.meetingId != meetingId) {
+        existing.meetingId = meetingId;
+      }
+      if (title.isNotEmpty) existing.title = title;
+      if (sampleRate > 0) existing.sampleRate = sampleRate;
+      return existing;
+    }
+    return create(
+      sessionId,
+      meetingId: meetingId,
+      title: title,
+      startedAtMs: startedAtMs,
+      sampleRate: sampleRate,
+    );
+  }
+
+  /// 一行诊断：会话是否存在 / 归属哪个会议 / 已有多少段（停录定位用）。
+  String describe(String sessionId) {
+    final SessionState? state = _sessions[sessionId];
+    if (state == null) return 'session=$sessionId(不存在)';
+    return 'session=$sessionId meeting=${state.meetingId} '
+        'segments=${state.segments.length} status=${state.status.name}';
   }
 
   /// 把流式事件 upsert 进会话逐字稿。

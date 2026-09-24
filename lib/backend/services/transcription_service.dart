@@ -242,11 +242,25 @@ class TranscriptionService {
   }
 
   void _handleRealtimeEvent(String sessionId, String meetingId, StreamEvent event) {
-    final SessionState? state = sessionStore.get(sessionId);
-    if (state != null) {
-      state.tracker.accept(event.startTime ~/ 20, event.startTime, event.endTime);
+    // 历史 Bug 观测点：若这里 `get` 返回 null（会话态被清空 / 未建立），旧实现
+    // 只对 tracker 跳过、但**仍把事件上屏** → 出现「UI 有、落库无」。
+    // 现在：缺失即**自动重建**（带 meetingId），并告警一次，保证事件一定入库。
+    if (sessionStore.get(sessionId) == null) {
+      logWarn(
+        'transcription',
+        '实时事件到达时会话态缺失，已自动重建 session=$sessionId meeting=$meetingId'
+        '（此前已上屏但未入库的句子会丢失，请关注是否发生过会话被清理）',
+      );
     }
-    sessionStore.upsertSegment(sessionId, event);
+    final SessionState state = sessionStore.getOrCreate(sessionId, meetingId: meetingId);
+    state.tracker.accept(event.startTime ~/ 20, event.startTime, event.endTime);
+    final TranscriptSegment? stored = sessionStore.upsertSegment(sessionId, event);
+    if (stored == null) {
+      logWarn(
+        'transcription',
+        '实时事件未能落会话态（segmentId 为空？）session=$sessionId event=$event',
+      );
+    }
     _emit(TranscriptUpsert(sessionId: sessionId, meetingId: meetingId, event: event));
   }
 
@@ -319,7 +333,10 @@ class TranscriptionService {
   }
 
   /// 停止会议：收尾实时会话 → 写 WAV → 归档 → 落库 → 提交终稿。
-  Future<Meeting?> onStop(String meetingId, {bool upload = true}) async {
+  ///
+  /// [sessionId] 可选：起录时绑定的活动会话。传入即**不再依赖 `findByMeeting`
+  /// 反查**，从根本上消除「会话存在但反查不到 → 逐字稿为空」的一整类缺陷。
+  Future<Meeting?> onStop(String meetingId, {bool upload = true, String? sessionId}) async {
     final Stopwatch watch = Stopwatch()..start();
     final Meeting? stored = await persistence.loadMeeting(meetingId);
     if (stored == null) {
@@ -327,16 +344,29 @@ class TranscriptionService {
       return null;
     }
 
-    final SessionState? state = sessionStore.findByMeeting(meetingId);
-    final String? sessionId = state?.sessionId;
-    final _SessionRuntime? runtime = sessionId == null ? null : _runtimes[sessionId];
+    // 会话定位：优先用调用方显式传入的 sessionId（= 起录时绑定的活动会话），
+    // 退化才用 findByMeeting 反查。并打印**决定性诊断**：让「空稿」一眼可判。
+    final SessionState? byMeeting = sessionStore.findByMeeting(meetingId);
+    final String? resolvedSessionId = sessionId ?? byMeeting?.sessionId;
+    final SessionState? state =
+        resolvedSessionId == null ? null : sessionStore.get(resolvedSessionId);
+    final String? activeSessionId = state?.sessionId;
+    final _SessionRuntime? runtime =
+        activeSessionId == null ? null : _runtimes[activeSessionId];
     // 收尾前采样（closeSession 之后这些读数就没了）。
-    final bool realtimeRunning = isRealtimeRunning(sessionId);
-    final int realtimeSentences = segmentCountForSession(sessionId);
-    if (sessionId != null) {
-      logInfo('transcription', 'onStop·收尾实时会话 session=$sessionId flush=true');
-      await closeSession(sessionId, flush: true);
-      sessionStore.markStopped(sessionId);
+    final bool realtimeRunning = isRealtimeRunning(activeSessionId);
+    final int realtimeSentences = segmentCountForSession(activeSessionId);
+    logInfo(
+      'transcription',
+      'onStop·会话定位 meeting=$meetingId 传入session=${sessionId ?? '—'} '
+      '命中session=${activeSessionId ?? '—'} storeMeeting=${state?.meetingId ?? '—'} '
+      'storeSegments=${state?.segments.length ?? 0} '
+      'findByMeeting=${byMeeting == null ? '未命中' : '命中'}',
+    );
+    if (activeSessionId != null) {
+      logInfo('transcription', 'onStop·收尾实时会话 session=$activeSessionId flush=true');
+      await closeSession(activeSessionId, flush: true);
+      sessionStore.markStopped(activeSessionId);
       logInfo(
         'transcription',
         'onStop·实时会话已关闭 耗时=${watch.elapsedMilliseconds}ms',
@@ -346,8 +376,9 @@ class TranscriptionService {
     }
 
     // 1) 汇总逐字稿（会话态优先，其次库中已有）。
-    List<TranscriptSegment> segments =
-        sessionId != null ? sessionStore.transcript(sessionId) : <TranscriptSegment>[];
+    List<TranscriptSegment> segments = activeSessionId != null
+        ? sessionStore.transcript(activeSessionId)
+        : <TranscriptSegment>[];
     if (segments.isEmpty) segments = stored.segments;
     final List<TranscriptSegment> normalized =
         segments.map(normalizeSegment).toList(growable: false);
@@ -482,21 +513,33 @@ class TranscriptionService {
     if (meeting != null) {
       final List<TranscriptSegment> normalized =
           segments.map(normalizeSegment).toList(growable: false);
-      final List<Speaker> roster = buildSpeakerRoster(normalized, meetingId: meetingId);
+      // 空结果防误覆盖：终稿返回空但已有实时稿时保留实时稿，避免把已落库的
+      // 逐字稿擦成空（「落库逐字稿为空」的一个直接成因）。
+      final bool keepRealtime = normalized.isEmpty && meeting.segments.isNotEmpty;
+      final List<TranscriptSegment> effective =
+          keepRealtime ? meeting.segments : normalized;
+      if (keepRealtime) {
+        logWarn(
+          'transcription',
+          '终稿返回空结果，保留实时稿 meeting=$meetingId 现有=${meeting.segments.length} 段',
+        );
+      }
+      final List<Speaker> roster = buildSpeakerRoster(effective, meetingId: meetingId);
       await persistence.saveMeeting(
         meeting.copyWith(
-          segments: normalized,
+          segments: effective,
           speakers: roster,
           speakerCount: roster.length,
           finalizeStatus: FinalizeStatus.done,
-          transcriptSource: TranscriptSource.filetrans,
+          transcriptSource:
+              keepRealtime ? meeting.transcriptSource : TranscriptSource.filetrans,
         ),
       );
-      _emit(TranscriptReplace(meetingId: meetingId, segments: normalized, speakers: roster));
+      _emit(TranscriptReplace(meetingId: meetingId, segments: effective, speakers: roster));
       _emit(SpeakerUpdate(meetingId: meetingId, speakers: roster));
     }
     final SessionState? state = sessionStore.findByMeeting(meetingId);
-    if (state != null) {
+    if (state != null && segments.isNotEmpty) {
       sessionStore.replaceTranscript(state.sessionId, segments);
     }
   }

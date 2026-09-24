@@ -214,15 +214,26 @@ class FinalizePoller {
   Future<void> _persistDone(String meetingId, List<TranscriptSegment> segments) async {
     final Meeting? meeting = await persistence.loadMeeting(meetingId);
     if (meeting == null) return;
-    final List<Speaker> roster = buildSpeakerRoster(segments, meetingId: meetingId);
-    final int derived = segments.isEmpty
+    // 空结果防误覆盖：终稿返回空但已有实时稿时保留实时稿，
+    // 否则会把已落库的逐字稿擦成空（「落库逐字稿为空」的直接成因之一）。
+    final bool keepRealtime = segments.isEmpty && meeting.segments.isNotEmpty;
+    final List<TranscriptSegment> effective = keepRealtime ? meeting.segments : segments;
+    if (keepRealtime) {
+      logWarn(
+        'finalize',
+        '终稿返回空结果，保留实时稿 meeting=$meetingId 现有=${meeting.segments.length} 段',
+      );
+    }
+    final List<Speaker> roster = buildSpeakerRoster(effective, meetingId: meetingId);
+    final int derived = effective.isEmpty
         ? 0
-        : segments.map((TranscriptSegment s) => s.endTime).reduce((int a, int b) => a > b ? a : b);
+        : effective.map((TranscriptSegment s) => s.endTime).reduce((int a, int b) => a > b ? a : b);
     await persistence.saveMeeting(
       meeting.copyWith(
-        segments: segments,
+        segments: effective,
         finalizeStatus: FinalizeStatus.done,
-        transcriptSource: TranscriptSource.filetrans,
+        transcriptSource:
+            keepRealtime ? meeting.transcriptSource : TranscriptSource.filetrans,
         speakers: roster,
         speakerCount: roster.length,
         durationMs: meeting.durationMs > derived ? meeting.durationMs : derived,
@@ -233,7 +244,8 @@ class FinalizePoller {
       '终稿落库完成（覆盖逐字稿）',
       <String, Object?>{
         'meeting': meetingId,
-        'segments': segments.length,
+        'segments': effective.length,
+        '保留实时稿': keepRealtime,
         'speakers': roster.length,
         'durationMs': meeting.durationMs > derived ? meeting.durationMs : derived,
       },

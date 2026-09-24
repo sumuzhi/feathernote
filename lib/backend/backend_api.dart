@@ -377,12 +377,18 @@ class BackendApiImpl implements BackendApi {
   @override
   Future<void> stopRecording(String meetingId) async {
     final Stopwatch watch = Stopwatch()..start();
+    final String? sessionId = _activeSessionId;
     logInfo(
       'backend',
       'stopRecording 开始',
-      <String, Object?>{'meeting': meetingId, 'pcm': activePcmBytes},
+      <String, Object?>{
+        'meeting': meetingId,
+        'session': sessionId ?? '—',
+        'pcm': activePcmBytes,
+      },
     );
-    await transcriptionService.onStop(meetingId);
+    // 显式带上活动会话：不依赖 findByMeeting 反查（消除「反查不到 → 空稿」一类缺陷）。
+    await transcriptionService.onStop(meetingId, sessionId: sessionId);
     _activeSessionId = null;
     _activeMeetingId = null;
     logInfo(

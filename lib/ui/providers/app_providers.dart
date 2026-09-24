@@ -23,8 +23,14 @@ final Provider<AppConfig> appConfigProvider = Provider<AppConfig>(
 );
 
 /// 后端装配结果（含降级原因，供 UI 顶部提示）。
+///
+/// **必须保活**：后端是 App 生命周期单例（引擎 / SQLite / 会话态 sessionStore）。
+/// 录音期间首页只显示录音屏、不再订阅历史/健康，若该 provider 因「无监听者」被
+/// Riverpod 释放，会触发 `bundle.dispose()` → `sessionStore.clear()` →
+/// 停录时反查不到会话 → **落库逐字稿为空**。故显式 keepAlive。
 final FutureProvider<BackendBundle> backendBundleProvider = FutureProvider<BackendBundle>(
   (Ref ref) async {
+    ref.keepAlive();
     final AppConfig config = ref.watch(appConfigProvider);
     final BackendBundle bundle = await createBackend(config: config);
     ref.onDispose(() {
@@ -34,9 +40,10 @@ final FutureProvider<BackendBundle> backendBundleProvider = FutureProvider<Backe
   },
 );
 
-/// 后端门面（UI 的唯一入口）。
+/// 后端门面（UI 的唯一入口）。同样保活（录音期间无监听者也不得释放）。
 final FutureProvider<BackendApi> backendProvider = FutureProvider<BackendApi>(
   (Ref ref) async {
+    ref.keepAlive();
     final BackendBundle bundle = await ref.watch(backendBundleProvider.future);
     return bundle.api;
   },
