@@ -339,6 +339,10 @@ class TranscriptionService {
   Future<Meeting?> onStop(String meetingId, {bool upload = true, String? sessionId}) async {
     final Stopwatch watch = Stopwatch()..start();
     final Meeting? stored = await persistence.loadMeeting(meetingId);
+    logInfo(
+      'transcription',
+      'onStop·载入会议 耗时=${watch.elapsedMilliseconds}ms meeting=$meetingId',
+    );
     if (stored == null) {
       logWarn('transcription', 'onStop：会议不存在 meeting=$meetingId');
       return null;
@@ -387,25 +391,38 @@ class TranscriptionService {
       'onStop·逐字稿汇总 segment=${normalized.length} 耗时=${watch.elapsedMilliseconds}ms',
     );
 
-    // 2) 写 WAV（流式写已在进行，此处补头）→ 归档。
+    // 2) 写 WAV（流式写已在进行，此处**就地补头**）→ 归档。
+    //    每步单独计时：下一条日志必须能直接指出瓶颈（历史：此处整份 readAsBytes
+    //    在长录音下阻塞 >10s，撞上 UI kStopTimeout → 逐字稿尚未落库就"抢跑"）。
     int durationMs = deriveDurationMs(normalized.map((TranscriptSegment s) => s.endTime));
     String? audioKey;
     int wavBytes = 0;
     if (runtime != null) {
-      final Uint8List wav = await runtime.finishWav(sampleRate: stored.sampleRate);
-      wavBytes = wav.length;
+      final Stopwatch wavWatch = Stopwatch()..start();
+      final File? wavFile = await runtime.finalizeWav(sampleRate: stored.sampleRate);
+      final int wavMs = wavDurationMsFromPcmBytes(runtime.pcmBytes, sampleRate: stored.sampleRate);
       logInfo(
         'transcription',
-        'onStop·WAV 收尾 WAV=${wav.length}B 解析时长=${parseWavDurationMs(wav) ?? 0}ms '
-        'PCM=${runtime.pcmBytes}B 帧=${runtime.frameCount}',
+        'onStop·WAV 补头 本步=${wavWatch.elapsedMilliseconds}ms 累计=${watch.elapsedMilliseconds}ms '
+        'WAV=${runtime.pcmBytes > 0 ? runtime.pcmBytes + kWavHeaderBytes : 0}B '
+        'PCM=${runtime.pcmBytes}B 时长=${wavMs}ms 帧=${runtime.frameCount}',
       );
-      if (wav.isNotEmpty) {
-        final int wavMs = parseWavDurationMs(wav) ?? 0;
+      if (wavFile != null) {
+        wavBytes = runtime.pcmBytes + kWavHeaderBytes;
         if (wavMs > durationMs) durationMs = wavMs;
         if (upload) {
-          audioKey = await archive.put(meetingId, wav);
-          logInfo('transcription', 'onStop·WAV 已归档 key=$audioKey 耗时=${watch.elapsedMilliseconds}ms');
+          final Stopwatch archWatch = Stopwatch()..start();
+          audioKey = await archive.putFile(meetingId, wavFile.path);
+          logInfo(
+            'transcription',
+            'onStop·WAV 已归档 本步=${archWatch.elapsedMilliseconds}ms 累计=${watch.elapsedMilliseconds}ms '
+            'key=$audioKey',
+          );
+        } else {
+          logInfo('transcription', 'onStop：upload=false，未归档（WAV 已产出 $wavBytes B，收尾后清理临时文件）');
         }
+        // 归档完成（移动语义下源文件已不存在）后，清理可能的残留临时文件。
+        await runtime.deleteTemp();
       } else {
         logWarn('transcription', 'onStop：WAV 为空（PCM=0B，录音未产出数据）');
       }
@@ -424,11 +441,12 @@ class TranscriptionService {
       audioKey: audioKey,
       audioBytes: runtime?.pcmBytes ?? 0,
     );
+    final Stopwatch saveWatch = Stopwatch()..start();
     await persistence.saveMeeting(updated);
     logInfo(
       'transcription',
-      'onStop·已落库 meeting=$meetingId segment=${normalized.length} '
-      '说话人=${roster.length} 耗时=${watch.elapsedMilliseconds}ms',
+      'onStop·已落库 本步=${saveWatch.elapsedMilliseconds}ms 累计=${watch.elapsedMilliseconds}ms '
+      'meeting=$meetingId segment=${normalized.length} 说话人=${roster.length}',
     );
     _emit(
       MeetingStopped(meetingId: meetingId, speakerCount: roster.length, durationMs: updated.durationMs),
@@ -451,12 +469,22 @@ class TranscriptionService {
         finalizeTriggered = true;
         logInfo('transcription', 'onStop·终稿链路已触发 meeting=$meetingId wav=$wavPath');
       } else {
-        logWarn('transcription', 'onStop：归档路径解析失败，终稿未触发 meeting=$meetingId key=$audioKey');
+        logWarn(
+          'transcription',
+          'onStop：未触发终稿，原因=归档路径解析失败（audioKey=$audioKey）meeting=$meetingId',
+        );
       }
     } else {
+      final String reason = !upload
+          ? 'upload=false（本链路不上传音频，无终稿来源）'
+          : (runtime == null
+              ? '无 runtime / 录音未建立'
+              : (runtime.pcmBytes == 0
+                  ? 'PCM=0B（录音未产出数据，WAV 未产出）'
+                  : 'WAV 未产出或归档失败（audioKey=null）'));
       logWarn(
         'transcription',
-        'onStop：未触发终稿（upload=$upload audioKey=${audioKey ?? 'null'}）',
+        'onStop：未触发终稿，原因=$reason（upload=$upload audioKey=${audioKey ?? 'null'}）',
       );
     }
 
@@ -465,10 +493,20 @@ class TranscriptionService {
       'transcription',
       '链路摘要 meeting=$meetingId 录音=${durationMs}ms '
       '后端收帧=${runtime?.frameCount ?? 0} PCM=${runtime?.pcmBytes ?? 0}B '
-      'WAV=${durationMs}ms/${wavBytes}B '
+      'WAV=${wavBytes}B '
       '实时会话=${realtimeRunning ? '已连接' : '未连接'} 实时句子=$realtimeSentences '
       '终稿=${finalizeTriggered ? '提交中' : '未触发'} '
       '摘要片段=${(updated.minutesMd ?? '').length}字 总耗时=${watch.elapsedMilliseconds}ms',
+    );
+    // P1 收尾顺序确认：一行证明「逐字稿落库 → WAV → 终稿触发」的真实次序与耗时，
+    // 供「落库早于 UI 抢跑」被日志直接证实。
+    logInfo(
+      'transcription',
+      '收尾顺序确认 meeting=$meetingId '
+      '①逐字稿落库 segment=${normalized.length} → '
+      '②WAV=${wavBytes}B → '
+      '③终稿触发=${finalizeTriggered ? '是' : '否'} '
+      '总耗时=${watch.elapsedMilliseconds}ms',
     );
     return updated;
   }
@@ -579,6 +617,11 @@ class _SessionRuntime {
   _SessionRuntime._(this._file, this._sink);
 
   /// 打开临时文件（流式写入）。
+  ///
+  /// **预留 44 字节 WAV 头**：起录时先写入 44 个 0 占位，PCM 追加其后。
+  /// 停止时只需把这 44 字节**就地改写**为真正的 RIFF 头 —— 避免了旧实现
+  /// `flush → close → readAsBytes(整份) → buildWav`（整份读回内存 + 二次拷贝）
+  /// 在长录音下的数十秒阻塞（`onStop` 撞上 UI `kStopTimeout` 的直接成因）。
   static Future<_SessionRuntime> open(String meetingId) async {
     final Directory tmp = await getTemporaryDirectory();
     final Directory dir = Directory(p.join(tmp.path, 'smart-minutes-pcm'));
@@ -587,6 +630,8 @@ class _SessionRuntime {
     }
     final File file = File(p.join(dir.path, '$meetingId.pcm'));
     final IOSink sink = file.openWrite(mode: FileMode.writeOnly);
+    // 占位头（内容稍后在 [finalizeWav] 就地补齐）。
+    sink.add(Uint8List(kWavHeaderBytes));
     return _SessionRuntime._(file, sink);
   }
 
@@ -608,27 +653,52 @@ class _SessionRuntime {
   /// PCM 写入器。
   IOSink get sink => _sink;
 
-  /// 收尾：flush + 读回 PCM → 组装 WAV。
-  Future<Uint8List> finishWav({required int sampleRate}) async {
+  /// 收尾：**幂等**关闭 sink + **就地补写 WAV 头**（流式，不整份读回内存）。
+  ///
+  /// 返回补头后的本地 WAV 文件（路径仍为 `*.pcm`，内容已是合法 WAV）；无数据返回 null。
+  /// 只需向文件**开头写 44 字节** —— 长录音下耗时仍是常数级。
+  ///
+  /// **务必复用 [close] 的 Future**：`closeSession` 已关闭过 sink，若这里再 `flush()`，
+  /// 对「已绑定且已关闭」的 IOSink 调用会返回一个**永不完成**的 Future（挂起 30s 超时）。
+  Future<File?> finalizeWav({required int sampleRate}) async {
+    await close();
+    if (pcmBytes == 0) {
+      await deleteTemp();
+      return null;
+    }
+    final Uint8List header = buildWavHeader(pcmBytes: pcmBytes, sampleRate: sampleRate);
+    final RandomAccessFile raf = await _file.open(mode: FileMode.append);
+    try {
+      await raf.setPosition(0);
+      await raf.writeFrom(header);
+    } finally {
+      await raf.close();
+    }
+    return _file;
+  }
+
+  /// 删除临时文件（失败静默；归档已「移动」时文件通常已不存在）。
+  Future<void> deleteTemp() async {
+    try {
+      await _file.delete();
+    } catch (_) {
+      // 忽略清理异常（文件可能已被归档「移动」走）。
+    }
+  }
+
+  /// 关闭 sink（**幂等**：重复调用复用同一 Future，绝不二次 flush / close）。
+  Future<void> close() => _closeFuture ??= _doClose();
+
+  Future<void> _doClose() async {
     try {
       await _sink.flush();
       await _sink.close();
     } catch (error) {
       logWarn('transcription', 'PCM 落盘 flush 失败：$error');
     }
-    if (pcmBytes == 0) return Uint8List(0);
-    final Uint8List pcm = await _file.readAsBytes();
-    return buildWav(pcm16le: pcm, sampleRate: sampleRate);
   }
 
-  /// 关闭并清理临时文件。
-  Future<void> close() async {
-    try {
-      await _sink.close();
-    } catch (_) {
-      // 忽略关闭异常。
-    }
-  }
+  Future<void>? _closeFuture;
 }
 
 /// 帧序号追踪器（供外部断言「无丢帧」）。

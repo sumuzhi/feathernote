@@ -413,6 +413,12 @@ class _FakeArchive implements AudioArchive {
   }
 
   @override
+  Future<String> putFile(String meetingId, String srcPath) async {
+    _files[meetingId] = await File(srcPath).readAsBytes();
+    return meetingId;
+  }
+
+  @override
   Future<Uint8List?> get(String key) async => _files[key];
 
   @override
