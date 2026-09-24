@@ -391,9 +391,9 @@ class TranscriptionService {
       'onStop·逐字稿汇总 segment=${normalized.length} 耗时=${watch.elapsedMilliseconds}ms',
     );
 
-    // 2) 写 WAV（流式写已在进行，此处**就地补头**）→ 归档。
-    //    每步单独计时：下一条日志必须能直接指出瓶颈（历史：此处整份 readAsBytes
-    //    在长录音下阻塞 >10s，撞上 UI kStopTimeout → 逐字稿尚未落库就"抢跑"）。
+    // 2) 生成 WAV（**流式拼接**：纯 PCM → 44B 头 + 分块拷贝，内存 O(1)）→ 归档。
+    //    每步单独计时：下一条日志必须能直接指出瓶颈（历史：此处旧实现整份
+    //    readAsBytes + buildWav 拷贝，长录音下阻塞 >10s，撞上 UI kStopTimeout）。
     int durationMs = deriveDurationMs(normalized.map((TranscriptSegment s) => s.endTime));
     String? audioKey;
     int wavBytes = 0;
@@ -403,7 +403,7 @@ class TranscriptionService {
       final int wavMs = wavDurationMsFromPcmBytes(runtime.pcmBytes, sampleRate: stored.sampleRate);
       logInfo(
         'transcription',
-        'onStop·WAV 补头 本步=${wavWatch.elapsedMilliseconds}ms 累计=${watch.elapsedMilliseconds}ms '
+        'onStop·WAV 生成 本步=${wavWatch.elapsedMilliseconds}ms 累计=${watch.elapsedMilliseconds}ms '
         'WAV=${runtime.pcmBytes > 0 ? runtime.pcmBytes + kWavHeaderBytes : 0}B '
         'PCM=${runtime.pcmBytes}B 时长=${wavMs}ms 帧=${runtime.frameCount}',
       );
@@ -419,12 +419,18 @@ class TranscriptionService {
             'key=$audioKey',
           );
         } else {
-          logInfo('transcription', 'onStop：upload=false，未归档（WAV 已产出 $wavBytes B，收尾后清理临时文件）');
+          // 不上传（如自检链路）：清理临时 WAV，避免残留。
+          try {
+            await wavFile.delete();
+          } catch (_) {
+            // 忽略清理异常。
+          }
+          logInfo('transcription', 'onStop：upload=false，未归档（已清理临时 WAV $wavBytes B）');
         }
-        // 归档完成（移动语义下源文件已不存在）后，清理可能的残留临时文件。
+        // 清理纯 PCM 临时文件（finalizeWav 内已删，这里幂等兜底）。
         await runtime.deleteTemp();
       } else {
-        logWarn('transcription', 'onStop：WAV 为空（PCM=0B，录音未产出数据）');
+        logWarn('transcription', 'onStop：WAV 未产出（PCM=0B 或自检失败，见上方日志）');
       }
     } else {
       logWarn('transcription', 'onStop：无 runtime，未产出 WAV（录音未成功建立）');
@@ -618,10 +624,9 @@ class _SessionRuntime {
 
   /// 打开临时文件（流式写入）。
   ///
-  /// **预留 44 字节 WAV 头**：起录时先写入 44 个 0 占位，PCM 追加其后。
-  /// 停止时只需把这 44 字节**就地改写**为真正的 RIFF 头 —— 避免了旧实现
-  /// `flush → close → readAsBytes(整份) → buildWav`（整份读回内存 + 二次拷贝）
-  /// 在长录音下的数十秒阻塞（`onStop` 撞上 UI `kStopTimeout` 的直接成因）。
+  /// 录音期间只写**纯 PCM**（与历史行为一致，不写任何占位字节 —— 采集/看门狗判定
+  /// 完全不受影响）。WAV 头在 [finalizeWav] 里用「新文件 + 流式拼接」补上，
+  /// 内存 O(1)，且**不依赖任何平台的随机写 / O_APPEND 语义**。
   static Future<_SessionRuntime> open(String meetingId) async {
     final Directory tmp = await getTemporaryDirectory();
     final Directory dir = Directory(p.join(tmp.path, 'smart-minutes-pcm'));
@@ -630,8 +635,6 @@ class _SessionRuntime {
     }
     final File file = File(p.join(dir.path, '$meetingId.pcm'));
     final IOSink sink = file.openWrite(mode: FileMode.writeOnly);
-    // 占位头（内容稍后在 [finalizeWav] 就地补齐）。
-    sink.add(Uint8List(kWavHeaderBytes));
     return _SessionRuntime._(file, sink);
   }
 
@@ -653,36 +656,94 @@ class _SessionRuntime {
   /// PCM 写入器。
   IOSink get sink => _sink;
 
-  /// 收尾：**幂等**关闭 sink + **就地补写 WAV 头**（流式，不整份读回内存）。
+  /// 收尾：**幂等**关闭 PCM sink → **流式拼接**生成合法 WAV → **自检**。
   ///
-  /// 返回补头后的本地 WAV 文件（路径仍为 `*.pcm`，内容已是合法 WAV）；无数据返回 null。
-  /// 只需向文件**开头写 44 字节** —— 长录音下耗时仍是常数级。
+  /// 为什么不用「就地改头」：`FileMode.append` 在 POSIX 上是 `O_APPEND`，
+  /// `setPosition(0)` 对写入**可能被忽略**（Android/Linux），会把 44B 头写到文件**尾部**
+  /// → 产出开头 44 个 0 的**非法 WAV**。这里改为平台无关的做法：
+  ///   新建 `*.wav` → 写 44B RIFF 头 → 把纯 PCM 以固定缓冲**流式拷入**（内存 O(1)）
+  ///   → 自检头/data 长度 → 删掉纯 PCM。
+  /// 长录音下耗时与文件大小线性（磁盘拷贝），但**内存恒定**，且绝不会产出坏文件。
   ///
-  /// **务必复用 [close] 的 Future**：`closeSession` 已关闭过 sink，若这里再 `flush()`，
-  /// 对「已绑定且已关闭」的 IOSink 调用会返回一个**永不完成**的 Future（挂起 30s 超时）。
+  /// 返回**合法的**本地 WAV 文件；无数据返回 null；自检不通过也返回 null（并打 error）。
   Future<File?> finalizeWav({required int sampleRate}) async {
     await close();
     if (pcmBytes == 0) {
       await deleteTemp();
       return null;
     }
-    final Uint8List header = buildWavHeader(pcmBytes: pcmBytes, sampleRate: sampleRate);
-    final RandomAccessFile raf = await _file.open(mode: FileMode.append);
+    final File wav = File('${_file.path}.wav');
+    final IOSink out = wav.openWrite(mode: FileMode.writeOnly);
     try {
-      await raf.setPosition(0);
-      await raf.writeFrom(header);
+      out.add(buildWavHeader(pcmBytes: pcmBytes, sampleRate: sampleRate));
+      // 流式拷贝：openRead 按块读，addStream 顺序写入 → 内存 O(1)。
+      await out.addStream(_file.openRead());
+      await out.flush();
+    } catch (error) {
+      logWarn('transcription', 'WAV 拼接失败：$error');
+      await _deleteQuietly(wav);
+      return null;
     } finally {
-      await raf.close();
+      try {
+        await out.close();
+      } catch (_) {
+        // 忽略关闭异常。
+      }
     }
-    return _file;
+
+    // 产物自检：绝不静默产出坏文件。
+    final String? problem = await _inspectWav(wav, expectedPcmBytes: pcmBytes);
+    if (problem != null) {
+      logError(
+        'transcription',
+        'WAV 自检失败（产物非法，已丢弃）：$problem path=${wav.path}',
+      );
+      await _deleteQuietly(wav);
+      return null;
+    }
+
+    // 保留合法 WAV，删除纯 PCM 临时文件。
+    await deleteTemp();
+    return wav;
   }
 
-  /// 删除临时文件（失败静默；归档已「移动」时文件通常已不存在）。
-  Future<void> deleteTemp() async {
+  /// 校验 WAV 产物：返回 `null` 表示合法，否则返回问题描述。
+  Future<String?> _inspectWav(File wav, {required int expectedPcmBytes}) async {
     try {
-      await _file.delete();
+      final int length = await wav.length();
+      final int expectedData = expectedPcmBytes - (expectedPcmBytes % 2);
+      if (length != kWavHeaderBytes + expectedData) {
+        return '文件长度=$length 期望=${kWavHeaderBytes + expectedData}';
+      }
+      final RandomAccessFile raf = await wav.open(mode: FileMode.read);
+      try {
+        final Uint8List head = await raf.read(kWavHeaderBytes);
+        if (head.length < kWavHeaderBytes) return '头不足 44B（读到 ${head.length}B）';
+        if (String.fromCharCodes(head.sublist(0, 4)) != 'RIFF') {
+          return '开头不是 RIFF（前 4B=${_hex(head.sublist(0, 4))}）';
+        }
+        if (String.fromCharCodes(head.sublist(8, 12)) != 'WAVE') return '缺少 WAVE 标识';
+        if (String.fromCharCodes(head.sublist(36, 40)) != 'data') return '缺少 data 块标识';
+        final int dataSize =
+            ByteData.view(head.buffer, head.offsetInBytes).getUint32(40, Endian.little);
+        if (dataSize != expectedData) return 'data 长度=$dataSize 期望=$expectedData';
+        return null;
+      } finally {
+        await raf.close();
+      }
+    } catch (error) {
+      return '自检异常：$error';
+    }
+  }
+
+  /// 删除临时纯 PCM 文件（失败静默）。
+  Future<void> deleteTemp() => _deleteQuietly(_file);
+
+  Future<void> _deleteQuietly(File file) async {
+    try {
+      await file.delete();
     } catch (_) {
-      // 忽略清理异常（文件可能已被归档「移动」走）。
+      // 忽略清理异常（文件可能已被归档「移动」走 / 不存在）。
     }
   }
 
@@ -700,6 +761,10 @@ class _SessionRuntime {
 
   Future<void>? _closeFuture;
 }
+
+/// 十六进制摘要（自检日志用）。
+String _hex(List<int> bytes) =>
+    bytes.map((int b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
 /// 帧序号追踪器（供外部断言「无丢帧」）。
 ChunkTracker trackerOf(SessionState state) => state.tracker;

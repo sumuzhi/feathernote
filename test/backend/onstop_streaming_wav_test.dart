@@ -230,6 +230,14 @@ void main() {
     expect(wav!.length, kWavHeaderBytes + pcmBytes);
     expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
     expect(String.fromCharCodes(wav.sublist(8, 12)), 'WAVE');
+    expect(String.fromCharCodes(wav.sublist(36, 40)), 'data');
+    // 防「头被写到文件尾部」（Android O_APPEND + setPosition(0) 的经典陷阱）：
+    // 尾部 44B 绝不能再出现一个 RIFF 头。
+    expect(
+      String.fromCharCodes(wav.sublist(wav.length - kWavHeaderBytes, wav.length - kWavHeaderBytes + 4)),
+      isNot('RIFF'),
+      reason: '头必须在文件开头，而不是被追加到尾部',
+    );
 
     // 3) 头里的时长 = 由 PCM 字节数推导的时长（无需整份解析）。
     expect(
