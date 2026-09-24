@@ -30,10 +30,16 @@ const int kLongTranscriptThreshold = 200;
 /// 完整转写页。
 class TranscriptPage extends ConsumerStatefulWidget {
   /// 构造转写页。
-  const TranscriptPage({super.key, required this.meetingId});
+  ///
+  /// [initialMeeting] 为来源页（纪要页）**已加载**的会议对象：传入则首帧即渲染
+  /// 内容，不再先走一次 loading / 空态再异步填充（消除「闪一下」）。
+  const TranscriptPage({super.key, required this.meetingId, this.initialMeeting});
 
   /// 会议 ID。
   final String meetingId;
+
+  /// 来源页预热的会议（可为 null：深链 / 屏幕目录直接进入）。
+  final Meeting? initialMeeting;
 
   @override
   ConsumerState<TranscriptPage> createState() => _TranscriptPageState();
@@ -53,6 +59,14 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
   @override
   void initState() {
     super.initState();
+    // 首帧预热：数据已在内存中时，绝不再走一次「空态 → 内容」。
+    final Meeting? seed = widget.initialMeeting;
+    if (seed != null) {
+      _meeting = seed;
+      _segments = seed.segments;
+      _speakers = seed.speakers;
+      _loading = false;
+    }
     unawaited(_load());
   }
 
@@ -68,8 +82,9 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       final Meeting? meeting = await api.getMeeting(widget.meetingId);
       if (!mounted) return;
       setState(() {
-        _meeting = meeting;
-        _speakers = meeting?.speakers ?? const <Speaker>[];
+        // 不因一次 null / 旧数据把已预热的内容清空。
+        _meeting = meeting ?? _meeting;
+        if (meeting != null) _speakers = meeting.speakers;
         _loading = false;
       });
       _subscription = api.watchSegments(widget.meetingId).listen(

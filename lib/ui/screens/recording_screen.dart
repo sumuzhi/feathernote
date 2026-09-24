@@ -169,7 +169,8 @@ class RecordingScreen extends StatelessWidget {
               ],
             ),
           ),
-          const Waveform(),
+          // 暂停 / 收尾时冻结波形（不再「假装在动」），恢复后继续。
+          Waveform(animating: !paused && !stopping),
           SpeakerChipRow(items: speakers),
           Expanded(
             child: Container(

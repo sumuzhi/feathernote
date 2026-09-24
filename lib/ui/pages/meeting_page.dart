@@ -287,7 +287,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
             : outline.summary,
         sections: sections,
         transcriptChars: '${formatThousands(meeting.segments.fold<int>(0, (int sum, segment) => sum + countChars(segment.text)))} 字 ›',
-        onOpenTranscript: () => context.go('/meeting/${meeting.id}/transcript'),
+        // 携带已加载的会议对象：转写页首帧即可渲染内容，避免「空态→内容」闪烁。
+        onOpenTranscript: () =>
+            context.go('/meeting/${meeting.id}/transcript', extra: meeting),
       ),
       chars: chars,
     );

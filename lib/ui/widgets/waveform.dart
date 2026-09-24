@@ -47,10 +47,14 @@ double _barDelay(int index) => index * 0.045;
 /// 录音波形。
 class Waveform extends StatefulWidget {
   /// 构造波形。
-  const Waveform({super.key, this.height = 88});
+  const Waveform({super.key, this.height = 88, this.animating = true});
 
   /// 容器高度（HTML `.wave` 为 88）。
   final double height;
+
+  /// 是否正在推进动画。暂停 / 收尾时应传 `false`：
+  /// 柱体**冻结在当前电平**并停止推进，不出现「假装在动」的空转动画。
+  final bool animating;
 
   @override
   State<Waveform> createState() => _WaveformState();
@@ -79,12 +83,30 @@ class _WaveformState extends State<Waveform> with TickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 命中「减少动效」时不起 ticker：柱体停在 scale=1 的静态形态。
     _reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant Waveform oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animating != widget.animating) {
+      _sync();
+    }
+  }
+
+  /// 按「减少动效」与 [Waveform.animating] 决定每个控制器的运行状态。
+  ///
+  /// - 减少动效 → 停并归位静态（scale=1）；
+  /// - 暂停（`animating == false`）→ 停但**保留当前值**（冻结在当前电平）；
+  /// - 否则 → 循环动画。
+  void _sync() {
     for (final AnimationController controller in _controllers) {
       if (_reduceMotion) {
         if (controller.isAnimating) controller.stop();
         controller.value = 0;
+      } else if (!widget.animating) {
+        if (controller.isAnimating) controller.stop();
       } else if (!controller.isAnimating) {
         controller.repeat(reverse: true);
       }

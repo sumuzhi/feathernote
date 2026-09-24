@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/meeting.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
 import '../pages/meeting_page.dart';
@@ -46,8 +47,11 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/meeting/:id/transcript',
       name: 'transcript',
-      builder: (BuildContext context, GoRouterState state) =>
-          TranscriptPage(meetingId: state.pathParameters['id'] ?? ''),
+      // `extra` 携带来源页已加载的 [Meeting]，供转写页首帧直接渲染（消除闪烁）。
+      builder: (BuildContext context, GoRouterState state) => TranscriptPage(
+        meetingId: state.pathParameters['id'] ?? '',
+        initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
+      ),
     ),
     if (kDebugMode) ...<RouteBase>[
       GoRoute(
