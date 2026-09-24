@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// 注意：生成基类 `_$AppDatabase` 只转发 `super(QueryExecutor)`，没有 `connect` 命名构造，
   /// 因此这里接受 [QueryExecutor] 而不是 [DatabaseConnection]。
-  AppDatabase.forTesting(QueryExecutor executor) : super(executor);
+  AppDatabase.forTesting(super.executor);
 
   @override
   int get schemaVersion => kSchemaVersion;

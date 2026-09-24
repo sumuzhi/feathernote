@@ -46,8 +46,8 @@ class BailianLlm {
     final double? topP = options?.topP;
     if (topP != null) body['top_p'] = topP;
     // 思考开关：显式 opts 优先，其次配置；仅 boolean 才写入（避免下发 undefined 语义）。
-    final bool? thinking = options?.enableThinking ?? cfg.llmEnableThinking;
-    if (thinking != null) body['enable_thinking'] = thinking;
+    final bool thinking = options?.enableThinking ?? cfg.llmEnableThinking;
+    body['enable_thinking'] = thinking;
     return body;
   }
 
@@ -73,7 +73,7 @@ class BailianLlm {
     }
     final Object? body = resp.data;
     if (body is! ResponseBody) {
-      throw AppError(ErrorCode.engineError, 'LLM 流式响应缺少可读流', engineCode: 'E_PROTOCOL');
+      throw const AppError(ErrorCode.engineError, 'LLM 流式响应缺少可读流', engineCode: 'E_PROTOCOL');
     }
     await for (final Map<String, dynamic> event in parseSse(body.stream)) {
       final String? delta = sseDeltaContent(event);
@@ -82,7 +82,7 @@ class BailianLlm {
       if (reason == null) continue;
       if (reason == 'length') {
         // 被 max_tokens 截断：输出不完整，**不能静默 return**。
-        throw AppError(
+        throw const AppError(
           ErrorCode.engineError,
           'LLM 输出被 max_tokens 截断（finish_reason=length），请上调 LLM_MAX_TOKENS',
           engineCode: 'E_TRUNCATED',

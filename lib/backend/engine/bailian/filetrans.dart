@@ -103,11 +103,11 @@ class BailianFiletrans {
     _ensureOk(resp, '获取上传凭证');
     final Object? body = resp.data;
     if (body is! Map<String, dynamic>) {
-      throw AppError(ErrorCode.engineError, '获取上传凭证失败：响应体不是对象', engineCode: 'E_PROTOCOL');
+      throw const AppError(ErrorCode.engineError, '获取上传凭证失败：响应体不是对象', engineCode: 'E_PROTOCOL');
     }
     final Object? data = body['data'];
     if (data is! Map<String, dynamic> || (data['upload_host'] as String?)?.isNotEmpty != true) {
-      throw AppError(ErrorCode.engineError, '获取上传凭证失败：响应缺少 upload_host', engineCode: 'E_PROTOCOL');
+      throw const AppError(ErrorCode.engineError, '获取上传凭证失败：响应缺少 upload_host', engineCode: 'E_PROTOCOL');
     }
     return data;
   }
@@ -188,7 +188,7 @@ class BailianFiletrans {
     _ensureOk(resp, '提交 filetrans');
     final Object? payload = resp.data;
     if (payload is! Map<String, dynamic>) {
-      throw AppError(ErrorCode.engineError, '提交 filetrans 失败：响应体不是对象', engineCode: 'E_PROTOCOL');
+      throw const AppError(ErrorCode.engineError, '提交 filetrans 失败：响应体不是对象', engineCode: 'E_PROTOCOL');
     }
     final Object? output = payload['output'];
     final Map<String, dynamic> out = output is Map<String, dynamic> ? output : const <String, dynamic>{};
@@ -273,7 +273,7 @@ class BailianFiletrans {
       final Object? decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) return decoded;
     }
-    throw AppError(ErrorCode.engineError, '下载转写结果失败：响应不是合法 JSON', engineCode: 'E_PROTOCOL');
+    throw const AppError(ErrorCode.engineError, '下载转写结果失败：响应不是合法 JSON', engineCode: 'E_PROTOCOL');
   }
 
   /// 全链路编排：本地 WAV → `oss://` → 提交 → 轮询 → 下载 → 返回原始 JSON。

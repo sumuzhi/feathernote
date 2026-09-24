@@ -4,8 +4,6 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
-export 'realtime_asr.dart' show BailianRealtimeSession, RealtimeSocketFactory, RealtimeSocket, IoRealtimeSocket, RealtimeState, RealtimeTask, RealtimeHandlers;
-
 import 'package:dio/dio.dart';
 
 import '../../../core/config/app_config.dart';
@@ -16,13 +14,14 @@ import 'filetrans.dart';
 import 'llm.dart';
 import 'realtime_asr.dart';
 
+export 'realtime_asr.dart' show BailianRealtimeSession, RealtimeSocketFactory, RealtimeSocket, IoRealtimeSocket, RealtimeState, RealtimeTask, RealtimeHandlers;
+
 /// 百炼引擎实现。
 class BailianEngine implements Engine {
   /// 构造引擎（[dio] 可注入以便单测）。
-  BailianEngine(this.cfg, {Dio? dio, RealtimeSocketFactory? socketFactory})
+  BailianEngine(this.cfg, {Dio? dio, this._socketFactory})
     : _filetrans = BailianFiletrans(cfg, dio: dio),
-      _llm = BailianLlm(cfg, dio: dio),
-      _socketFactory = socketFactory;
+      _llm = BailianLlm(cfg, dio: dio);
 
   /// 冻结配置。
   final AppConfig cfg;
