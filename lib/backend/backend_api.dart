@@ -251,6 +251,9 @@ class BackendApiImpl implements BackendApi {
       title: title ?? meeting.title,
       sampleRate: meeting.sampleRate,
     );
+    // 绑定活动会话：`pushAudioFrame` 依赖它定位会话（否则音频帧会被丢弃）。
+    _activeSessionId = sessionId;
+    _activeMeetingId = meetingId;
   }
 
   @override

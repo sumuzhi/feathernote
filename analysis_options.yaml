@@ -15,6 +15,7 @@ analyzer:
     - "**/*.mocks.dart"
     - build/**
     - android/**
+    - web/**
 
 linter:
   rules:

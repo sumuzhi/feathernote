@@ -1,6 +1,7 @@
 /// 会议领域模型与历史列表投影。
 library;
 
+import '../core/ext/markdown_ext.dart';
 import 'enums.dart';
 import 'segment.dart';
 import 'speaker.dart';
@@ -152,6 +153,7 @@ class Meeting {
     finalizeStatus: finalizeStatus,
     hasMinutes: hasMinutes,
     minutesPartial: minutesPartial,
+    minutesExcerpt: minutesExcerpt(minutesMd),
   );
 
   @override
@@ -171,6 +173,7 @@ class MeetingSummary {
     required this.finalizeStatus,
     required this.hasMinutes,
     required this.minutesPartial,
+    this.minutesExcerpt = '',
   });
 
   /// 会议 ID。
@@ -199,6 +202,9 @@ class MeetingSummary {
 
   /// 纪要是否为残篇。
   final bool minutesPartial;
+
+  /// 纪要首行预览（空串表示无可展示摘要），供历史卡片第二行使用。
+  final String minutesExcerpt;
 
   @override
   String toString() => 'MeetingSummary($id, "$title", ${status.value})';

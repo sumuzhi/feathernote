@@ -3,6 +3,7 @@ library;
 
 import 'package:drift/drift.dart';
 
+import '../../core/ext/markdown_ext.dart';
 import '../../core/log/log.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
@@ -268,5 +269,6 @@ class DriftMeetingRepository implements MeetingRepository {
     finalizeStatus: FinalizeStatus.fromValue(row.finalizeStatus),
     hasMinutes: row.minutesMd != null && row.minutesMd!.trim().isNotEmpty && row.minutesPartial == 0,
     minutesPartial: row.minutesPartial != 0,
+    minutesExcerpt: minutesExcerpt(row.minutesMd),
   );
 }
