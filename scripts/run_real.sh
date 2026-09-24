@@ -39,8 +39,10 @@ DEFINES=(
   "--dart-define=DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY"
   "--dart-define=DASHSCOPE_WORKSPACE_ID=${DASHSCOPE_WORKSPACE_ID:-}"
   "--dart-define=BAILIAN_REGION=${BAILIAN_REGION:-cn-beijing}"
-  # 注意：Flutter 侧默认值是 3.0，这里显式用 3.1 与原 Node 项目保持一致
-  "--dart-define=BAILIAN_REALTIME_MODEL=${BAILIAN_REALTIME_MODEL:-qwen-audio-3.1-asr-flash-streaming}"
+  # 实时模型默认值与 Flutter 侧 / 原 Node 项目 config.js 默认值保持一致（3.0）。
+  # 注意：若 SM_ENV_FILE 指向的 .env 已设置 BAILIAN_REALTIME_MODEL（原项目 .env 为 3.1），
+  # 则该环境变量会覆盖此默认值——真实运行以 .env 为准，见启动时打印的 realtime 行。
+  "--dart-define=BAILIAN_REALTIME_MODEL=${BAILIAN_REALTIME_MODEL:-qwen-audio-3.0-asr-flash-streaming}"
   "--dart-define=BAILIAN_FILETRANS_MODEL=${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
   "--dart-define=BAILIAN_LLM_MODEL=${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
   "--dart-define=ENGINE_PROVIDER=${ENGINE_PROVIDER:-bailian}"
@@ -53,7 +55,7 @@ DEFINES=(
 
 echo "已注入真实百炼配置："
 echo "  region        = ${BAILIAN_REGION:-cn-beijing}"
-echo "  realtime      = ${BAILIAN_REALTIME_MODEL:-qwen-audio-3.1-asr-flash-streaming}"
+echo "  realtime      = ${BAILIAN_REALTIME_MODEL:-qwen-audio-3.0-asr-flash-streaming}"
 echo "  filetrans     = ${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
 echo "  llm           = ${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
 echo "  log level     = ${LOG_LEVEL:-debug}"
