@@ -90,10 +90,12 @@ class TranscriptScreen extends StatelessWidget {
       bottomSpacer: 100,
       bottomCta: Row(
         children: <Widget>[
-          AppGhostPillButton(
-            label: '复制全文',
-            icon: Icons.copy_all_rounded,
-            onTap: onCopyAll,
+          Expanded(
+            child: AppGhostPillButton(
+              label: '复制全文',
+              icon: Icons.copy_all_rounded,
+              onTap: onCopyAll,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(child: AppPillButton(label: '导出 Markdown', onTap: onExportMarkdown)),

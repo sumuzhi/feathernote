@@ -68,7 +68,9 @@ class ScreenFrame extends StatelessWidget {
           )
         : body;
 
-    return ColoredBox(
+    // 用 Material 而不是纯 ColoredBox：TextField / InkWell 等需要 Material 祖先，
+    // 页面自己渲染背景（每屏自带 TabBar，不再走 ShellRoute 的 Scaffold）。
+    return Material(
       color: AppColors.bg,
       child: Stack(
         children: <Widget>[

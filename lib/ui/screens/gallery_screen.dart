@@ -143,13 +143,21 @@ class _GalleryButton extends StatelessWidget {
 /// 单个屏的演示宿主：持有该屏交互所需的局部状态。
 class GalleryScreenHost extends ConsumerStatefulWidget {
   /// 构造宿主。
-  const GalleryScreenHost({super.key, required this.screenId, required this.onExit});
+  const GalleryScreenHost({
+    super.key,
+    required this.screenId,
+    required this.onExit,
+    required this.onOpenScreen,
+  });
 
   /// 屏号。
   final String screenId;
 
   /// 退出（回到目录）。
   final VoidCallback onExit;
+
+  /// 跳到另一屏（对齐 HTML `data-go`，如录音第 8 秒跳 s06）。
+  final ValueChanged<String> onOpenScreen;
 
   @override
   ConsumerState<GalleryScreenHost> createState() => _GalleryScreenHostState();
@@ -224,15 +232,13 @@ class _GalleryScreenHostState extends ConsumerState<GalleryScreenHost> {
           _recIndex++;
         }
       });
-      // 第 8 秒模拟断线 → 跳 s06。
+      // 第 8 秒模拟断线 → 跳 s06（对齐 HTML `data-go`）。
+      // 注意：这里用 Toast 而不是 SnackBar —— 本 App 的每屏自带 TabBar、
+      // 不套 Scaffold，`ScaffoldMessenger.showSnackBar` 会直接断言失败。
       if (_recSeconds == 8 && !_disconnected) {
         _disconnected = true;
-        widget.onExit();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已模拟断线：请从目录进入 06 断线重连')),
-          );
-        }
+        _toast('网络连接中断 · 已切到断线重连屏');
+        widget.onOpenScreen('s06');
       }
     });
   }

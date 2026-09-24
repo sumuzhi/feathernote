@@ -139,6 +139,9 @@ class AppPillButton extends StatelessWidget {
 }
 
 /// 白色胶囊次按钮（高 56，HTML `.tr-cta .b1`）。
+///
+/// 注意：本组件**不自带** `Expanded`，需要等宽时由调用方在 `Row` 里包一层
+/// （自带 `Expanded` 会在非 Flex 父级下触发 ParentDataWidget 断言）。
 class AppGhostPillButton extends StatelessWidget {
   /// 构造按钮。
   const AppGhostPillButton({
@@ -165,25 +168,24 @@ class AppGhostPillButton extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: Expanded(
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.card,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              boxShadow: AppShadow.card,
-            ),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                if (icon != null) ...<Widget>[
-                  Icon(icon, size: 18, color: AppColors.ink),
-                  const SizedBox(width: 8),
-                ],
-                Text(label, style: AppTextStyles.buttonSecondary),
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            boxShadow: AppShadow.card,
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (icon != null) ...<Widget>[
+                Icon(icon, size: 18, color: AppColors.ink),
+                const SizedBox(width: 8),
               ],
-            ),
+              Text(label, style: AppTextStyles.buttonSecondary),
+            ],
           ),
         ),
       ),

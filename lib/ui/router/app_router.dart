@@ -63,6 +63,7 @@ final GoRouter appRouter = GoRouter(
         builder: (BuildContext context, GoRouterState state) => GalleryScreenHost(
           screenId: state.pathParameters['id'] ?? 's01',
           onExit: () => context.go('/gallery'),
+          onOpenScreen: (String id) => context.go('/gallery/$id'),
         ),
       ),
     ],
