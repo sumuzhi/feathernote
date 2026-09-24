@@ -1,0 +1,53 @@
+name: smart_minutes_flutter
+description: 智能会议纪要 · 移动端（Flutter + Dart 本地后端，无外部服务器）
+publish_to: 'none'
+
+# versionName+versionCode：Android 侧读这里。
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 状态管理 / 路由 ──
+  flutter_riverpod: ^3.4.3 # Riverpod 3：注意「同一 List 实例被 == 过滤」的陷阱
+  go_router: ^18.0.1
+
+  # ── 音频 ──
+  record: ^7.1.1 # Android pcm16bits Stream；可指定 sampleRate / numChannels
+  just_audio: ^0.10.6 # 本地 WAV 回放 + seek（跳播）
+
+  # ── 持久化 ──
+  drift: ^2.35.0
+  drift_flutter: ^0.3.1
+  # sqlite3 3.x 起自带原生库，**不要**再引 sqlite3_flutter_libs（0.6.0 起已是空包 / EOL）。
+  sqlite3: ^3.6.0
+  path_provider: ^2.1.6
+  path: ^1.9.1
+
+  # ── 网络 ──
+  dio: ^5.11.1 # SSE stream + 拦截器 + 超时/取消
+
+  # ── 展示 ──
+  flutter_markdown_plus: ^1.0.12 # 原 flutter_markdown 已于 2025-02 停止维护
+  markdown: ^7.3.1
+
+  # ── 平台能力 ──
+  permission_handler: ^13.0.2
+  flutter_foreground_task: ^11.0.3 # 前台服务类型固定 microphone
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.35.0
+  build_runner: ^2.16.1
+  mocktail: ^1.0.5
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/prompts/minutes.md

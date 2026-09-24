@@ -1,0 +1,33 @@
+# 静态分析配置：以 flutter_lints 为基础，收紧为「强类型 + 显式返回」风格。
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unused_import: error
+    unused_local_variable: error
+    dead_code: error
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.mocks.dart"
+    - build/**
+    - android/**
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_empty_else
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - directives_ordering
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - prefer_final_fields
+    - prefer_single_quotes
+    - require_trailing_commas
+    - sort_pub_dependencies
+    - unawaited_futures
