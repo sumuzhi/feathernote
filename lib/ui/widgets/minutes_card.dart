@@ -152,7 +152,8 @@ class MinutesCard extends StatelessWidget {
               ),
             ),
           for (int i = 0; i < view.sections.length; i++) ...<Widget>[
-            _divider(),
+            // 分节之间不再画分割线（用户反馈横线过多影响观感），靠留白分隔。
+            if (i == 0) const SizedBox(height: 14) else const SizedBox(height: 16),
             Text(view.sections[i].title, style: AppTextStyles.subHead),
             const SizedBox(height: 4),
             for (final String item in view.sections[i].items)

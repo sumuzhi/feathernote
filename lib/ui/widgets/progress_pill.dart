@@ -8,7 +8,11 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// 旋转指示器（14×14，橙色描边、顶部缺口）。
+/// 旋转指示器（14×14，橙色圆弧）。
+///
+/// 历史缺陷：旧实现是「圆环 + 顶部缺口条」整体旋转，圆环转动本身不可见、
+/// 缺口条又像一枚独立的"指针 icon"，视觉上成了**两层各自在转**。
+/// 现改为单一旋转元素：一段固定扫过角度的橙色圆弧绕中心旋转，只转一层。
 class AppSpinner extends StatefulWidget {
   /// 构造指示器。
   const AppSpinner({super.key, this.size = 14});
@@ -41,38 +45,46 @@ class _AppSpinnerState extends State<AppSpinner> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final bool reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final Widget ring = Container(
-      width: widget.size,
-      height: widget.size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.orange, width: 2),
-      ),
-    );
     if (reduceMotion) {
-      return SizedBox(width: widget.size, height: widget.size, child: ring);
+      return SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(painter: _ArcSpinnerPainter()),
+      );
     }
     return SizedBox(
       width: widget.size,
       height: widget.size,
       child: RotationTransition(
         turns: _controller,
-        child: Stack(
-          children: <Widget>[
-            ring,
-            Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                width: widget.size,
-                height: 2,
-                color: AppColors.bg,
-              ),
-            ),
-          ],
-        ),
+        child: CustomPaint(painter: _ArcSpinnerPainter()),
       ),
     );
   }
+}
+
+/// 单段圆弧：只画一次、只由外层 [RotationTransition] 旋转，绝无第二层动画。
+class _ArcSpinnerPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = AppColors.orange
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    final double radius = (size.shortestSide - 2) / 2;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -1.5708, // 从 12 点方向起笔
+      4.71239, // 扫过 270°
+      false,
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ArcSpinnerPainter oldDelegate) => false;
 }
 
 /// 胶囊形加载提示（HTML `.seg-load`）：高 42，圆角 999。

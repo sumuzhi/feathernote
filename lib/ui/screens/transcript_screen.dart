@@ -79,8 +79,11 @@ class TranscriptScreen extends StatelessWidget {
   /// 点击「展开这段」（回传条目下标）。
   final ValueChanged<int>? onExpandSegment;
 
-  /// 点击 segment 的播放按钮（回传条目下标）。
-  final ValueChanged<int>? onPlaySegment;
+  /// 点击 segment 的播放按钮（回传条目数据）。
+  ///
+  /// ⚠️ 必须回传**条目**而不是过滤后列表的下标：页面按过滤下标去索引全量
+  /// `_segments` 会错位，导致「过滤说话人后点播放播的是别的话」。
+  final ValueChanged<TranscriptItemView>? onPlaySegment;
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +153,7 @@ class TranscriptScreen extends StatelessWidget {
                     TranscriptTile(
                       item: visible[i],
                       onExpand: onExpandSegment == null ? null : () => onExpandSegment!(i),
-                      onPlay: onPlaySegment == null ? null : () => onPlaySegment!(i),
+                      onPlay: onPlaySegment == null ? null : () => onPlaySegment!(visible[i]),
                     ),
                 if (segmentLoadingText != null)
                   AppSegmentedLoadingPill(text: segmentLoadingText!),

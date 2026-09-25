@@ -5,14 +5,15 @@
 /// - `pending`：半透明（0.55）+ 正文转灰，用于「待上传」（s06）；
 /// - `highlight`：浅橙底圆角卡 + 「展开这段 · N 字」（s12）。
 ///
-/// 2026-09-25：时间节点后增加播放按钮（按 SVG 设计稿）。
+/// 播放按钮（对齐设计稿）：
+/// - 未播放：说话人**浅底色圆形** + 同色实心三角 ▶，紧跟时间戳；
+/// - 播放中：说话人**同色实心圆** + 白色暂停图标 + 段内进度条 + `已播 / 段长`。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../theme/speaker_palette.dart';
-import '../utils/formatters.dart';
 import 'speaker_chips.dart';
 
 /// 转写条目视图数据。
@@ -29,6 +30,9 @@ class TranscriptItemView {
     this.pending = false,
     this.highlight = false,
     this.isPlaying = false,
+    this.playProgress = 0,
+    this.playPositionLabel = '',
+    this.playDurationLabel = '',
     this.expandNote,
   });
 
@@ -62,6 +66,15 @@ class TranscriptItemView {
   /// 当前 segment 是否正在播放（控制按钮视觉态）。
   final bool isPlaying;
 
+  /// 段内播放进度（0–1；仅播放中有意义）。
+  final double playProgress;
+
+  /// 段内已播时长文案（如「00:03」；仅播放中有意义）。
+  final String playPositionLabel;
+
+  /// 段总时长文案（如「00:08」；仅播放中有意义）。
+  final String playDurationLabel;
+
   /// 「展开这段 · N 字」文案（仅高亮态使用）。
   final String? expandNote;
 }
@@ -92,6 +105,7 @@ class TranscriptTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color accent = speakerColor(item.ordinal);
+    final Color soft = speakerSoftColor(item.ordinal);
     final bool canPlay = onPlay != null && showTime && !item.pending;
 
     final Widget body = Padding(
@@ -108,28 +122,26 @@ class TranscriptTile extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: canPlay ? onPlay : null,
-                        behavior: HitTestBehavior.opaque,
-                        child: RichText(
-                          text: TextSpan(
-                            style: AppTextStyles.meta.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: accent,
-                              height: 1.3,
-                            ),
-                            children: <TextSpan>[
-                              TextSpan(text: item.speakerLabel),
-                              if (showTime)
-                                TextSpan(
-                                  text: ' · ${item.timeLabel}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                            ],
+                    GestureDetector(
+                      onTap: canPlay ? onPlay : null,
+                      behavior: HitTestBehavior.opaque,
+                      child: RichText(
+                        text: TextSpan(
+                          style: AppTextStyles.meta.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: accent,
+                            height: 1.3,
                           ),
+                          children: <TextSpan>[
+                            TextSpan(text: item.speakerLabel),
+                            if (showTime)
+                              TextSpan(
+                                text: ' · ${item.timeLabel}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
@@ -137,14 +149,25 @@ class TranscriptTile extends StatelessWidget {
                       const SizedBox(width: 8),
                       _PlayButton(
                         accent: accent,
+                        soft: soft,
                         isPlaying: item.isPlaying,
                         onTap: onPlay,
                       ),
                       if (item.isPlaying) ...<Widget>[
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _SegmentProgressBar(
+                            progress: item.playProgress.clamp(0.0, 1.0),
+                            accent: accent,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         Text(
-                          '${formatClock(item.startTimeMs)}-${formatClock(item.endTimeMs)}',
-                          style: AppTextStyles.metaSmall,
+                          '${item.playPositionLabel} / ${item.playDurationLabel}',
+                          style: AppTextStyles.meta.copyWith(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ],
@@ -206,32 +229,41 @@ class TranscriptTile extends StatelessWidget {
   }
 }
 
-/// 播放按钮（SVG 设计稿样式）。
+/// 播放按钮（对齐设计稿）。
 ///
-/// - 未播放：同色实心小三角（▶）。
-/// - 正在播放：同色圆角方块底 + 白色三角。
+/// - 未播放：说话人**浅底色圆形** + 同色实心三角 ▶；
+/// - 播放中：说话人**同色实心圆** + 白色暂停图标（两竖条）。
 class _PlayButton extends StatelessWidget {
   const _PlayButton({
     required this.accent,
+    required this.soft,
     required this.isPlaying,
     required this.onTap,
   });
 
   final Color accent;
+  final Color soft;
   final bool isPlaying;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    const double size = 18;
-    const double radius = 4;
-    const double iconSize = 9;
+    const double size = 26;
 
-    final Widget playIcon = Icon(
-      Icons.play_arrow_rounded,
-      size: iconSize,
-      color: isPlaying ? Colors.white : accent,
-    );
+    final Widget icon = isPlaying
+        ? SizedBox(
+            width: 9,
+            height: 10,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _pauseBar(),
+                const SizedBox(width: 3),
+                _pauseBar(),
+              ],
+            ),
+          )
+        : Icon(Icons.play_arrow_rounded, size: 16, color: accent);
 
     return GestureDetector(
       onTap: onTap,
@@ -239,14 +271,45 @@ class _PlayButton extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: isPlaying
-            ? BoxDecoration(
-                color: accent,
-                borderRadius: BorderRadius.circular(radius),
-              )
-            : null,
+        decoration: BoxDecoration(color: isPlaying ? accent : soft, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: playIcon,
+        child: icon,
+      ),
+    );
+  }
+
+  Widget _pauseBar() => Container(
+        width: 2.5,
+        height: 10,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      );
+}
+
+/// 段内播放进度条：同色已播 + 浅色轨道（圆角胶囊）。
+class _SegmentProgressBar extends StatelessWidget {
+  const _SegmentProgressBar({required this.progress, required this.accent});
+
+  final double progress;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: 6,
+        child: Stack(
+          children: <Widget>[
+            Container(color: AppColors.grayWash),
+            FractionallySizedBox(
+              widthFactor: progress,
+              child: Container(color: accent),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -150,6 +150,11 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
     );
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
     final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
+    final bool playing = audioState.isSegmentPlaying(segment.segmentId);
+    // 段内进度与已播时长：播放中才计算，其余场景恒为默认值。
+    final int segDuration = segment.endTime - segment.startTime;
+    final int played =
+        (audioState.currentPositionMs - segment.startTime).clamp(0, segDuration > 0 ? segDuration : 0);
     return TranscriptItemView(
       ordinal: view.ordinal,
       speakerLabel: view.name,
@@ -159,7 +164,10 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       startTimeMs: segment.startTime,
       endTimeMs: segment.endTime,
       highlight: highlight,
-      isPlaying: audioState.isSegmentPlaying(segment.segmentId),
+      isPlaying: playing,
+      playProgress: segDuration > 0 ? played / segDuration : 0,
+      playPositionLabel: formatClock(played),
+      playDurationLabel: formatClock(segDuration),
       expandNote: highlight ? '展开这段 · ${formatCharCount(segment.text.length)}' : null,
     );
   }
@@ -217,7 +225,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
           ? '分段加载中 · 已显示 ${formatThousands(_segments.length)} 段'
           : null,
       onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
-      onPlaySegment: (int index) => _onPlaySegment(index),
+      onPlaySegment: (TranscriptItemView item) => _onPlaySegment(item),
       onBack: () => context.go('/meeting/${widget.meetingId}'),
       onSearch: () => unawaited(_promptSearch()),
       onCopyAll: () => unawaited(_copyAll()),
@@ -291,13 +299,16 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
     }
   }
 
-  Future<void> _onPlaySegment(int index) async {
-    final TranscriptSegment segment = _segments[index];
+  /// 播放指定条目。
+  ///
+  /// ⚠️ 入参是**条目本身**（含原始毫秒）：说话人过滤后列表下标与全量
+  /// `_segments` 不再一一对应，按 index 取会播错段。
+  Future<void> _onPlaySegment(TranscriptItemView item) async {
     await ref.read(audioPlayerControllerProvider.notifier).playSegment(
       meetingId: widget.meetingId,
-      segmentId: segment.segmentId,
-      startMs: segment.startTime,
-      endMs: segment.endTime,
+      segmentId: item.segmentId,
+      startMs: item.startTimeMs,
+      endMs: item.endTimeMs,
     );
   }
 
