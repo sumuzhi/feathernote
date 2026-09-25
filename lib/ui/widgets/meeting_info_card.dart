@@ -95,28 +95,42 @@ class _TranscriptEntry extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Container(
         height: 41,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           color: AppColors.orangeSoft,
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
+        // 自适应：左组 Expanded（标题超长省略），字数右贴边；任意屏宽不溢出。
+        // 垂直不用 padding 撑（41-11×2=19px 太紧，大字体下会纵向溢出），
+        // 改用 alignment.center 垂直居中。
+        alignment: Alignment.center,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: <Widget>[
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(
-                  Icons.description_rounded,
-                  size: 18,
-                  color: AppColors.orange,
-                ),
-                const SizedBox(width: 8),
-                Text('查看完整转写', style: AppTextStyles.settingTitle),
-              ],
+            Expanded(
+              child: Row(
+                children: <Widget>[
+                  const Icon(
+                    Icons.description_rounded,
+                    size: 18,
+                    color: AppColors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '查看完整转写',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.settingTitle,
+                    ),
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(width: 8),
             Text(
               chars,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTextStyles.meta.copyWith(color: AppColors.muted),
             ),
           ],
