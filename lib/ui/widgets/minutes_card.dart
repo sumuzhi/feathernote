@@ -175,20 +175,40 @@ class MinutesCard extends StatelessWidget {
                 ),
               ),
           ],
-          _divider(),
           GestureDetector(
             onTap: view.onOpenTranscript,
             behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 15),
+            child: Container(
+              margin: const EdgeInsets.only(top: 14, bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.orangeSoft,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[
-                  Text('查看完整转写', style: AppTextStyles.subHead),
-                  Text(view.transcriptChars, style: AppTextStyles.action.copyWith(
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.muted,
-                  )),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.orangeWash,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.description_rounded,
+                      size: 18,
+                      color: AppColors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text('查看完整转写', style: AppTextStyles.subHead),
+                  ),
+                  Text(
+                    view.transcriptChars,
+                    style: AppTextStyles.meta.copyWith(color: AppColors.muted),
+                  ),
                 ],
               ),
             ),
@@ -197,11 +217,6 @@ class MinutesCard extends StatelessWidget {
       ),
     );
   }
-
-  Widget _divider() => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 4),
-        child: Divider(height: 1, thickness: 1, color: AppColors.line),
-      );
 }
 
 class _BulletItem extends StatelessWidget {
