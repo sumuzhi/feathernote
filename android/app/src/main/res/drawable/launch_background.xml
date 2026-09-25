@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- 冷启动背景：品牌米色（#FAF3EC），与 Flutter 启动动画页背景一致，避免闪白。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FAF3EC" />
+        </shape>
+    </item>
 </layer-list>

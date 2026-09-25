@@ -21,6 +21,7 @@ class HomeIdleScreen extends StatelessWidget {
   const HomeIdleScreen({
     super.key,
     this.greeting = '',
+    this.dailyQuote,
     this.userName = '',
     required this.heroStatusText,
     required this.heroStatusTail,
@@ -39,6 +40,9 @@ class HomeIdleScreen extends StatelessWidget {
 
   /// 问候语（「早上好，苏木」；空则不渲染）。
   final String greeting;
+
+  /// 「一句话」文案（进入首页时从一言 API 取；null / 空 = 不渲染）。
+  final String? dailyQuote;
 
   /// 用户名（头像文字取首字；空则不渲染头像）。
   final String userName;
@@ -125,6 +129,16 @@ class HomeIdleScreen extends StatelessWidget {
                   const SizedBox(height: 4),
                 ],
                 Text('开始记录', style: AppTextStyles.pageTitle),
+                // 「一句话」：一言 API（诗词），随每次进首页刷新；无网静默隐藏。
+                if (dailyQuote != null && dailyQuote!.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 6),
+                  Text(
+                    dailyQuote!,
+                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),

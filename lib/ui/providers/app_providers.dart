@@ -8,6 +8,7 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/material.dart' show ModalRoute, RouteObserver;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../backend/backend_api.dart';
@@ -152,6 +153,10 @@ class ToastController extends Notifier<ToastMessage?> {
 }
 
 /// 提示 provider。
+/// 路由观察者：页面级副作用订阅用（如转写页退出时停止录音回放）。
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
+
 final NotifierProvider<ToastController, ToastMessage?> toastProvider =
     NotifierProvider<ToastController, ToastMessage?>(ToastController.new);
 

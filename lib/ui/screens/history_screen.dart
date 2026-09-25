@@ -124,6 +124,8 @@ class HistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ScreenFrame(
+      // 只滚动内容列表：标题 / 搜索 / 筛选 chips 固定在顶部不随列表滚动。
+      scrollable: false,
       tabIndex: selectedTab,
       onTabTap: onTabTap,
       body: Column(
@@ -172,13 +174,14 @@ class HistoryScreen extends StatelessWidget {
             onTap: onFilterChanged,
             enabled: !_isEmpty,
           ),
-          if (_isEmpty || _isSearchEmpty)
-            _buildEmptyState(context)
-          else
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpacing.page, 6, AppSpacing.page, 0),
-              child: _buildList(),
-            ),
+          Expanded(
+            child: (_isEmpty || _isSearchEmpty)
+                ? _buildEmptyState(context)
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.page, 6, AppSpacing.page, 0),
+                    child: _buildList(),
+                  ),
+          ),
         ],
       ),
     );

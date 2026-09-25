@@ -37,14 +37,25 @@ dev_dependencies:
   drift_dev: ^2.35.0
   fake_async: ^1.3.1 # 假时钟：驱动看门狗 / 超时等 Timer 逻辑（波形与录音计时）
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4 # 由 brand-assets/icon-1024 生成全密度启动图标
   flutter_test:
     sdk: flutter
   mocktail: ^1.0.5
+
+# App 图标：brand-assets 渲染产物（icon-1024 主图 / icon-fg 前景层）。
+# 运行 `dart run flutter_launcher_icons` 重新生成 android res。
+flutter_launcher_icons:
+  image_path: "assets/brand/icon-1024.png"
+  android: true
+  ios: false
+  adaptive_icon_background: "#FAF3EC"
+  adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"
 
 flutter:
   uses-material-design: true
   assets:
     - assets/prompts/minutes.md
+    - assets/brand/
   # 设计稿指定 Noto Sans SC：随包 asset（离线可用，不走 google_fonts 运行时下载）。
   # 仅随包 400 / 600 两档，其余字重由 Flutter 就近匹配（见 DESIGN-SPEC 2.4）。
   fonts:

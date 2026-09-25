@@ -15,6 +15,7 @@ import '../../domain/recording_mode.dart';
 import '../../domain/segment.dart';
 import '../../domain/speaker.dart';
 import '../providers/app_providers.dart';
+import '../providers/quote_provider.dart';
 import '../providers/recorder_controller.dart';
 import '../screens/home_idle_screen.dart';
 import '../screens/recording_screen.dart';
@@ -152,6 +153,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     return HomeIdleScreen(
       heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
+      dailyQuote: ref.watch(dailyQuoteProvider).value,
       recentItems: recent,
       onMicTap: _start,
       onViewAll: () => context.go('/history'),

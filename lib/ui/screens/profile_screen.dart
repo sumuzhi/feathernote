@@ -94,6 +94,8 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ScreenFrame(
+      // 只滚动配置项列表：「设置」标题行固定在顶部。
+      scrollable: false,
       tabIndex: selectedTab,
       onTabTap: onTabTap,
       body: Column(
@@ -114,31 +116,40 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           ),
-          for (final ProfileSectionView section in sections) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 9),
-              child: Text(section.title, style: AppTextStyles.meta),
-            ),
-            SurfaceCard(
-              margin: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
+          Expanded(
+            child: SingleChildScrollView(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  for (int i = 0; i < section.rows.length; i++)
-                    _SettingRow(
-                      row: section.rows[i],
-                      showDivider: i != section.rows.length - 1,
+                  for (final ProfileSectionView section in sections) ...<Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(22, 20, 22, 9),
+                      child: Text(section.title, style: AppTextStyles.meta),
                     ),
+                    SurfaceCard(
+                      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
+                      child: Column(
+                        children: <Widget>[
+                          for (int i = 0; i < section.rows.length; i++)
+                            _SettingRow(
+                              row: section.rows[i],
+                              showDivider: i != section.rows.length - 1,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
+                    child: Text(
+                      versionText,
+                      style: AppTextStyles.version,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
-            child: Text(
-              versionText,
-              style: AppTextStyles.version,
-              textAlign: TextAlign.center,
             ),
           ),
         ],

@@ -1,9 +1,11 @@
 /// 顶部浮动提示条（Toast）。
 ///
-/// 对齐 HTML 的两种形态：
-/// - `.toast`（浅橙底 `#FBE3D2` + 橙色文案 + 右侧重试按钮）：断线重连（s06）；
-/// - `.toast.plain`（深棕底 `#3A2A20` + 白字）：导出 / 分享 / 复制后的瞬时反馈，
-///   HTML JS 里约 2.2s 自动消失。
+/// **全站统一 toast 样式**（对齐设计规格）：
+/// `height 59 / padding 11px 12px / gap 10`，
+/// `background #FFF0E3`、`border 1px #F2C9A3`、`radius 14`、
+/// `shadow 0 6 16 -4 rgba(158,128,102,.16)`。
+/// - [AppToast]：普通提示（info / warning / success 三种语气图标）；
+/// - [AppActionToast]：断线重连（同容器 + 右侧重试按钮）。
 ///
 /// 本文件只负责**视觉**；显示/自动消失的调度在
 /// `lib/ui/providers/app_providers.dart` 的 `toastProvider`。
@@ -65,7 +67,22 @@ class ToastMessage {
   int get hashCode => Object.hash(text, tone, nonce);
 }
 
-/// 普通提示条（深色底，对齐 HTML `.toast.plain`）。
+/// 统一 toast 容器装饰（背景 / 边框 / 圆角 / 阴影，全站唯一来源）。
+BoxDecoration appToastDecoration() => BoxDecoration(
+      color: const Color(0xFFFFF0E3),
+      border: Border.all(color: const Color(0xFFF2C9A3)),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const <BoxShadow>[
+        BoxShadow(
+          color: Color(0x299E8066), // rgba(158,128,102,.16)
+          offset: Offset(0, 6),
+          blurRadius: 16,
+          spreadRadius: -4,
+        ),
+      ],
+    );
+
+/// 普通提示条（统一浅橙样式）。
 class AppToast extends StatelessWidget {
   /// 构造提示条。
   const AppToast({super.key, required this.message});
@@ -76,48 +93,42 @@ class AppToast extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final IconData icon = switch (message.tone) {
-      ToastTone.info => Icons.bookmark_added_outlined,
+      ToastTone.info => Icons.info_outline_rounded,
       ToastTone.warning => Icons.wifi_off_rounded,
       ToastTone.success => Icons.check_circle_outline_rounded,
     };
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppColors.toastPlain,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          boxShadow: AppShadow.toast,
-        ),
-        child: Row(
-          children: <Widget>[
-            SizedBox(
-              width: 34,
-              height: 34,
-              child: Icon(icon, size: 20, color: Colors.white),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                message.text,
-                style: AppTextStyles.body15.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+    return Container(
+      height: 59,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: appToastDecoration(),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 34,
+            height: 34,
+            child: Icon(icon, size: 21, color: AppColors.orange),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message.text,
+              style: AppTextStyles.body15.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// 断线重连提示条（浅橙底 + 重试按钮，对齐 HTML `.toast`）。
+/// 断线重连提示条（统一浅橙样式 + 右侧重试按钮）。
 class AppActionToast extends StatelessWidget {
-  /// 构造提示条。
+  /// 构造重连提示条。
   const AppActionToast({
     super.key,
     required this.title,
@@ -140,63 +151,66 @@ class AppActionToast extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppColors.toastBg,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          boxShadow: AppShadow.toast,
-        ),
-        child: Row(
-          children: <Widget>[
-            const SizedBox(
-              width: 34,
-              height: 34,
-              child: Icon(Icons.wifi_off_rounded, size: 22, color: AppColors.orange),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
+    return Container(
+      height: 59,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: appToastDecoration(),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(
+            width: 34,
+            height: 34,
+            child: Icon(Icons.wifi_off_rounded, size: 22, color: AppColors.orange),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Flexible(
+                  child: Text(
                     title,
-                    style: AppTextStyles.body15.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.orange,
-                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.settingTitle.copyWith(color: AppColors.orange),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.toastSub),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 38,
-              child: TextButton(
-                onPressed: onAction,
-                style: TextButton.styleFrom(
-                  backgroundColor: AppColors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  minimumSize: const Size(64, 38),
-                  tapTargetSize: MaterialTapTargetSize.padded,
                 ),
-                child: Text(actionLabel, style: AppTextStyles.settingTitle.copyWith(color: Colors.white)),
+                const SizedBox(height: 2),
+                Flexible(
+                  child: Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 32,
+            child: TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                minimumSize: const Size(56, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                actionLabel,
+                style: AppTextStyles.metaSmall.copyWith(color: Colors.white),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

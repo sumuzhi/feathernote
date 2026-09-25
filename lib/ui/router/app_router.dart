@@ -21,6 +21,7 @@ import '../pages/profile_page.dart';
 import '../pages/transcript_page.dart';
 import '../providers/app_providers.dart';
 import '../screens/gallery_screen.dart';
+import '../screens/splash_screen.dart';
 import '../widgets/app_toast.dart';
 
 /// 全局路由。
@@ -33,8 +34,16 @@ import '../widgets/app_toast.dart';
 /// 此前用默认 `builder`，切页是"硬切"，特别是「完整转写 → 生成纪要 → 纪要页」
 /// 这条链路会明显闪一下；全局加过渡后不再有裸切帧。
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/',
+  initialLocation: '/splash',
+  // 路由事件转发给 routeObserver（页面级副作用，如转写页退出停播）。
+  observers: <NavigatorObserver>[routeObserver],
   routes: <RouteBase>[
+    GoRoute(
+      path: '/splash',
+      name: 'splash',
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _tabPage(state, const SplashScreen()),
+    ),
     GoRoute(
       path: '/',
       name: 'record',

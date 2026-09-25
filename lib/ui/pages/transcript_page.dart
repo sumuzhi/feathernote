@@ -49,7 +49,8 @@ class TranscriptPage extends ConsumerStatefulWidget {
   ConsumerState<TranscriptPage> createState() => _TranscriptPageState();
 }
 
-class _TranscriptPageState extends ConsumerState<TranscriptPage> {
+class _TranscriptPageState extends ConsumerState<TranscriptPage>
+    with RouteAware {
   Meeting? _meeting;
   List<TranscriptSegment> _segments = const <TranscriptSegment>[];
   List<Speaker> _speakers = const <Speaker>[];
@@ -75,7 +76,22 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 订阅路由事件：页面被退出（pop）时停止录音回放。
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void didPop() {
+    super.didPop();
+    // 退出转写页 → 停止回放（音频文件保持归档，随时可回再播）。
+    unawaited(ref.read(audioPlayerControllerProvider.notifier).stop());
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     unawaited(_subscription?.cancel());
     // 播放器 provider 在页面移除监听者后会自动 dispose，那里会释放 AudioPlayer。
     // 不在 State.dispose() 里读 ref（Riverpod 此时已不允许）。

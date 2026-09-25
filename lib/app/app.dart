@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ui/providers/app_providers.dart';
 import '../ui/router/app_router.dart';
+// routeObserver 从 app_router.dart 导出，无需额外导入。
 import '../ui/theme/app_theme.dart';
 import '../ui/widgets/app_toast.dart';
 
