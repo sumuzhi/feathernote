@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../core/log/log.dart';
 import '../../backend/backend_api.dart';
 import '../utils/transcript_timeline.dart';
 import '../widgets/app_toast.dart';
@@ -225,13 +226,28 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     required int startMs,
     required int endMs,
   }) async {
+    logInfo(
+      'play',
+      '▶ 点击播放入口',
+      <String, Object?>{
+        'meeting': meetingId,
+        'segment': AudioPlayerState.keyOf(segmentId, startMs),
+        'startMs': startMs,
+        'endMs': endMs,
+        '当前状态': state.playingSegmentKey,
+        'isPlaying': state.isPlaying,
+        'positionMs': state.currentPositionMs,
+        'durationMs': state.durationMs,
+      },
+    );
     // 零时长段（实时 ASR 常见：服务端 end_time == begin_time）不设自动停止点，
     // 否则 seek 到起点的第一条位置事件就会 `ms >= endMs` → 立刻自动停 + 清除当前段。
     // 0 表示「不自动停」，交由用户暂停或文件播完（completed）收尾。
     _endMs = endMs > startMs ? endMs : 0;
 
     // 正在播当前段 → 暂停，保留断点。
-      if (state.isSegmentPlaying(segmentId, startMs)) {
+    if (state.isSegmentPlaying(segmentId, startMs)) {
+      logInfo('play', '⏸ 命中暂停分支（当前段正在播 → 暂停，保留断点）');
         await pause();
         return;
       }
@@ -241,6 +257,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       final BackendApi api = await _ensureApi();
       final String? path = await api.getAudioPath(meetingId);
       if (path == null || path.isEmpty) {
+        logWarn('play', '音频未归档，放弃播放', <String, Object?>{'meeting': meetingId});
         _toast('录音结束后即可回放该片段（音频尚未归档）');
         return;
       }
@@ -248,6 +265,11 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       final bool sameSource = state.currentMeetingId == meetingId;
       if (!sameSource) {
         final Duration? duration = await _player.setFilePath(path);
+        logInfo(
+          'play',
+          '音源已加载',
+          <String, Object?>{'path': path, 'setFilePath返回': duration?.inMilliseconds},
+        );
         state = state.copyWith(
           currentMeetingId: meetingId,
           durationMs: duration?.inMilliseconds ?? 0,
@@ -261,6 +283,9 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         final Duration? real = _player.duration;
         if (real != null && real.inMilliseconds > 0) {
           state = state.copyWith(durationMs: real.inMilliseconds);
+          logInfo('play', '补读时长成功', <String, Object?>{'durationMs': real.inMilliseconds});
+        } else {
+          logWarn('play', '时长未知（setFilePath 与 duration 都为 null）→ seek 会被夹到 0');
         }
       }
 
@@ -278,6 +303,19 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         isPlaying: true,
         currentPositionMs: targetMs,
         clearError: true,
+      );
+      logInfo(
+        'play',
+        '✅ 已开始播放',
+        <String, Object?>{
+          '当前段': state.playingSegmentKey,
+          'seek到': targetMs,
+          '请求起点': startMs,
+          '请求终点': endMs,
+          '自动停止点': _endMs,
+          'durationMs': state.durationMs,
+          'isPlaying': state.isPlaying,
+        },
       );
     } catch (error) {
       state = state.copyWith(isPlaying: false, error: '播放失败：$error');
@@ -324,24 +362,33 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   void _onPlayerStateChanged(PlayerState playerState) {
     if (_disposed) return;
-    // 播到文件末尾：撤下播放组件。
+    final String decision;
     if (playerState.processingState == ProcessingState.completed) {
       _intentPlaying = false;
       state = state.copyWith(isPlaying: false, clearActive: true);
-      return;
-    }
-    if (playerState.playing) {
-      // 外部/播放器自行开播：同步为播放中。
+      decision = 'completed → 清除当前段';
+    } else if (playerState.playing) {
       if (!state.isPlaying) state = state.copyWith(isPlaying: true);
-      return;
-    }
-    // 与意图相反的事件（首次订阅回放 / buffering 期的 playing=false）→ 不采纳，
-    // 反手把状态纠正回播放中，避免组件被打没。
-    if (_intentPlaying) {
+      decision = 'playing=true → 置为播放中';
+    } else if (_intentPlaying) {
+      // 与意图相反（首次订阅回放 / buffering 期）→ 不采纳，反手纠正回播放中。
       if (!state.isPlaying) state = state.copyWith(isPlaying: true);
-      return;
+      decision = 'playing=false 但与意图相反 → 忽略并纠正为播放中';
+    } else {
+      if (state.isPlaying) state = state.copyWith(isPlaying: false);
+      decision = 'playing=false → 置为未播放';
     }
-    if (state.isPlaying) state = state.copyWith(isPlaying: false);
+    logInfo(
+      'play',
+      '播放器状态事件',
+      <String, Object?>{
+        'playing': playerState.playing,
+        'processing': playerState.processingState.name,
+        '决策': decision,
+        '当前段': state.playingSegmentKey,
+        'isPlaying': state.isPlaying,
+      },
+    );
   }
 
   void _subscribePosition() {
