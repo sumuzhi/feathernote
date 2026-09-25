@@ -1,7 +1,8 @@
-/// 「一句话」详情弹窗：全文展示 + 一键复制到剪贴板。
+/// 「一句话」详情弹窗：全文展示 + 复制 icon（仅 icon，无文字按钮）。
 ///
 /// 用法：`final copied = await showQuoteDialog(context, quote);`
 /// 返回是否发生了复制（调用方据此弹「已复制到剪切板」toast）。
+/// 关闭方式：点击遮罩任意处。
 library;
 
 import 'package:flutter/material.dart';
@@ -42,7 +43,7 @@ class _QuoteDialogState extends State<_QuoteDialog> {
     await Clipboard.setData(ClipboardData(text: sentence));
     if (!mounted) return;
     setState(() => _copied = true);
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -53,7 +54,6 @@ class _QuoteDialogState extends State<_QuoteDialog> {
     return AlertDialog(
       backgroundColor: AppColors.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('一句话', style: AppTextStyles.subHead),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -75,21 +75,19 @@ class _QuoteDialogState extends State<_QuoteDialog> {
         ],
       ),
       actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text('关闭', style: AppTextStyles.settingTitle.copyWith(color: AppColors.muted)),
-        ),
-        TextButton.icon(
+        // 仅保留复制 icon（复制后短暂变 ✓ 再自动关闭）。
+        IconButton(
           onPressed: _copied ? null : _copy,
-          icon: Icon(
-            _copied ? Icons.check_rounded : Icons.copy_rounded,
-            size: 16,
-            color: AppColors.orange,
+          tooltip: '复制',
+          style: IconButton.styleFrom(
+            backgroundColor: AppColors.orangeSoft,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
-          label: Text(
-            _copied ? '已复制' : '复制',
-            style: AppTextStyles.settingTitle.copyWith(color: AppColors.orange),
-          ),
+          icon: _copied
+              ? const Icon(Icons.check_rounded, size: 20, color: AppColors.orange)
+              : const Icon(Icons.copy_rounded, size: 20, color: AppColors.orange),
         ),
       ],
     );

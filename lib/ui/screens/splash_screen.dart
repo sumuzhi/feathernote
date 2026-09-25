@@ -63,7 +63,7 @@ class _SplashScreenState extends State<SplashScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     // 提前解码启动图标：避免首帧绘制时同步触发 460KB PNG 解码造成掉帧。
-    precacheImage(const AssetImage('assets/brand/icon-1024.png'), context);
+    precacheImage(const AssetImage('assets/brand/icon-combined-1024.png'), context);
   }
 
   @override
@@ -75,6 +75,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 波纹全部播完（末圈 0.66 + 1.0 ≈ 1.66s）后不再逐帧 rebuild：
+    // 用静态展示替代，避免控制器空转期间的无效重绘（「最后一刻卡顿」来源之一）。
+    final bool animating = _controller.isAnimating || _controller.value < 1.0;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Center(
@@ -88,49 +91,56 @@ class _SplashScreenState extends State<SplashScreen>
               height: 190,
               child: AnimatedBuilder(
                 animation: _controller,
-                builder: (BuildContext context, Widget? _) => SizedBox(
-                  width: 190,
-                  height: 190,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.none, // 波纹可溢出光晕区（对齐 HTML 动效）
-                    children: <Widget>[
-                      // 四圈录音波纹：逐圈延迟 .22s 扩散淡出。
-                      for (int i = 0; i < 4; i++)
-                        _RippleRing(
-                          progress: _rippleProgress(_controller.value, i * 0.22),
-                        ),
-                      // 图标：100×100 圆角 24，缩放入场 + 阴影。
-                      Transform.scale(
-                        scale: 0.82 + 0.18 * _iconIn.value,
-                        child: Opacity(
-                          opacity: _iconIn.value,
-                          child: Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(24),
-                              boxShadow: const <BoxShadow>[
-                                BoxShadow(
-                                  color: Color(0x52F0783C), // rgba(240,120,60,.32)
-                                  offset: Offset(0, 14),
-                                  blurRadius: 34,
+                builder: (BuildContext context, Widget? _) {
+                  final double t = _controller.value;
+                  return SizedBox(
+                    width: 190,
+                    height: 190,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      clipBehavior:
+                          Clip.none, // 波纹可溢出光晕区（对齐 HTML 动效）
+                      children: <Widget>[
+                        // 四圈录音波纹：逐圈延迟 .22s 扩散淡出。
+                        for (int i = 0; i < 4; i++)
+                          _RippleRing(
+                            progress: _rippleProgress(t, i * 0.22),
+                          ),
+                        // 图标：100×100 圆角 24，缩放入场 + 阴影。
+                        Transform.scale(
+                          scale: 0.82 + 0.18 * _iconIn.value,
+                          child: Opacity(
+                            opacity: _iconIn.value,
+                            child: Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: const <BoxShadow>[
+                                  BoxShadow(
+                                    color:
+                                        Color(0x52F0783C), // rgba(240,120,60,.32)
+                                    offset: Offset(0, 14),
+                                    blurRadius: 34,
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(24),
+                                child: Image.asset(
+                                  'assets/brand/icon-combined-1024.png',
+                                  fit: BoxFit.cover,
                                 ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(24),
-                              child: Image.asset(
-                                'assets/brand/icon-1024.png',
-                                fit: BoxFit.cover,
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
+                      ],
+                    ),
+                  );
+                },
+                // 动画结束（波纹收尾完成）后展示静态终帧。
+                child: animating ? null : _buildStaticHero(),
               ),
             ),
             const SizedBox(height: 34),
@@ -169,6 +179,37 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
+  /// 动画结束后的静态终帧（图标满幅，无波纹）。
+  Widget _buildStaticHero() {
+    return SizedBox(
+      width: 190,
+      height: 190,
+      child: Center(
+        child: Container(
+          width: 100,
+          height: 100,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const <BoxShadow>[
+              BoxShadow(
+                color: Color(0x52F0783C),
+                offset: Offset(0, 14),
+                blurRadius: 34,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Image.asset(
+              'assets/brand/icon-combined-1024.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// 第 [ring] 圈在控制器进度 [t]（0–1）下的波纹进度；未开始返回 0。
   ///
   /// 每圈延迟 ring×0.22s（折算到 0–1 进度即 start），local <0 视为未开始。
@@ -182,6 +223,10 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 /// 单圈波纹：2px 橙色圆环，scale .55→2.35，透明度 .42→0；周期外不渲染。
+///
+/// 性能关键：圆环**绘制内容完全静态**（固定 alpha 的 border），淡出与缩放
+/// 全部交给 [Opacity] / [Transform] 在合成层完成——不逐帧重绘 border，
+/// 也不会因 alpha 连续变化反复触发新 shader 编译（「最后一刻卡顿」根因）。
 class _RippleRing extends StatelessWidget {
   const _RippleRing({required this.progress});
 
@@ -193,20 +238,17 @@ class _RippleRing extends StatelessWidget {
     if (clamped <= 0 || clamped >= 1) return const SizedBox.shrink();
     final double alpha = 0.42 * (1 - clamped);
     final double scale = 0.55 + 1.8 * clamped;
-    // RepaintBoundary 隔离每圈重绘，波纹推进不拖累整页。
-    return RepaintBoundary(
-      child: IgnorePointer(
-        child: Transform.scale(
-          scale: scale,
+    return IgnorePointer(
+      child: Transform.scale(
+        scale: scale,
+        child: Opacity(
+          opacity: alpha,
           child: Container(
             width: 100,
             height: 100,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                color: AppColors.orange.withValues(alpha: alpha),
-                width: 2,
-              ),
+              border: Border.all(color: AppColors.orange, width: 2),
             ),
           ),
         ),

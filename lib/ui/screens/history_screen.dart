@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
+import '../widgets/app_tab_bar.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/filter_chips.dart';
 import '../widgets/history_card.dart';
@@ -178,9 +179,14 @@ class HistoryScreen extends StatelessWidget {
             child: (_isEmpty || _isSearchEmpty)
                 ? _buildEmptyState(context)
                 : SingleChildScrollView(
-                    // 底部留 TabBar 高度：修复最后一条记录被底栏遮住一半。
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.page, 6, AppSpacing.page, AppSpacing.tabBarSpacer),
+                    // 底部留白 = TabBar 全保留高度 + 20 余量：
+                    // 修复最后一条记录被浮动底栏遮住一半。
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.page,
+                      6,
+                      AppSpacing.page,
+                      AppTabBar.reservedHeight(context) + 20,
+                    ),
                     child: _buildList(),
                   ),
           ),

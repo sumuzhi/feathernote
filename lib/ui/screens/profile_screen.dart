@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_switch.dart';
+import '../widgets/app_tab_bar.dart';
 import '../widgets/surface_card.dart';
 import 'screen_frame.dart';
 
@@ -118,8 +119,9 @@ class ProfileScreen extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
-              // 底部留 TabBar 高度：修复最后一条设置项被底栏遮住一半。
-              padding: const EdgeInsets.only(bottom: AppSpacing.tabBarSpacer),
+              // 底部留白 = TabBar 全保留高度 + 20 余量：
+              // 修复版本行 / 最后一条设置项被底栏遮住。
+              padding: EdgeInsets.only(bottom: AppTabBar.reservedHeight(context) + 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

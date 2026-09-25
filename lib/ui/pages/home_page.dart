@@ -163,12 +163,14 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
     ];
     // App 不区分录音场景：模式选择已移除，recorder 恒为默认模式（会议）。
-    // 生成锁：本会话纪要 / 终稿仍在生成时禁用开始录音，并给出可见原因。
-    final bool generating = ref.watch(generationInProgressProvider) != null;
-    final bool busy = _starting || _stopping || generating;
-    final String? busyHint = generating
-        ? '上一段正在生成纪要…'
-        : (_starting ? '正在启动录音…' : (_stopping ? '正在结束并生成…' : null));
+    //
+    // ⚠️ 生成纪要 / 终稿是**异步后台任务**（generationInProgressProvider 仅由
+    // 纪要页自身消费以展示进度），**不阻塞首页**：回主页后可直接开始下一段录音，
+    // hero 恒为「待机中」，不再出现「上一段正在生成纪要…」的长 loading。
+    final bool busy = _starting || _stopping;
+    final String? busyHint = _starting
+        ? '正在启动录音…'
+        : (_stopping ? '正在结束并生成…' : null);
     final String? dailyQuote = ref.watch(dailyQuoteProvider).value;
 
     return HomeIdleScreen(

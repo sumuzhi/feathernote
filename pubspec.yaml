@@ -42,14 +42,13 @@ dev_dependencies:
     sdk: flutter
   mocktail: ^1.0.5
 
-# App 图标：brand-assets 渲染产物（icon-1024 主图 / icon-fg 前景层）。
+# App 图标：brand-assets 渲染产物。主题色方案：橙底（#F0783C）+ 白色前景图形。
 # 运行 `dart run flutter_launcher_icons` 重新生成 android res。
-# ⚠️ 自适应背景用品牌深棕（icon 本体为透明底 + 橙色图形，浅色底会发灰）。
 flutter_launcher_icons:
-  image_path: "assets/brand/icon-1024.png"
+  image_path: "assets/brand/icon-combined-1024.png"
   android: true
   ios: false
-  adaptive_icon_background: "#221A14"
+  adaptive_icon_background: "#F0783C"
   adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"
 
 flutter:
