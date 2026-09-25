@@ -74,6 +74,16 @@ class MockEngine implements Engine {
   }
 
   @override
+  Future<void> pauseRealtimeSession(String sessionId) async {
+    // Mock 无连接语义，挂起为 no-op。
+  }
+
+  @override
+  Future<void> resumeRealtimeSession(String sessionId) async {
+    // Mock 无连接语义，恢复为 no-op。
+  }
+
+  @override
   void abortRealtimeSession(String sessionId) {
     final _MockSession? session = _sessions.remove(sessionId);
     if (session == null) return;

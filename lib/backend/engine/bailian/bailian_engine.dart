@@ -72,6 +72,8 @@ class BailianEngine implements Engine {
   bool feedRealtime(String sessionId, Uint8List pcm16le) {
     final _SessionBinding? binding = _sessions[sessionId];
     if (binding == null) return false;
+    // 挂起态（暂停）不接受音频：任务已结束，避免字节堆进缓冲。
+    if (binding.session.isSuspended) return false;
     binding.session.pushFrame(pcm16le);
     return binding.session.isRunning;
   }
@@ -83,6 +85,20 @@ class BailianEngine implements Engine {
     await binding.session.flush();
     binding.session.close();
     await binding.controller.close();
+  }
+
+  @override
+  Future<void> pauseRealtimeSession(String sessionId) async {
+    final _SessionBinding? binding = _sessions[sessionId];
+    if (binding == null) return;
+    await binding.session.suspend();
+  }
+
+  @override
+  Future<void> resumeRealtimeSession(String sessionId) async {
+    final _SessionBinding? binding = _sessions[sessionId];
+    if (binding == null) return;
+    await binding.session.resume();
   }
 
   @override

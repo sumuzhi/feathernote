@@ -548,8 +548,12 @@ class BailianRealtimeSession {
   Timer? _statsTimer;
   bool _closed = false;
   bool _finishing = false;
+  bool _suspended = false;
   bool _restarted = false;
   int _restartCount = 0;
+
+  /// 是否处于挂起态（暂停：任务已结束、连接已断，等待恢复重开）。
+  bool get isSuspended => _suspended;
 
   /// 累计成功下发的音频帧数 / 字节数。
   int sentFrames = 0;
@@ -800,7 +804,7 @@ class BailianRealtimeSession {
 
   /// 推入一帧 PCM（**同步方法**，20ms/640B）。
   void pushFrame(Uint8List pcm) {
-    if (_closed || pcm.isEmpty) return;
+    if (_closed || _suspended || pcm.isEmpty) return;
     meetingClockMs += 20;
     _appendRing(pcm);
     _pending.addAll(pcm);
@@ -955,6 +959,58 @@ class BailianRealtimeSession {
       onTimeout: () => logWarn('asr', '等待 task-finished 超时 session=$sessionId'),
     );
     logInfo('asr', 'flush 完成 session=$sessionId');
+  }
+
+  /// 暂停挂起：发残余 + `finish-task` 优雅结束服务端任务并断开连接。
+  ///
+  /// 为什么必须在暂停时断开：百炼实时任务 **23 秒收不到数据即报
+  /// `request timeout after 23 seconds` 并判死任务**——暂停期间不采集、
+  /// 不发数据，必然触发。挂起后服务端任务已结束，连接断开，无超时风险。
+  ///
+  /// 会话对象保留（订阅不变），恢复时 [resume] 重开新任务继续转写。
+  /// 挂起时清空环形回放与待发缓冲：服务端已收到暂停前的全部音频，
+  /// 恢复后回放旧音频会造成重复转写。
+  Future<void> suspend() async {
+    if (_suspended || _closed) return;
+    _suspended = true;
+    _startTimer?.cancel();
+    _startTimer = null;
+    _statsTimer?.cancel();
+    _statsTimer = null;
+    final RealtimeTask? task = _task;
+    if (task != null) {
+      _drain();
+      if (_pending.isNotEmpty && task.state == RealtimeState.running) {
+        task.sendAudio(Uint8List.fromList(_pending));
+        _pending.clear();
+      }
+      task.finish();
+      try {
+        await task.finished.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => logWarn('asr', '挂起：等待 task-finished 超时 session=$sessionId'),
+        );
+      } catch (error) {
+        logWarn('asr', '挂起：结束任务异常 session=$sessionId：$error');
+      }
+      task.abort();
+    }
+    _task = null;
+    // 暂停前音频已全部送达服务端；恢复是新任务，回放只会重复转写。
+    _pending.clear();
+    _ring.clear();
+    _ringBytesTotal = 0;
+    logInfo('asr', '已挂起（暂停）：任务已结束、连接已断 session=$sessionId 已发=$sentBytes B');
+  }
+
+  /// 从挂起恢复：重开新任务继续转写（事件仍走原事件流，订阅不变）。
+  Future<void> resume() async {
+    if (!_suspended || _closed) return;
+    _suspended = false;
+    _lastSilencePendingBytes = -1;
+    _lastSilenceWarnAtMs = 0;
+    logInfo('asr', '从挂起恢复：重开实时任务 session=$sessionId');
+    await open();
   }
 
   /// 关闭（含清理）。

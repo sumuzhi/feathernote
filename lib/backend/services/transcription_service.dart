@@ -332,6 +332,16 @@ class TranscriptionService {
     await runtime.close();
   }
 
+  /// 暂停挂起实时会话（发残余 + finish-task + 断开；订阅与会话态保留）。
+  ///
+  /// 百炼实时任务 23 秒收不到数据即被服务端判死——暂停录音必须主动挂起。
+  Future<void> pauseRealtimeSession(String sessionId) =>
+      engine.pauseRealtimeSession(sessionId);
+
+  /// 从挂起恢复：重开新任务继续转写（订阅不变）。
+  Future<void> resumeRealtimeSession(String sessionId) =>
+      engine.resumeRealtimeSession(sessionId);
+
   /// 停止会议：收尾实时会话 → 写 WAV → 归档 → 落库 → 提交终稿。
   ///
   /// [sessionId] 可选：起录时绑定的活动会话。传入即**不再依赖 `findByMeeting`

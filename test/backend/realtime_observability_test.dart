@@ -254,6 +254,12 @@ class _FakeEngine implements Engine {
   }
 
   @override
+  Future<void> pauseRealtimeSession(String sessionId) async {}
+
+  @override
+  Future<void> resumeRealtimeSession(String sessionId) async {}
+
+  @override
   Future<void> stopRealtimeSession(String sessionId) async {
     await _controller?.close();
     _controller = null;

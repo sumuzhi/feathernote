@@ -487,6 +487,17 @@ class RecorderController extends Notifier<RecorderUiState> {
         logWarn('recorder', '暂停失败：$error');
         _failWith('暂停失败：$error');
       }
+      // 挂起实时会话：暂停期间无数据上传，百炼 23 秒收不到数据即判死任务
+      // （request timeout after 23 seconds）——必须主动 finish-task 并断开。
+      try {
+        final String? sessionId = state.sessionId;
+        final BackendApi? api = _api;
+        if (sessionId != null && api != null) {
+          await api.pauseRealtimeSession(sessionId);
+        }
+      } catch (error) {
+        logWarn('recorder', '挂起实时会话失败（不影响已录数据）：$error');
+      }
       return;
     }
     if (state.phase == RecorderPhase.paused) {
@@ -498,9 +509,19 @@ class RecorderController extends Notifier<RecorderUiState> {
       _lastWatchdogChunkCount = _chunkCount;
       _stallTicks = 0;
       _droppedWhilePaused = 0;
+      // 先重开实时任务（新 task），再恢复采集——避免恢复初期的帧被丢弃。
+      try {
+        final String? sessionId = state.sessionId;
+        final BackendApi? api = _api;
+        if (sessionId != null && api != null) {
+          await api.resumeRealtimeSession(sessionId);
+        }
+      } catch (error) {
+        logWarn('recorder', '恢复实时会话失败（终稿兜底不受影响）：$error');
+      }
       logInfo(
         'recorder',
-        '已继续（接续同一会话与同一 PCM 写流，不新建 session）已录=${_elapsedBaseMs}ms '
+        '已继续（实时任务已重开，接续同一 PCM 写流）已录=${_elapsedBaseMs}ms '
         'chunk=$_chunkCount 帧=$_frameCount 上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B',
       );
       try {

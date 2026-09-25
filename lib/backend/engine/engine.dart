@@ -90,6 +90,15 @@ abstract class Engine {
   /// 收尾实时会话（发 `finish-task` 并等待 `task-finished`）。
   Future<void> stopRealtimeSession(String sessionId);
 
+  /// 暂停挂起实时会话：发残余 + `finish-task` 优雅结束任务并断开连接。
+  ///
+  /// 百炼实时任务 23 秒收不到数据即被服务端判死（request timeout after
+  /// 23 seconds）——暂停录音时必须主动挂起；恢复时 [resumeRealtimeSession]。
+  Future<void> pauseRealtimeSession(String sessionId);
+
+  /// 从挂起恢复：重开新任务继续转写（事件流订阅不变）。
+  Future<void> resumeRealtimeSession(String sessionId);
+
   /// 中止实时会话（不等待收尾）。
   void abortRealtimeSession(String sessionId);
 

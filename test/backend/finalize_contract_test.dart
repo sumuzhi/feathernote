@@ -213,6 +213,12 @@ class _BlockingSubmitEngine implements Engine {
   bool feedRealtime(String sessionId, Uint8List pcm16le) => false;
 
   @override
+  Future<void> pauseRealtimeSession(String sessionId) async {}
+
+  @override
+  Future<void> resumeRealtimeSession(String sessionId) async {}
+
+  @override
   Future<void> stopRealtimeSession(String sessionId) async {}
 
   @override

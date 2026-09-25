@@ -166,6 +166,15 @@ abstract class BackendApi {
   /// 停止录音（收尾 → 写 WAV → 归档 → 触发终稿）。
   Future<void> stopRecording(String meetingId);
 
+  /// 暂停挂起实时会话：优雅结束服务端任务并断开连接。
+  ///
+  /// 百炼实时任务 23 秒收不到数据即被服务端判死——暂停录音时必须主动挂起。
+  /// 默认 no-op（测试 Fake 免实现），Impl 覆盖。
+  Future<void> pauseRealtimeSession(String sessionId) async {}
+
+  /// 从挂起恢复：重开新任务继续转写。默认 no-op，Impl 覆盖。
+  Future<void> resumeRealtimeSession(String sessionId) async {}
+
   // ── 终稿（对应 /api/meetings/:id/finalize）──
 
   /// 手动触发终稿转写。
@@ -345,6 +354,14 @@ class BackendApiImpl implements BackendApi {
     }
     transcriptionService.onAudioFrame(sessionId, frame);
   }
+
+  @override
+  Future<void> pauseRealtimeSession(String sessionId) =>
+      transcriptionService.pauseRealtimeSession(sessionId);
+
+  @override
+  Future<void> resumeRealtimeSession(String sessionId) =>
+      transcriptionService.resumeRealtimeSession(sessionId);
 
   /// 当前活动会话（开始录音时绑定，停止时清空）。
   String? _activeSessionId;
