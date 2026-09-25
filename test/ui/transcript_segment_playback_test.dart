@@ -24,11 +24,14 @@ class _FakeEngine implements AudioPlayerEngine {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
+  /// 模拟 Android 上「文件未就绪」：setFilePath 返回 null。
+  bool setFilePathReturnsNull = false;
+
   @override
   Future<Duration?> setFilePath(String path) async {
     setFilePathCalls++;
     lastPath = path;
-    return _duration;
+    return setFilePathReturnsNull ? null : _duration;
   }
 
   @override
@@ -53,6 +56,9 @@ class _FakeEngine implements AudioPlayerEngine {
 
   @override
   Duration get currentPosition => _position;
+  @override
+  Duration? get duration => _duration;
+
 
   @override
   Stream<Duration> get positionStream => _positionCtrl.stream;
@@ -260,6 +266,29 @@ void main() {
 
       expect(engine.lastSeekMs, 1000, reason: '播完后再点应从头开始');
     });
+    test('setFilePath 返回 null 时补读时长，不得因 duration=0 从文件头播', () async {
+      final _FakeEngine engine = _FakeEngine();
+      // 模拟 Android 上「文件未就绪」：setFilePath 返回 null，但 duration 之后可读。
+      engine.setFilePathReturnsNull = true;
+      engine.duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 5000, endMs: 9000);
+
+      expect(
+        container.read(audioPlayerControllerProvider).durationMs,
+        30000,
+        reason: '必须补读到真实时长',
+      );
+      expect(engine.lastSeekMs, 5000, reason: 'duration 已知时必须 seek 到段起点 5000');
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1', 5000),
+        isTrue,
+      );
+    });
+
     test('segmentId 撞车（ASR 重启后编号归零）时仍能定位到正确的一段', () async {
       final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
       final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');

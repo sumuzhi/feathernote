@@ -34,6 +34,13 @@ abstract class AudioPlayerEngine {
   /// 当前播放位置。
   Duration get currentPosition;
 
+  /// 当前音频总时长（读取时可能为 null：尚未加载完）。
+  ///
+  /// `setFilePath()` 在某些 Android 时机下会返回 null（文件尚未就绪），
+  /// 这时必须能**事后补读**时长，否则 `durationMs=0` 会让 seek 一律被
+  /// `clampSeekMs` 夹到 0（每次都从文件头播），进度条也永远是 0。
+  Duration? get duration;
+
   /// 位置流（控制器用它做自动停 + 高亮）。
   Stream<Duration> get positionStream;
 
@@ -64,6 +71,9 @@ class JustAudioEngine implements AudioPlayerEngine {
 
   @override
   Duration get currentPosition => _player.position;
+
+  @override
+  Duration? get duration => _player.duration;
 
   @override
   Stream<Duration> get positionStream => _player.positionStream;
@@ -215,9 +225,12 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     required int startMs,
     required int endMs,
   }) async {
-      _endMs = endMs;
+    // 零时长段（实时 ASR 常见：服务端 end_time == begin_time）不设自动停止点，
+    // 否则 seek 到起点的第一条位置事件就会 `ms >= endMs` → 立刻自动停 + 清除当前段。
+    // 0 表示「不自动停」，交由用户暂停或文件播完（completed）收尾。
+    _endMs = endMs > startMs ? endMs : 0;
 
-      // 正在播当前段 → 暂停，保留断点。
+    // 正在播当前段 → 暂停，保留断点。
       if (state.isSegmentPlaying(segmentId, startMs)) {
         await pause();
         return;
@@ -240,6 +253,15 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
           durationMs: duration?.inMilliseconds ?? 0,
           clearError: true,
         );
+      }
+
+      // 补读时长：setFilePath 返回 null（Android 上文件未就绪时常见）会导致
+      // durationMs=0 → clampSeekMs 把目标一律夹到 0（永远从文件头播）。
+      if (state.durationMs <= 0) {
+        final Duration? real = _player.duration;
+        if (real != null && real.inMilliseconds > 0) {
+          state = state.copyWith(durationMs: real.inMilliseconds);
+        }
       }
 
       // 续播：停在本段中间 → 从断点继续；已播到段尾 → 从头开始。
@@ -313,8 +335,12 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       if (!state.isPlaying) state = state.copyWith(isPlaying: true);
       return;
     }
-    // 与意图相反的迟到事件（首次订阅回放的典型表现）→ 忽略，避免把组件打没。
-    if (_intentPlaying) return;
+    // 与意图相反的事件（首次订阅回放 / buffering 期的 playing=false）→ 不采纳，
+    // 反手把状态纠正回播放中，避免组件被打没。
+    if (_intentPlaying) {
+      if (!state.isPlaying) state = state.copyWith(isPlaying: true);
+      return;
+    }
     if (state.isPlaying) state = state.copyWith(isPlaying: false);
   }
 
