@@ -26,9 +26,8 @@ const int _clockBase = 1000000000000;
 
 /// 可完全控制的假 WS：可选自动回 `task-started`，可模拟服务端异常关闭。
 class _ControllableSocket implements RealtimeSocket {
-  _ControllableSocket({this.autoStarted = true});
+  _ControllableSocket();
 
-  final bool autoStarted;
   final StreamController<Object?> _in = StreamController<Object?>.broadcast();
 
   /// 已发出的二进制包（用于断言「补发」）。
@@ -48,7 +47,7 @@ class _ControllableSocket implements RealtimeSocket {
 
   @override
   void sendText(String text) {
-    if (autoStarted && text.contains('run-task')) {
+    if (text.contains('run-task')) {
       scheduleMicrotask(() => _emit('task-started'));
     }
   }
@@ -149,7 +148,7 @@ void main() {
 
   test('状态离开 running 且持续堆积 → 限频 warn（不再静默），缓冲不丢', () {
     fakeAsync((FakeAsync async) {
-      final int clock = _clockBase;
+      const int clock = _clockBase;
       final List<_ControllableSocket> sockets = <_ControllableSocket>[];
       final BailianRealtimeSession session = _session(
         nowMs: () => clock,
@@ -200,7 +199,7 @@ void main() {
 
   test('非正常关闭会自动重连，重连后缓冲按环形回放补发（数据不丢）', () {
     fakeAsync((FakeAsync async) {
-      final int clock = _clockBase;
+      const int clock = _clockBase;
       final List<_ControllableSocket> sockets = <_ControllableSocket>[];
       final BailianRealtimeSession session = _session(
         nowMs: () => clock,
