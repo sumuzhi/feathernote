@@ -129,11 +129,14 @@ CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) =>
           },
     );
 
-/// 压栈页过渡：**右滑入 + 淡入**（iOS 导航直觉），带次级视差。
+/// 压栈页过渡：**右滑入 + 淡入**（iOS 导航直觉）。
 ///
 /// - 进入：新页从右侧 8% 处滑入并淡入（easeOutCubic）；
-/// - 次级（被覆盖页）：向左轻移 3% 形成视差层次；
-/// - 返回：全部反向播放（easeInCubic，180ms）。
+/// - 返回：反向播放（easeInCubic，180ms）。
+///
+/// ⚠️ 不做「被覆盖页左移」的次级视差：真机实证（截图右缘黑带 36px =
+/// 屏宽 × 2.96%，精确等于 3% 偏移量）——被覆盖页的 secondary 位移存在
+/// 不复位风险，一旦滞留就露出 Navigator 黑底。主转场已足够表达层级。
 CustomTransitionPage<void> _pushPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
@@ -152,11 +155,6 @@ CustomTransitionPage<void> _pushPage(GoRouterState state, Widget child) =>
               curve: Curves.easeOutCubic,
               reverseCurve: Curves.easeInCubic,
             );
-            final CurvedAnimation secondary = CurvedAnimation(
-              parent: secondaryAnimation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
-            );
             return FadeTransition(
               opacity: curved,
               child: SlideTransition(
@@ -164,13 +162,7 @@ CustomTransitionPage<void> _pushPage(GoRouterState state, Widget child) =>
                   begin: const Offset(0.08, 0),
                   end: Offset.zero,
                 ).animate(curved),
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(-0.03, 0),
-                    end: Offset.zero,
-                  ).animate(secondary),
-                  child: child,
-                ),
+                child: child,
               ),
             );
           },
