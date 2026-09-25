@@ -4,6 +4,8 @@
 /// 以便「屏幕目录」能用同一套组件渲染 13 个屏。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -69,7 +71,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (meetingId != null) {
       // 上锁：从详情页返回首页时，若本会话仍在生成，开始录音保持禁用。
       ref.read(generationInProgressProvider.notifier).begin(meetingId);
-      context.go('/meeting/$meetingId');
+      // 压栈式跳转：系统返回键从纪要页原生 pop 回首页。
+      unawaited(context.push('/meeting/$meetingId'));
       return;
     }
     // 兜底：理论上录音中必有 meetingId；为空时提示 + 停首页，绝不卡在 loading。
@@ -136,7 +139,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               '${formatDurationCn(list[i].durationMs)} · ${formatDayTime(list[i].createdAt, now: now)}',
           meta: '',
           badge: list[i].hasMinutes ? HistoryBadge.summarized : HistoryBadge.done,
-          onTap: () => context.go('/meeting/${list[i].id}'),
+          onTap: () => context.push('/meeting/${list[i].id}'),
         ),
     ];
     final RecordingMode mode = ref.watch(recorderProvider).mode;

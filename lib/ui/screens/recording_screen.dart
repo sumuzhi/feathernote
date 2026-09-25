@@ -165,7 +165,14 @@ class RecordingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Text(clock, style: AppTextStyles.clock),
+                // 计时越长字号越大位：超长（跨小时）时整体缩小，不横向溢出。
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(clock, style: AppTextStyles.clock),
+                  ),
+                ),
               ],
             ),
           ),

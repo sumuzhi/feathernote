@@ -126,25 +126,32 @@ class _WaveformState extends State<Waveform> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return SizedBox(
       height: widget.height,
-      child: AnimatedBuilder(
-        animation: Listenable.merge(_controllers),
-        builder: (BuildContext context, Widget? child) {
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              for (int i = 0; i < kWaveformBarCount; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: _WaveBar(
-                    height: waveformBarHeight(i),
-                    opacity: waveformBarOpacity(i),
-                    scale: _reduceMotion ? 1.0 : 1.0 - 0.55 * _controllers[i].value,
+      // 44 根柱固定占 352px：窄屏（<360dp）会被 Row 横向溢出，在页面右缘
+      // 出现黄黑条纹（真机 bug）。FittedBox 整体等比缩小，宽屏不受影响。
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: AnimatedBuilder(
+          animation: Listenable.merge(_controllers),
+          builder: (BuildContext context, Widget? child) {
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                for (int i = 0; i < kWaveformBarCount; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: _WaveBar(
+                      height: waveformBarHeight(i),
+                      opacity: waveformBarOpacity(i),
+                      scale:
+                          _reduceMotion ? 1.0 : 1.0 - 0.55 * _controllers[i].value,
+                    ),
                   ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }

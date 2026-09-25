@@ -239,28 +239,6 @@ class _SettingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget trailing;
-    if (row.toggle) {
-      trailing = AppSwitch(
-        value: row.toggleValue,
-        onChanged: row.onToggle ?? (_) {},
-        semanticLabel: row.switchLabel ?? row.title,
-      );
-    } else {
-      trailing = GestureDetector(
-        onTap: row.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(row.value ?? '', style: AppTextStyles.input.copyWith(color: AppColors.muted)),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded, size: 14, color: AppColors.faint),
-          ],
-        ),
-      );
-    }
-
     return Container(
       decoration: BoxDecoration(
         border: showDivider
@@ -269,31 +247,77 @@ class _SettingRow extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 13),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: AppColors.orangeSoft,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-              ),
-              alignment: Alignment.center,
-              child: Icon(row.icon, size: 17, color: AppColors.orange),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(row.title, style: AppTextStyles.settingTitle),
-                  const SizedBox(height: 3),
-                  Text(row.subtitle, style: AppTextStyles.metaSmall),
-                ],
-              ),
-            ),
-            trailing,
-          ],
+        // 溢出修复：右侧「值」文本必须有宽度上限，否则长模型名 / 降级原因会把
+        // 整行撑爆（真机右缘黄黑条纹）。预算 = 行宽 - 图标区(34+13)，值最多占一半，
+        // 剩余全给中间标题/副标题列（Expanded），超长用省略号。
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final double budget =
+                (constraints.maxWidth - 47).clamp(0.0, double.infinity);
+            final double maxValueWidth = budget * 0.5;
+
+            final Widget trailing;
+            if (row.toggle) {
+              trailing = AppSwitch(
+                value: row.toggleValue,
+                onChanged: row.onToggle ?? (_) {},
+                semanticLabel: row.switchLabel ?? row.title,
+              );
+            } else {
+              trailing = GestureDetector(
+                onTap: row.onTap,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxValueWidth),
+                      child: Text(
+                        row.value ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            AppTextStyles.input.copyWith(color: AppColors.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      size: 14,
+                      color: AppColors.faint,
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Row(
+              children: <Widget>[
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.orangeSoft,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(row.icon, size: 17, color: AppColors.orange),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(row.title, style: AppTextStyles.settingTitle),
+                      const SizedBox(height: 3),
+                      Text(row.subtitle, style: AppTextStyles.metaSmall),
+                    ],
+                  ),
+                ),
+                trailing,
+              ],
+            );
+          },
         ),
       ),
     );

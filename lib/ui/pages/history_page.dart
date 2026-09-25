@@ -149,7 +149,7 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
       badge: item.hasMinutes ? HistoryBadge.summarized : HistoryBadge.done,
       cut: cut,
       dimBadge: cut,
-      onTap: () => context.go('/meeting/${item.id}'),
+      onTap: () => context.push('/meeting/${item.id}'),
       onMore: () => _showMoreMenu(item),
     );
   }

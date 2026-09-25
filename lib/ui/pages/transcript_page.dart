@@ -244,7 +244,10 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
           : null,
       onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
       onPlaySegment: (TranscriptItemView item) => _onPlaySegment(item),
-      onBack: () => context.go('/meeting/${widget.meetingId}'),
+      // 返回 = 压栈 pop 回纪要页；无栈（深链冷启动）时兜底 go。
+      onBack: () => context.canPop()
+          ? context.pop()
+          : context.go('/meeting/${widget.meetingId}'),
       onSearch: () => unawaited(_promptSearch()),
       onCopyAll: () => unawaited(_copyAll()),
       onExportMarkdown: () => unawaited(_exportMarkdown(meeting)),

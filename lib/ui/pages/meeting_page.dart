@@ -261,7 +261,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       badgeText: badgeText,
       notice: _noticeFor(meeting),
       minutes: bundle.view,
-      onClose: () => context.go('/history'),
+      // 关闭 = 回到来源页（压栈 pop）；无栈（深链）时兜底回历史。
+      onClose: () => context.canPop() ? context.pop() : context.go('/history'),
       onShare: _share,
       onExport: _export,
       onFavorite: () {
@@ -364,8 +365,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         sections: sections,
         transcriptChars: '${formatThousands(meeting.segments.fold<int>(0, (int sum, segment) => sum + countChars(segment.text)))} 字 ›',
         // 携带已加载的会议对象：转写页首帧即可渲染内容，避免「空态→内容」闪烁。
+        // 压栈式跳转：转写页系统返回键原生 pop 回纪要页。
         onOpenTranscript: () =>
-            context.go('/meeting/${meeting.id}/transcript', extra: meeting),
+            context.push('/meeting/${meeting.id}/transcript', extra: meeting),
         // 生成失败（如空逐字稿 / 网络）时提供「重新生成」入口。
         onRetry: (_error != null && !_generating)
             ? () => _generate(force: true)

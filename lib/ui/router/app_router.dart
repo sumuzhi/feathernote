@@ -25,6 +25,10 @@ import '../widgets/app_toast.dart';
 
 /// 全局路由。
 ///
+/// **导航形态**：Tab 三页之间用 `go()` 平铺切换；详情页（纪要 / 转写 /
+/// 屏幕目录）一律 `push()` 压栈 —— 系统返回键在压栈页由 Navigator 原生
+/// pop，天然「返回上一步」（见 [AppBackHandler]）。
+///
 /// **统一页面过渡**：所有路由都走 [_transitionPage]（淡入 + 8px 上移，220ms）。
 /// 此前用默认 `builder`，切页是"硬切"，特别是「完整转写 → 生成纪要 → 纪要页」
 /// 这条链路会明显闪一下；全局加过渡后不再有裸切帧。
@@ -75,7 +79,7 @@ final GoRouter appRouter = GoRouter(
         name: 'gallery',
         pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
           state,
-          GalleryScreen(onOpen: (String id) => context.go('/gallery/$id')),
+          GalleryScreen(onOpen: (String id) => context.push('/gallery/$id')),
         ),
       ),
       GoRoute(
@@ -85,8 +89,10 @@ final GoRouter appRouter = GoRouter(
           state,
           GalleryScreenHost(
             screenId: state.pathParameters['id'] ?? 's01',
-            onExit: () => context.go('/gallery'),
-            onOpenScreen: (String id) => context.go('/gallery/$id'),
+            onExit: () => context.canPop()
+                ? context.pop()
+                : context.go('/gallery'),
+            onOpenScreen: (String id) => context.push('/gallery/$id'),
           ),
         ),
       ),
@@ -132,63 +138,17 @@ CustomTransitionPage<void> _transitionPage(GoRouterState state, Widget child) =>
           },
     );
 
-/// 全局导航历史（单例）。
-///
-/// 本 App 的导航全部用 `go()`（平铺、无压栈），go_router 里 `canPop` 恒为 false，
-/// 系统返回键会直接退出 App——这是历史行为缺陷。此处在路由层之外维护一条
-/// 轻量位置栈：
-/// - 进入压栈页（纪要 / 转写 / 屏幕目录）→ 入栈；
-/// - 切到 Tab 根页（首页 / 历史 / 我的）→ 清栈（Tab 切换不产生「上一步」）。
-///
-/// 由 `SmartMinutesApp` 的生命周期挂接位置监听（见 `lib/app/app.dart`）。
-final NavHistory appNavHistory = NavHistory();
-
-/// 导航历史。
-class NavHistory {
-  final List<String> _stack = <String>[];
-
-  /// Tab 根页：切换到它们意味着「回到第一层」，压栈历史作废。
-  static bool _isTabRoot(String location) =>
-      location == '/' || location == '/history' || location == '/profile';
-
-  /// 同步当前位置（路由每次变化都会调用）。
-  void sync(String location) {
-    if (_stack.isNotEmpty && _stack.last == location) return;
-    if (_isTabRoot(location)) {
-      _stack
-        ..clear()
-        ..add(location);
-      return;
-    }
-    _stack.add(location);
-  }
-
-  /// 返回上一步的位置；已在最底层（无上一步）返回 null。
-  String? back(String current) {
-    if (_stack.isEmpty) return null;
-    if (_stack.last != current) {
-      // 状态不同步（冷启动深链等）：以当前页为底重建，本次不动作。
-      _stack
-        ..clear()
-        ..add(current);
-      return null;
-    }
-    if (_stack.length <= 1) return null;
-    final String previous = _stack[_stack.length - 2];
-    _stack.removeLast();
-    return previous;
-  }
-
-  /// 当前栈深（测试用）。
-  int get depthForTest => _stack.length;
-}
-
 /// 系统返回键统一接管。
 ///
-/// 行为（对齐用户要求）：
-/// 1. 详情页（纪要 / 转写 / 屏幕目录）→ 退回上一步；
-/// 2. 历史 / 我的等 Tab 根页 → 退回首页；
+/// 行为（对齐用户要求「返回=回到上一步」）：
+/// 1. 压栈页 → 在 pop 回调里**实时** `context.canPop()` 判定为 true →
+///    主动 `context.pop()`（反向过渡播放，回到上一页）；
+/// 2. 根页（无栈可弹）：非首页 → 回首页兜底（深链冷启动时转写页先退回纪要页）；
 /// 3. 首页 → 第一次提示「再按一次退出应用」，窗口期内再次返回才退出。
+///
+/// 为什么 `canPop` 恒 false、在回调里实时判定：`canPop` 若在 build 时求值，
+/// 被覆盖的根页可能因 Riverpod 重建拿到陈旧的 true，返回键会既不 pop 也不退出。
+/// 恒 false + 实时判定让每次返回都拿到当下真实的栈状态。
 class AppBackHandler extends ConsumerStatefulWidget {
   /// 构造返回接管层。
   const AppBackHandler({super.key, required this.child});
@@ -207,14 +167,12 @@ class _AppBackHandlerState extends ConsumerState<AppBackHandler> {
   DateTime? _lastBackAt;
 
   void _handleBack() {
-    final String current =
-        appRouter.routeInformationProvider.value.uri.toString();
-    final String? previous = appNavHistory.back(current);
-    if (previous != null) {
-      appRouter.go(previous);
+    // 实时判定：压栈页 → 原生 pop（返回上一步）。
+    if (context.canPop()) {
+      context.pop();
       return;
     }
-    // 已无可退历史：非首页 → 回首页（第一步）；首页 → 双击退出。
+    final String current = GoRouterState.of(context).matchedLocation;
     if (current != '/' && current.isNotEmpty) {
       // 深链兜底：转写页直接冷启动时至少退回它的纪要页，而不是跳首页。
       final RegExpMatch? transcript =

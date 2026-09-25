@@ -236,7 +236,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ? AppTextPillButton(
               label: '屏幕目录（debug）',
               soft: true,
-              onTap: () => context.go('/gallery'),
+              onTap: () => context.push('/gallery'),
             )
           : null,
     );

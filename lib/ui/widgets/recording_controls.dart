@@ -37,25 +37,31 @@ class RecordingControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 溢出修复：三键簇在 360dp 宽下仅剩 ~2px 余量，系统字体放大即横向溢出
+    // （真机「页面右侧出现 bug」）。FittedBox 等比缩小整簇，宽屏不受影响。
     return Padding(
       padding: const EdgeInsets.fromLTRB(AppSpacing.page, 20, AppSpacing.page, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          _SideButton(
-            icon: paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-            tooltip: paused ? '继续' : '暂停',
-            onTap: stopping ? null : onPauseToggle,
-          ),
-          const SizedBox(width: 16),
-          _StopButton(stopping: stopping, onTap: onStop),
-          const SizedBox(width: 16),
-          _SideButton(
-            icon: Icons.bookmark_border_rounded,
-            tooltip: '标记',
-            onTap: stopping ? null : onBookmark,
-          ),
-        ],
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            _SideButton(
+              icon: paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+              tooltip: paused ? '继续' : '暂停',
+              onTap: stopping ? null : onPauseToggle,
+            ),
+            const SizedBox(width: 16),
+            _StopButton(stopping: stopping, onTap: onStop),
+            const SizedBox(width: 16),
+            _SideButton(
+              icon: Icons.bookmark_border_rounded,
+              tooltip: '标记',
+              onTap: stopping ? null : onBookmark,
+            ),
+          ],
+        ),
       ),
     );
   }

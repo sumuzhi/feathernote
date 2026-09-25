@@ -10,49 +10,29 @@ import '../ui/router/app_router.dart';
 import '../ui/theme/app_theme.dart';
 import '../ui/widgets/app_toast.dart';
 
-/// 全局滚动行为：**关闭过度滑动（overscroll）**。
+/// 全局滚动行为：**关闭过度滑动（overscroll）与滚动条（scrollbars）**。
 ///
-/// 不设置时落到 `MaterialScrollBehavior` 默认值，在 Android 12+ 上表现为
-/// **拉伸回弹**（用户反馈的「果冻感」）。这里：
-/// - `overscroll: false` 去掉拉伸 / 辉光指示器；
-/// - `physics: ClampingScrollPhysics()` 让列表到达边界直接硬停，不回弹。
+/// 不设置时落到 `MaterialScrollBehavior` 默认值，在 Android 上表现为：
+/// - 12+ 的**拉伸回弹**（用户反馈的「果冻感」）；
+/// - 滚动时**右缘灰色滚动条**（用户反馈「页面右侧出现 bug」——录音实时列表
+///   自动滚动与「我的」页滚动时都会触发）。这里：
+/// - `overscroll: false` + `ClampingScrollPhysics` 硬停不回弹；
+/// - `scrollbars: false` 不渲染滚动条（对齐 iOS 风格设计稿）。
 ///
 /// 通过 `MaterialApp.scrollBehavior` 全局生效，覆盖历史列表、转写列表、
 /// 纪要页、设置页以及横向 chips 等所有可滚动区域。
 ScrollBehavior buildAppScrollBehavior() {
   return const MaterialScrollBehavior().copyWith(
     overscroll: false,
+    scrollbars: false,
     physics: const ClampingScrollPhysics(),
   );
 }
 
 /// 智能会议纪要 App。
-class SmartMinutesApp extends StatefulWidget {
+class SmartMinutesApp extends StatelessWidget {
   /// 构造根组件。
   const SmartMinutesApp({super.key});
-
-  @override
-  State<SmartMinutesApp> createState() => _SmartMinutesAppState();
-}
-
-class _SmartMinutesAppState extends State<SmartMinutesApp> {
-  @override
-  void initState() {
-    super.initState();
-    // 全局唯一挂接点：路由每次变化同步进导航历史（供系统返回键「退回上一步」用）。
-    appRouter.routeInformationProvider.addListener(_onLocationChanged);
-    _onLocationChanged();
-  }
-
-  @override
-  void dispose() {
-    appRouter.routeInformationProvider.removeListener(_onLocationChanged);
-    super.dispose();
-  }
-
-  void _onLocationChanged() {
-    appNavHistory.sync(appRouter.routeInformationProvider.value.uri.toString());
-  }
 
   @override
   Widget build(BuildContext context) {
