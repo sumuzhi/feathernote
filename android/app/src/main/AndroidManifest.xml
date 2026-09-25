@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 访问网络（百炼 ASR/LLM、一言 API）：
+         ⚠️ debug 构建工具会自动注入 INTERNET 权限，**release 不会**——
+         必须显式声明，否则 release 包完全无法访问网络。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 麦克风采集（record 插件也会合并声明，这里显式写出便于审计）。 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 录音期间的前台服务：Android 14+ 起 microphone 类型必须显式声明，
@@ -12,7 +16,7 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <application
-        android:label="smart_minutes_flutter"
+        android:label="声羽"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">

@@ -128,6 +128,8 @@ class TranscriptScreen extends StatelessWidget {
             onTap: onFilterChanged,
             scrollable: true,
           ),
+          // 筛选组与列表之间的呼吸间距（避免 chips 与卡片贴在一起）。
+          const SizedBox(height: 10),
           if (hit != null)
             HitBar(
               total: hit!.total,

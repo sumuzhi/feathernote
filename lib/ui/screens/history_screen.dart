@@ -175,6 +175,8 @@ class HistoryScreen extends StatelessWidget {
             onTap: onFilterChanged,
             enabled: !_isEmpty,
           ),
+          // 筛选组与列表之间的呼吸间距（避免 chips 与卡片贴在一起）。
+          const SizedBox(height: 10),
           Expanded(
             child: (_isEmpty || _isSearchEmpty)
                 ? _buildEmptyState(context)

@@ -38,7 +38,7 @@ class SmartMinutesApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: '智能会议纪要',
+      title: '声羽 FeatherNote',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       scrollBehavior: buildAppScrollBehavior(),

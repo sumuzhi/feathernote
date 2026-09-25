@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/meeting.dart';
+import '../providers/recorder_controller.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
 import '../pages/meeting_page.dart';
@@ -210,7 +211,14 @@ class _AppBackHandlerState extends ConsumerState<AppBackHandler> {
   DateTime? _lastBackAt;
 
   void _handleBack() {
-    // 实时判定：压栈页 → 原生 pop（返回上一步）。
+    // ① 录音中按返回：提醒是否退出录音（与首页 ✕ 的确认一致），而不是
+    //    走「双击退出 App」——录音是核心动作，误退代价高。
+    final RecorderUiState recorder = ref.read(recorderProvider);
+    if (recorder.isActive || recorder.phase == RecorderPhase.stopping) {
+      _confirmExitRecording();
+      return;
+    }
+    // ② 实时判定：压栈页 → 原生 pop（返回上一步）。
     if (context.canPop()) {
       context.pop();
       return;
@@ -223,6 +231,7 @@ class _AppBackHandlerState extends ConsumerState<AppBackHandler> {
       appRouter.go(transcript != null ? '/meeting/${transcript.group(1)}' : '/');
       return;
     }
+    // ③ 首页（非录音）→ 双击退出。
     final DateTime now = DateTime.now();
     if (_lastBackAt != null && now.difference(_lastBackAt!) <= _exitWindow) {
       SystemNavigator.pop();
@@ -230,6 +239,32 @@ class _AppBackHandlerState extends ConsumerState<AppBackHandler> {
     }
     _lastBackAt = now;
     ref.read(toastProvider.notifier).show('再按一次退出应用', tone: ToastTone.info);
+  }
+
+  /// 录音中返回：弹「结束本次录音？」确认（与首页 ✕ 行为一致）。
+  ///
+  /// 取消 → 继续录音；确认「丢弃」→ 丢弃本次录音与转写。
+  Future<void> _confirmExitRecording() async {
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('结束本次录音？'),
+        content: const Text('选择「丢弃」会删除本次录音与已转写内容；选择「取消」继续录音。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('丢弃'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true) {
+      await ref.read(recorderProvider.notifier).discard();
+    }
   }
 
   @override

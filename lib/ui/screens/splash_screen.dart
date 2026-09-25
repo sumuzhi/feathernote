@@ -3,7 +3,7 @@
 /// 时序（约 2.4s 后自动进首页）：
 /// 1. 图标 100×100 圆角 24：scale .82→1 + 淡入（.5s，easeOutCubic）；
 /// 2. 四圈录音波纹（呼应产品核心动作）：1.5s 内由内向外扩散淡出，逐圈延迟 .22s；
-/// 3. 「声记」（字距 10）→ "SONICMEMO"（字距 5）→ slogan「听见每一场会议的重点」。
+/// 3. 「声羽」（字距 10）→ "FEATHERNOTE"（字距 5）→ slogan「听见每一场会议的重点」。
 ///
 /// 性能要点：
 /// - AnimatedBuilder **只包波纹 + 图标**，文案区静态不随动画逐帧重建；
@@ -17,23 +17,25 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/quote_provider.dart';
 import '../theme/app_theme.dart';
 
 /// 启动动画停留时长（波纹播完一轮 + 文案入场的冗余）。
 const Duration kSplashDuration = Duration(milliseconds: 2400);
 
 /// 启动动画页。
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   /// 构造启动页。
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   // 单控制器驱动：波纹循环（1.5s）+ 图标入场（前 .5s 共用时间轴）。
   late final AnimationController _controller = AnimationController(
@@ -51,6 +53,8 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+    // 启动期预取「一句话」：进入首页前请求已在路上（超时 3s），进首页即可见。
+    ref.watch(dailyQuoteProvider);
     _controller.forward(from: 0);
     _timer = Timer(kSplashDuration, () {
       if (!mounted) return;
@@ -146,7 +150,7 @@ class _SplashScreenState extends State<SplashScreen>
             const SizedBox(height: 34),
             // 「声记」：42px / w600 / 字距 10。
             Text(
-              '声 记',
+              '声 羽',
               style: AppTextStyles.pageTitle.copyWith(
                 fontSize: 42,
                 fontWeight: FontWeight.w600,
@@ -156,7 +160,7 @@ class _SplashScreenState extends State<SplashScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              'SONICMEMO',
+              'FEATHERNOTE',
               style: AppTextStyles.meta.copyWith(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,

@@ -16,8 +16,8 @@ final FutureProvider<String?> dailyQuoteProvider =
     FutureProvider<String?>((Ref ref) async {
   final Dio dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(milliseconds: 4000),
-      receiveTimeout: const Duration(milliseconds: 4000),
+      connectTimeout: const Duration(milliseconds: 3000),
+      receiveTimeout: const Duration(milliseconds: 3000),
     ),
   );
   try {

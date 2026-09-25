@@ -236,8 +236,9 @@ class AppSpacing {
 class AppTextStyles {
   const AppTextStyles._();
 
-  /// 字族（与 `pubspec.yaml` 的 fonts 声明一致）。
-  static const String fontFamily = 'NotoSansSC';
+  /// 应用字体：使用**系统默认字体**（跟随用户系统设置），不再固定打包 assets 字体。
+  /// assets/fonts/NotoSansSC-Regular.ttf 仅保留用于 PDF 导出的字体内嵌（不注册为 UI 字体）。
+  static const String? fontFamily = null;
 
   static const TextTheme _base = TextTheme();
 

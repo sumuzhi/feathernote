@@ -56,12 +56,6 @@ flutter:
   assets:
     - assets/prompts/minutes.md
     - assets/brand/
-  # 设计稿指定 Noto Sans SC：随包 asset（离线可用，不走 google_fonts 运行时下载）。
-  # 仅随包 400 / 600 两档，其余字重由 Flutter 就近匹配（见 DESIGN-SPEC 2.4）。
-  fonts:
-    - family: NotoSansSC
-      fonts:
-        - asset: assets/fonts/NotoSansSC-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/NotoSansSC-SemiBold.ttf
-          weight: 600
+    - assets/fonts/
+  # 字体：不打包 / 不注册（UI 使用系统字体，跟随用户设置）。
+  # assets/fonts/NotoSansSC-Regular.ttf 仅作为 PDF 导出的字体内嵌资源保留。
