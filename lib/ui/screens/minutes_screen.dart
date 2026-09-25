@@ -99,6 +99,9 @@ class MinutesScreen extends StatelessWidget {
             title: meetingTitle,
             meta: meetingMeta,
             badgeText: badgeText,
+            // 「查看完整转写」入口（按参考图挂在顶部信息卡内，替代原卡片底部行）。
+            transcriptChars: minutes.transcriptChars,
+            onOpenTranscript: minutes.onOpenTranscript,
           ),
           if (notice != null)
             Container(

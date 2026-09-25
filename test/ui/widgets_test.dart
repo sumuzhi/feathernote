@@ -290,8 +290,7 @@ void main() {
   });
 
   group('MinutesCard', () {
-    testWidgets('常规纪要：标签、摘要、分节与「查看完整转写」独立行', (WidgetTester tester) async {
-      bool opened = false;
+    testWidgets('常规纪要：标签、摘要与分节；「查看完整转写」已上移不再渲染', (WidgetTester tester) async {
       await tester.pumpWidget(
         _host(
           MinutesCard(
@@ -306,7 +305,7 @@ void main() {
                 ),
               ],
               transcriptChars: '1,860 字 ›',
-              onOpenTranscript: () => opened = true,
+              onOpenTranscript: () {},
             ),
           ),
         ),
@@ -314,10 +313,8 @@ void main() {
       expect(find.text('✦ AI 结构化纪要'), findsOneWidget);
       expect(find.text('qwen3.7-plus'), findsOneWidget);
       expect(find.text('重要决策'), findsOneWidget);
-      expect(find.text('查看完整转写'), findsOneWidget);
-      expect(find.text('1,860 字 ›'), findsOneWidget);
-      await tester.tap(find.text('查看完整转写'));
-      expect(opened, isTrue);
+      // 入口已上移至顶部信息卡：卡片底部不再渲染。
+      expect(find.text('查看完整转写'), findsNothing);
     });
 
     testWidgets('超长纪要：内容较长标签 + 展开全文 + 查看全部 N 条', (WidgetTester tester) async {
@@ -578,6 +575,37 @@ void main() {
       expect(find.text('Q3 产品规划评审'), findsOneWidget);
       expect(find.text('3 小时 12 分钟 · 8 位说话人 · 今天 09:12'), findsOneWidget);
       expect(find.text('已完成'), findsOneWidget);
+    });
+
+    testWidgets('传入 onOpenTranscript 时渲染「查看完整转写」入口行并可点击', (WidgetTester tester) async {
+      bool opened = false;
+      await tester.pumpWidget(
+        _host(
+          MeetingInfoCard(
+            title: 'Q3 产品规划评审',
+            meta: '32 分钟 · 3 位说话人 · 今天 09:12',
+            transcriptChars: '1,860 字 ›',
+            onOpenTranscript: () => opened = true,
+          ),
+        ),
+      );
+      expect(find.text('查看完整转写'), findsOneWidget);
+      expect(find.text('1,860 字 ›'), findsOneWidget);
+      await tester.tap(find.text('查看完整转写'));
+      expect(opened, isTrue);
+    });
+
+    testWidgets('未传入 onOpenTranscript 时不渲染入口行（空态 / 生成中）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(
+          const MeetingInfoCard(
+            title: 'Q3 产品规划评审',
+            meta: '32 分钟 · 3 位说话人 · 今天 09:12',
+            transcriptChars: '0 字 ›',
+          ),
+        ),
+      );
+      expect(find.text('查看完整转写'), findsNothing);
     });
   });
 

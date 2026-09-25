@@ -295,6 +295,10 @@ class _PlayButton extends StatelessWidget {
 }
 
 /// 段内播放进度条：同色已播 + 浅色轨道（圆角胶囊）。
+///
+/// 平滑性：位置流约 200ms 一跳，直接按 `widthFactor` 渲染会出现
+/// 「停顿—瞬跳」的顿挫感。这里用 [TweenAnimationBuilder] 在两次更新之间
+/// 线性插值（320ms，略长于回调间隔），视觉上连续推进，不再卡顿 / 后腿。
 class _SegmentProgressBar extends StatelessWidget {
   const _SegmentProgressBar({required this.progress, required this.accent});
 
@@ -303,18 +307,24 @@ class _SegmentProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: SizedBox(
-        height: 6,
-        child: Stack(
-          children: <Widget>[
-            Container(color: AppColors.grayWash),
-            FractionallySizedBox(
-              widthFactor: progress,
-              child: Container(color: accent),
-            ),
-          ],
+    final double target = progress.clamp(0.0, 1.0);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: target, end: target),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.linear,
+      builder: (BuildContext context, double value, Widget? _) => ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          height: 6,
+          child: Stack(
+            children: <Widget>[
+              Container(color: AppColors.grayWash),
+              FractionallySizedBox(
+                widthFactor: value.clamp(0.0, 1.0),
+                child: Container(color: accent),
+              ),
+            ],
+          ),
         ),
       ),
     );

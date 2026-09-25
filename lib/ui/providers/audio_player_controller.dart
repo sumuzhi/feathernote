@@ -429,7 +429,14 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     _positionSub?.cancel();
     _positionSub = _player.positionStream.listen((Duration position) {
       if (_disposed) return;
-      final int ms = position.inMilliseconds;
+      int ms = position.inMilliseconds;
+      // 单调护栏：同一当前段播放中，位置不应倒退。位置流偶发回调乱序 /
+      // 缓冲期旧值回放会让进度条「后腿」（先回跳再追上）。仅压制 ≤400ms 的
+      // 小幅倒退：切段 / seek 是大幅回跳，不受影响。
+      if (_startedPlaying && state.isPlaying) {
+        final int last = state.currentPositionMs;
+        if (last > 0 && ms < last && last - ms <= 400) ms = last;
+      }
       state = state.copyWith(currentPositionMs: ms);
       // 仅在「确实已开播」后允许自动停：挡掉加载/缓冲期位置流回放的异常大值
       // （如等于文件时长），否则会提前把当前段清空。

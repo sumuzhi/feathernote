@@ -4,7 +4,8 @@
 /// - [MinutesView.longTag] → 额外「内容较长」标签；
 /// - [MinutesView.expandNote] → 摘要末尾的「展开全文 · 摘要约 1,240 字 ⌄」；
 /// - [MinutesSectionView.moreLabel] → 分节底部的「查看全部 N 条 ›」。
-/// 「查看完整转写」始终是卡片底部**独立的一行**（HTML `.sum-card .foot`）。
+/// 「查看完整转写」入口已上移至顶部信息卡（[MeetingInfoCard]，按用户参考图），
+/// 卡片底部不再保留独立入口行。
 library;
 
 import 'package:flutter/material.dart';
@@ -65,6 +66,8 @@ class MinutesView {
   final List<MinutesSectionView> sections;
 
   /// 底部「查看完整转写」右侧字数（如「1,860 字 ›」）。
+  ///
+  /// 展示位置在顶部信息卡（[MeetingInfoCard]），本卡不渲染。
   final String transcriptChars;
 
   /// 是否展示「内容较长」标签（屏 11）。
@@ -76,7 +79,7 @@ class MinutesView {
   /// 点击「展开全文」。
   final VoidCallback? onExpandAbstract;
 
-  /// 点击「查看完整转写」。
+  /// 点击「查看完整转写」（由顶部信息卡消费）。
   final VoidCallback? onOpenTranscript;
 
   /// 点击某分节的「查看全部 N 条」（回传分节下标）。
@@ -175,44 +178,6 @@ class MinutesCard extends StatelessWidget {
                 ),
               ),
           ],
-          GestureDetector(
-            onTap: view.onOpenTranscript,
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              margin: const EdgeInsets.only(top: 14, bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.orangeSoft,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Row(
-                children: <Widget>[
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.orangeWash,
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.description_rounded,
-                      size: 18,
-                      color: AppColors.orange,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text('查看完整转写', style: AppTextStyles.subHead),
-                  ),
-                  Text(
-                    view.transcriptChars,
-                    style: AppTextStyles.meta.copyWith(color: AppColors.muted),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );

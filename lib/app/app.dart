@@ -27,9 +27,32 @@ ScrollBehavior buildAppScrollBehavior() {
 }
 
 /// 智能会议纪要 App。
-class SmartMinutesApp extends StatelessWidget {
+class SmartMinutesApp extends StatefulWidget {
   /// 构造根组件。
   const SmartMinutesApp({super.key});
+
+  @override
+  State<SmartMinutesApp> createState() => _SmartMinutesAppState();
+}
+
+class _SmartMinutesAppState extends State<SmartMinutesApp> {
+  @override
+  void initState() {
+    super.initState();
+    // 全局唯一挂接点：路由每次变化同步进导航历史（供系统返回键「退回上一步」用）。
+    appRouter.routeInformationProvider.addListener(_onLocationChanged);
+    _onLocationChanged();
+  }
+
+  @override
+  void dispose() {
+    appRouter.routeInformationProvider.removeListener(_onLocationChanged);
+    super.dispose();
+  }
+
+  void _onLocationChanged() {
+    appNavHistory.sync(appRouter.routeInformationProvider.value.uri.toString());
+  }
 
   @override
   Widget build(BuildContext context) {
