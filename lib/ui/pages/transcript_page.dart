@@ -17,6 +17,7 @@ import '../../domain/speaker.dart';
 import '../providers/app_providers.dart';
 import '../providers/audio_player_controller.dart';
 import '../screens/transcript_screen.dart';
+import '../theme/app_theme.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/speaker_view.dart';
@@ -138,21 +139,21 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
     ];
   }
 
-  List<TranscriptItemView> _allItems() => <TranscriptItemView>[
-        for (int i = 0; i < _segments.length; i++) _viewAt(i),
+  List<TranscriptItemView> _viewItems(AudioPlayerState audioState) =>
+      <TranscriptItemView>[
+        for (int i = 0; i < _segments.length; i++) _viewAt(i, audioState),
       ];
 
-  TranscriptItemView _viewAt(int index) {
+  TranscriptItemView _viewAt(int index, AudioPlayerState audioState) {
     final TranscriptSegment segment = _segments[index];
     final SpeakerView view = speakerViewFor(
       speakerId: segment.speakerId,
       speakers: _speakers,
     );
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
-    final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
     final bool active = audioState.isSegmentActive(segment.segmentId);
     final bool playing = audioState.isSegmentPlaying(segment.segmentId);
-    // 段内进度与已播时长：播放中才计算，其余场景恒为默认值。
+    // 段内进度与已播时长：当前段才计算，其余场景恒为默认值。
     final int segDuration = segment.endTime - segment.startTime;
     final int played =
         (audioState.currentPositionMs - segment.startTime).clamp(0, segDuration > 0 ? segDuration : 0);
@@ -176,11 +177,26 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    // loading → 内容做淡入过渡，避免硬切闪屏（切页过渡见 app_router）。
+    return AnimatedSwitcher(
+      duration: AppDuration.fade,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (Widget child, Animation<double> animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: KeyedSubtree(
+        key: ValueKey<String>(_loading ? 'loading' : 'content'),
+        child: _loading ? const Center(child: CircularProgressIndicator()) : _buildList(),
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    // 在 build 里显式 watch：保证「播放状态变化 → 页面重建」这条依赖一定注册，
+    // 不依赖 `_viewAt` 是否被调用（列表为空时它一次都不会跑到）。
+    final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
     final Meeting? meeting = _meeting;
-    final List<TranscriptItemView> items = _allItems();
+    final List<TranscriptItemView> items = _viewItems(audioState);
     final List<SpeakerChipView> chips = _chipViews();
     final int charCount = _segments.fold<int>(0, (int sum, TranscriptSegment s) => sum + s.text.replaceAll(RegExp(r'\s'), '').length);
 

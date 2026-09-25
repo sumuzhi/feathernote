@@ -104,6 +104,14 @@ class AppColors {
   static const Color soft = orangeSoft;
 }
 
+/// 动画时长（全站统一，杜绝硬切闪屏）。
+class AppDuration {
+  const AppDuration._();
+
+  /// 页面/内容切换的淡入时长：太短看不出过渡，太长显得拖沓。
+  static const Duration fade = Duration(milliseconds: 220);
+}
+
 /// 圆角（HTML `--radius-card` / `--radius-card2`）。
 class AppRadius {
   const AppRadius._();

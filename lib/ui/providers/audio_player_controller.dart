@@ -155,6 +155,16 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   /// 当前目标结束时间（毫秒），用于自动停。
   int _endMs = 0;
 
+  /// 「我们是否打算在播」的意图标记。
+  ///
+  /// 存在的理由（**首次点击不显示播放组件的根因**）：`just_audio` 的
+  /// `playerStateStream` 是 `startWith` 流，**订阅瞬间会回放当前值**；
+  /// 首次点击时引擎刚创建、订阅刚建立，这个回放事件可能在我们把
+  /// `isPlaying=true` 之后才到达，把状态打回 false → 音频在放但组件不显示。
+  /// 此后订阅已存在、不再有回放事件，所以只有"第一次"会复现。
+  /// 因此：由我们自己调用 `pause()` / 自动停来置 false，忽略与意图相反的迟到事件。
+  bool _intentPlaying = false;
+
   /// 是否已释放（ Riverpod 3 Notifier 没有 `mounted`，自己跟踪）。
   bool _disposed = false;
 
@@ -185,13 +195,15 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     required int startMs,
     required int endMs,
   }) async {
-    _endMs = endMs;
+      _endMs = endMs;
 
-    // 正在播当前段 → 暂停，保留断点。
-    if (state.isSegmentPlaying(segmentId)) {
-      await pause();
-      return;
-    }
+      // 正在播当前段 → 暂停，保留断点。
+      if (state.isSegmentPlaying(segmentId)) {
+        await pause();
+        return;
+      }
+      // 先立意图，再调 play：防止迟到/回放的 playing=false 事件把状态打回。
+      _intentPlaying = true;
     try {
       final BackendApi api = await _ensureApi();
       final String? path = await api.getAudioPath(meetingId);
@@ -232,6 +244,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   /// 暂停当前播放（保留位置，供下次续播）。
   Future<void> pause() async {
+    _intentPlaying = false;
     try {
       await _player.pause();
     } catch (_) {
@@ -268,15 +281,20 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   void _onPlayerStateChanged(PlayerState playerState) {
     if (_disposed) return;
-    // 播到文件末尾（completed）：同样撤下播放组件，避免残留。
+    // 播到文件末尾：撤下播放组件。
     if (playerState.processingState == ProcessingState.completed) {
+      _intentPlaying = false;
       state = state.copyWith(isPlaying: false, clearActive: true);
       return;
     }
-    final bool playing = playerState.playing;
-    if (state.isPlaying != playing) {
-      state = state.copyWith(isPlaying: playing);
+    if (playerState.playing) {
+      // 外部/播放器自行开播：同步为播放中。
+      if (!state.isPlaying) state = state.copyWith(isPlaying: true);
+      return;
     }
+    // 与意图相反的迟到事件（首次订阅回放的典型表现）→ 忽略，避免把组件打没。
+    if (_intentPlaying) return;
+    if (state.isPlaying) state = state.copyWith(isPlaying: false);
   }
 
   void _subscribePosition() {
@@ -292,6 +310,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   }
 
   Future<void> _autoStop() async {
+    _intentPlaying = false;
     try {
       await _player.pause();
     } catch (_) {

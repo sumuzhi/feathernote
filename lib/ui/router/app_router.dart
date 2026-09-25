@@ -20,56 +20,107 @@ import '../pages/transcript_page.dart';
 import '../screens/gallery_screen.dart';
 
 /// 全局路由。
+///
+/// **统一页面过渡**：所有路由都走 [_transitionPage]（淡入 + 8px 上移，220ms）。
+/// 此前用默认 `builder`，切页是"硬切"，特别是「完整转写 → 生成纪要 → 纪要页」
+/// 这条链路会明显闪一下；全局加过渡后不再有裸切帧。
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
   routes: <RouteBase>[
     GoRoute(
       path: '/',
       name: 'record',
-      builder: (BuildContext context, GoRouterState state) => const HomePage(),
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _transitionPage(state, const HomePage()),
     ),
     GoRoute(
       path: '/history',
       name: 'history',
-      builder: (BuildContext context, GoRouterState state) => const HistoryPage(),
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _transitionPage(state, const HistoryPage()),
     ),
     GoRoute(
       path: '/profile',
       name: 'profile',
-      builder: (BuildContext context, GoRouterState state) => const ProfilePage(),
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _transitionPage(state, const ProfilePage()),
     ),
     GoRoute(
       path: '/meeting/:id',
       name: 'meeting',
-      builder: (BuildContext context, GoRouterState state) =>
-          MeetingPage(meetingId: state.pathParameters['id'] ?? ''),
+      pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
+        state,
+        MeetingPage(meetingId: state.pathParameters['id'] ?? ''),
+      ),
     ),
     GoRoute(
       path: '/meeting/:id/transcript',
       name: 'transcript',
       // `extra` 携带来源页已加载的 [Meeting]，供转写页首帧直接渲染（消除闪烁）。
-      builder: (BuildContext context, GoRouterState state) => TranscriptPage(
-        meetingId: state.pathParameters['id'] ?? '',
-        initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
+      pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
+        state,
+        TranscriptPage(
+          meetingId: state.pathParameters['id'] ?? '',
+          initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
+        ),
       ),
     ),
     if (kDebugMode) ...<RouteBase>[
       GoRoute(
         path: '/gallery',
         name: 'gallery',
-        builder: (BuildContext context, GoRouterState state) => GalleryScreen(
-          onOpen: (String id) => context.go('/gallery/$id'),
+        pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
+          state,
+          GalleryScreen(onOpen: (String id) => context.go('/gallery/$id')),
         ),
       ),
       GoRoute(
         path: '/gallery/:id',
         name: 'galleryScreen',
-        builder: (BuildContext context, GoRouterState state) => GalleryScreenHost(
-          screenId: state.pathParameters['id'] ?? 's01',
-          onExit: () => context.go('/gallery'),
-          onOpenScreen: (String id) => context.go('/gallery/$id'),
+        pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
+          state,
+          GalleryScreenHost(
+            screenId: state.pathParameters['id'] ?? 's01',
+            onExit: () => context.go('/gallery'),
+            onOpenScreen: (String id) => context.go('/gallery/$id'),
+          ),
         ),
       ),
     ],
   ],
 );
+
+/// 页面过渡时长（全站统一）。
+const Duration kPageTransitionDuration = Duration(milliseconds: 220);
+
+/// 统一的淡入 + 轻微上移过渡页（告别硬切导致的闪屏）。
+CustomTransitionPage<void> _transitionPage(GoRouterState state, Widget child) =>
+    CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: kPageTransitionDuration,
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      transitionsBuilder:
+          (
+            BuildContext context,
+            Animation<double> animation,
+            Animation<double> secondaryAnimation,
+            Widget child,
+          ) {
+            final CurvedAnimation curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.02),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            );
+          },
+    );

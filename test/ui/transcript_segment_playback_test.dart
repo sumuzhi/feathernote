@@ -66,6 +66,9 @@ class _FakeEngine implements AudioPlayerEngine {
     await _stateCtrl.close();
   }
 
+  /// 模拟 just_audio 的 `startWith` 流：订阅后**回放**一次当前状态（可迟到）。
+  void replayState(PlayerState state) => _stateCtrl.add(state);
+
   /// 模拟位置推进（用于自动停测试）。
   void tickTo(int ms) {
     _position = Duration(milliseconds: ms);
@@ -256,6 +259,43 @@ void main() {
       await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
 
       expect(engine.lastSeekMs, 1000, reason: '播完后再点应从头开始');
+    });
+    test('首次播放：播放器回放的迟到 playing=false 事件不得把组件打没', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1'),
+        isTrue,
+        reason: '首次播放后播放组件必须出现（历史 bug：只在第一次不显示）',
+      );
+
+      // 模拟 just_audio 的 startWith 流在订阅后**迟到**回放的旧值。
+      engine.replayState(PlayerState(false, ProcessingState.ready));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1'),
+        isTrue,
+        reason: '我们仍在播，迟到的 playing=false 必须被忽略',
+      );
+    });
+
+    test('播放器 completed：清除当前段并置为未播放', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.replayState(PlayerState(false, ProcessingState.completed));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
+      expect(container.read(audioPlayerControllerProvider).playingSegmentId, isNull);
     });
   });
 }

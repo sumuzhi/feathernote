@@ -19,6 +19,7 @@ import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/minutes_screen.dart';
+import '../theme/app_theme.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/minutes_outline.dart';
@@ -213,6 +214,29 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 状态切换（loading / 缺失 / 内容）用淡入过渡，避免硬切闪屏。
+    // 同一状态内的数据更新（流式纪要）不换 key，因此不会反复闪。
+    return AnimatedSwitcher(
+      duration: AppDuration.fade,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (Widget child, Animation<double> animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: KeyedSubtree(
+        key: ValueKey<String>(_stateKey),
+        child: _buildBody(context),
+      ),
+    );
+  }
+
+  /// 当前展示态（决定 [AnimatedSwitcher] 是否做过渡）。
+  String get _stateKey {
+    if (_loading) return 'loading';
+    if (_meeting == null) return 'missing';
+    return 'content';
+  }
+
+  Widget _buildBody(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
