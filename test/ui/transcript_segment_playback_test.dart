@@ -17,6 +17,7 @@ class _FakeEngine implements AudioPlayerEngine {
   int? lastSeekMs;
   int playCalls = 0;
   int pauseCalls = 0;
+  int seekCalls = 0;
   int setFilePathCalls = 0;
   final StreamController<Duration> _positionCtrl = StreamController<Duration>.broadcast();
   final StreamController<PlayerState> _stateCtrl = StreamController<PlayerState>.broadcast();
@@ -44,6 +45,7 @@ class _FakeEngine implements AudioPlayerEngine {
 
   @override
   Future<void> seek(Duration position) async {
+    seekCalls++;
     lastSeekMs = position.inMilliseconds;
     _position = position;
     _positionCtrl.add(_position);
@@ -178,18 +180,82 @@ void main() {
       expect(engine.playCalls, 0);
     });
 
-    test('播放到 endMs 自动暂停', () async {
+    test('播放到 endMs 自动暂停，并清除「当前段」（播放组件整块撤下）', () async {
       final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
       final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
       addTearDown(container.dispose);
 
       final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
       await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1'), isTrue);
+
       engine.tickTo(5100);
       await Future<void>.delayed(Duration.zero);
 
       expect(engine.pauseCalls, greaterThanOrEqualTo(1));
       expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
+      expect(
+        container.read(audioPlayerControllerProvider).playingSegmentId,
+        isNull,
+        reason: '播完必须清除当前段，否则下一段点播时上一段的进度组件残留、布局错位',
+      );
+      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1'), isFalse);
+    });
+
+    test('再次点击当前段 = 暂停（停在当前位置，不回到开头）', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(3000);
+      await Future<void>.delayed(Duration.zero);
+
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+
+      expect(engine.pauseCalls, greaterThanOrEqualTo(1));
+      expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1'),
+        isTrue,
+        reason: '暂停后仍是当前段（进度条保留）',
+      );
+      // 关键：暂停时不得再发起 seek（位置停在断点，不回到段首）。
+      expect(engine.seekCalls, 1, reason: '暂停只应 pause，不得再 seek 回 1000');
+      expect(container.read(audioPlayerControllerProvider).currentPositionMs, 3000);
+    });
+
+    test('暂停后再点击 = 从断点续播（不是从头）', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(3000);
+      await Future<void>.delayed(Duration.zero);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000); // 暂停
+
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000); // 续播
+
+      expect(engine.lastSeekMs, 3000, reason: '续播必须回到断点，不能回到 1000');
+      expect(container.read(audioPlayerControllerProvider).isPlaying, isTrue);
+    });
+
+    test('已播到段尾后再点击 = 从头开始', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(5000);
+      await Future<void>.delayed(Duration.zero);
+
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+
+      expect(engine.lastSeekMs, 1000, reason: '播完后再点应从头开始');
     });
   });
 }

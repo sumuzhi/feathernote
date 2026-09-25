@@ -109,6 +109,12 @@ class AudioPlayerState {
   bool isSegmentPlaying(String segmentId) =>
       playingSegmentId == segmentId && isPlaying;
 
+  /// 该 segment 是否为「当前段」（正在播放**或已暂停停在该段**）。
+  ///
+  /// 只有当前段才展示进度条与「已播 / 段长」；播完/切走后自动清除，避免出现
+  /// 「上一个段的进度组件残留、点其它按钮时位置错位」。
+  bool isSegmentActive(String segmentId) => playingSegmentId == segmentId;
+
   /// 复制并替换部分字段。
   AudioPlayerState copyWith({
     String? playingSegmentId,
@@ -118,9 +124,14 @@ class AudioPlayerState {
     String? currentMeetingId,
     String? error,
     bool clearError = false,
+
+    /// 清除「当前段」标记（播完 / 切走时用：`??` 无法把字段置回 null）。
+    bool clearActive = false,
   }) =>
       AudioPlayerState(
-        playingSegmentId: playingSegmentId ?? this.playingSegmentId,
+        playingSegmentId: clearActive
+            ? null
+            : (playingSegmentId ?? this.playingSegmentId),
         isPlaying: isPlaying ?? this.isPlaying,
         currentPositionMs: currentPositionMs ?? this.currentPositionMs,
         durationMs: durationMs ?? this.durationMs,
@@ -163,7 +174,11 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     return engine;
   }
 
-  /// 播放指定 segment。
+  /// 点击 segment 的播放按钮：**播放 / 暂停 / 继续**三态切换。
+  ///
+  /// - 当前段正在播放 → **暂停**（停在当前位置，**不回到开头**）；
+  /// - 当前段已暂停 → **继续**（从断点续播；已播到段尾则从头开始）；
+  /// - 点了另一个段 → seek 到该段起点播放。
   Future<void> playSegment({
     required String meetingId,
     required String segmentId,
@@ -171,6 +186,12 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     required int endMs,
   }) async {
     _endMs = endMs;
+
+    // 正在播当前段 → 暂停，保留断点。
+    if (state.isSegmentPlaying(segmentId)) {
+      await pause();
+      return;
+    }
     try {
       final BackendApi api = await _ensureApi();
       final String? path = await api.getAudioPath(meetingId);
@@ -189,7 +210,11 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         );
       }
 
-      final int targetMs = clampSeekMs(startMs, state.durationMs);
+      // 续播：停在本段中间 → 从断点继续；已播到段尾 → 从头开始。
+      final int resumedMs = state.isSegmentActive(segmentId)
+          ? _resumePositionMs(startMs: startMs, endMs: endMs)
+          : startMs;
+      final int targetMs = clampSeekMs(resumedMs, state.durationMs);
       await _player.seek(Duration(milliseconds: targetMs));
       await _player.play();
 
@@ -203,6 +228,24 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       state = state.copyWith(isPlaying: false, error: '播放失败：$error');
       _toast('播放失败：$error', tone: ToastTone.warning);
     }
+  }
+
+  /// 暂停当前播放（保留位置，供下次续播）。
+  Future<void> pause() async {
+    try {
+      await _player.pause();
+    } catch (_) {
+      // ignore
+    }
+    state = state.copyWith(isPlaying: false);
+  }
+
+  /// 续播位置：断点在段内 → 断点；已播到段尾（80ms 容差）→ 段起点。
+  int _resumePositionMs({required int startMs, required int endMs}) {
+    final int position = state.currentPositionMs;
+    if (position < startMs) return startMs;
+    if (position >= endMs - 80) return startMs;
+    return position;
   }
 
   /// 外部切页/手动停止时调用。
@@ -225,6 +268,11 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   void _onPlayerStateChanged(PlayerState playerState) {
     if (_disposed) return;
+    // 播到文件末尾（completed）：同样撤下播放组件，避免残留。
+    if (playerState.processingState == ProcessingState.completed) {
+      state = state.copyWith(isPlaying: false, clearActive: true);
+      return;
+    }
     final bool playing = playerState.playing;
     if (state.isPlaying != playing) {
       state = state.copyWith(isPlaying: playing);
@@ -249,7 +297,9 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     } catch (_) {
       // ignore
     }
-    state = state.copyWith(isPlaying: false);
+    // 播完即清除「当前段」：进度条与「已播 / 段长」整块撤下，避免上一段的
+    // 播放组件残留导致下一段点播时布局错位。
+    state = state.copyWith(isPlaying: false, clearActive: true);
   }
 
   void _toast(String text, {ToastTone tone = ToastTone.info}) {

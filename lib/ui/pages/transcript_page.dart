@@ -150,6 +150,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
     );
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
     final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
+    final bool active = audioState.isSegmentActive(segment.segmentId);
     final bool playing = audioState.isSegmentPlaying(segment.segmentId);
     // 段内进度与已播时长：播放中才计算，其余场景恒为默认值。
     final int segDuration = segment.endTime - segment.startTime;
@@ -164,6 +165,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       startTimeMs: segment.startTime,
       endTimeMs: segment.endTime,
       highlight: highlight,
+      playActive: active,
       isPlaying: playing,
       playProgress: segDuration > 0 ? played / segDuration : 0,
       playPositionLabel: formatClock(played),

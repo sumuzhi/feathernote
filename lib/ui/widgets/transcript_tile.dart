@@ -29,6 +29,7 @@ class TranscriptItemView {
     required this.endTimeMs,
     this.pending = false,
     this.highlight = false,
+    this.playActive = false,
     this.isPlaying = false,
     this.playProgress = 0,
     this.playPositionLabel = '',
@@ -63,7 +64,10 @@ class TranscriptItemView {
   /// 命中高亮态（HTML `.t-item.hl`）。
   final bool highlight;
 
-  /// 当前 segment 是否正在播放（控制按钮视觉态）。
+  /// 该段是否为「当前段」（正在播放**或已暂停停在该段**）→ 展示进度条与时间。
+  final bool playActive;
+
+  /// 是否正在播放（决定按钮显示暂停图标还是播放图标）。
   final bool isPlaying;
 
   /// 段内播放进度（0–1；仅播放中有意义）。
@@ -122,26 +126,28 @@ class TranscriptTile extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    GestureDetector(
-                      onTap: canPlay ? onPlay : null,
-                      behavior: HitTestBehavior.opaque,
-                      child: RichText(
-                        text: TextSpan(
-                          style: AppTextStyles.meta.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: accent,
-                            height: 1.3,
-                          ),
-                          children: <TextSpan>[
-                            TextSpan(text: item.speakerLabel),
-                            if (showTime)
-                              TextSpan(
-                                text: ' · ${item.timeLabel}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
+                    Flexible(
+                      child: GestureDetector(
+                        onTap: canPlay ? onPlay : null,
+                        behavior: HitTestBehavior.opaque,
+                        child: RichText(
+                          text: TextSpan(
+                            style: AppTextStyles.meta.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: accent,
+                              height: 1.3,
+                            ),
+                            children: <TextSpan>[
+                              TextSpan(text: item.speakerLabel),
+                              if (showTime)
+                                TextSpan(
+                                  text: ' · ${item.timeLabel}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -153,7 +159,7 @@ class TranscriptTile extends StatelessWidget {
                         isPlaying: item.isPlaying,
                         onTap: onPlay,
                       ),
-                      if (item.isPlaying) ...<Widget>[
+                      if (item.playActive) ...<Widget>[
                         const SizedBox(width: 10),
                         Expanded(
                           child: _SegmentProgressBar(
