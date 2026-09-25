@@ -26,8 +26,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(tester.takeException(), isNull);
-      // 每屏都应有状态栏时间（ScreenFrame 统一渲染）。
-      expect(find.text('9:41'), findsOneWidget);
+      // 页面只使用系统状态栏，不再渲染设计稿中的固定假时间。
+      expect(find.text('9:41'), findsNothing);
 
       // 卸载：取消录音演示 Timer 与波形 / 指示器的 Ticker。
       await tester.pumpWidget(const SizedBox.shrink());

@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ui/providers/app_providers.dart';
@@ -39,7 +40,14 @@ class SmartMinutesApp extends StatelessWidget {
       scrollBehavior: buildAppScrollBehavior(),
       routerConfig: appRouter,
       builder: (BuildContext context, Widget? child) =>
-          _ToastLayer(child: child ?? const SizedBox.shrink()),
+          AnnotatedRegion<SystemUiOverlayStyle>(
+            value: const SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.dark,
+              statusBarBrightness: Brightness.light,
+            ),
+            child: _ToastLayer(child: child ?? const SizedBox.shrink()),
+          ),
     );
   }
 }

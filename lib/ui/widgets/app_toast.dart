@@ -218,11 +218,13 @@ class AppToastOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ToastMessage? current = message;
+    // 顶部偏移跟随**系统**状态栏高度（不再使用设计稿里的 47px 假状态栏）。
+    final double topInset = MediaQuery.viewPaddingOf(context).top;
     return Stack(
       children: <Widget>[
         child,
         Positioned(
-          top: AppSpacing.statusBar + 13,
+          top: topInset + 13,
           left: AppSpacing.page,
           right: AppSpacing.page,
           child: IgnorePointer(

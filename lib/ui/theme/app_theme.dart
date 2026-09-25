@@ -202,9 +202,6 @@ class AppSpacing {
   /// 最小可点区域（44）。
   static const double minTap = 44;
 
-  /// 状态栏高度（47）。
-  static const double statusBar = 47;
-
   /// TabBar 高度（64）。
   static const double tabBar = 64;
 

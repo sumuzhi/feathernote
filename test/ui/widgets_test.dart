@@ -446,7 +446,7 @@ void main() {
       expect(tapped, 2);
     });
 
-    testWidgets('底部 CTA 与状态栏', (WidgetTester tester) async {
+    testWidgets('底部 CTA 常驻，且不再自绘状态栏', (WidgetTester tester) async {
       await tester.pumpWidget(
         _stackHost(
           const ScreenFrame(
@@ -455,7 +455,8 @@ void main() {
           ),
         ),
       );
-      expect(find.text('9:41'), findsOneWidget);
+      // 状态栏交给系统渲染，应用内不再出现设计稿里的固定假时间。
+      expect(find.text('9:41'), findsNothing);
       expect(find.text('导出纪要'), findsOneWidget);
       expect(find.byType(AppTabBar), findsNothing);
     });
