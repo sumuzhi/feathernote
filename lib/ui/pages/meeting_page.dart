@@ -22,6 +22,7 @@ import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/minutes_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/export_destination.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/minutes_outline.dart';
@@ -295,17 +296,22 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     if (meeting == null) return;
     final ExportFormat? format = await showExportFormatSheet(context);
     if (format == null || !mounted) return;
+    final ExportDestination destination = await loadExportDestination();
     try {
       final String path = await exportMeeting(
         fileName: meeting.title,
         markdown: meeting.minutesMd ?? '',
         format: format,
+        destination: destination,
       );
       if (!mounted) return;
       ref.read(toastProvider.notifier).show(
             '已导出：$path',
             tone: ToastTone.success,
           );
+    } on ExportCancelledException {
+      // 用户在系统「另存为」取消，不打扰。
+      return;
     } catch (error) {
       if (!mounted) return;
       ref.read(toastProvider.notifier).show(

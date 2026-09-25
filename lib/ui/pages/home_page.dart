@@ -19,7 +19,6 @@ import '../providers/recorder_controller.dart';
 import '../screens/home_idle_screen.dart';
 import '../screens/recording_screen.dart';
 import '../utils/formatters.dart';
-import '../utils/placeholders.dart';
 import '../utils/speaker_view.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/history_card.dart';
@@ -151,8 +150,6 @@ class _HomePageState extends ConsumerState<HomePage> {
         : (_starting ? '正在启动录音…' : (_stopping ? '正在结束并生成…' : null));
 
     return HomeIdleScreen(
-      greeting: '${greetingFor(now)}，$kUserDisplayName',
-      userName: kUserDisplayName,
       heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
       modes: const <String>['会议', '访谈', '灵感'],

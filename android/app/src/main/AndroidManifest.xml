@@ -7,10 +7,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Android 13+ 前台服务通知需要该权限（否则通知不显示、服务可能起不来）。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 导出写公共 Download（media_store_plus）：API ≤29 需要写权限，30+ 走 MediaStore 零权限。 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <application
         android:label="smart_minutes_flutter"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

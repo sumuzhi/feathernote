@@ -18,10 +18,12 @@ dependencies:
     sdk: flutter
   flutter_foreground_task: ^11.0.3 # 前台服务类型固定 microphone（Android 15 合规）
   flutter_markdown_plus: ^1.0.12 # 原 flutter_markdown 已于 2025-02 停止维护
+  file_picker: ^10.0.2 # 「每次导出时选择位置」：系统另存为（SAF）
   flutter_riverpod: ^3.4.3 # Riverpod 3：注意「同一 List 实例被 == 过滤」的陷阱
   go_router: ^18.0.1
   just_audio: ^0.10.6 # 本地 WAV 回放 + seek（跳播）
   markdown: ^7.3.1
+  media_store_plus: ^0.1.3 # 默认导出位置：MediaStore 写公共 Download/SmartMinutes（Android 10+ 零权限）
   path: ^1.9.1
   path_provider: ^2.1.6
   pdf: ^3.11.1 # 导出 PDF：复用随包 NotoSansSC 字体（中文不缺字形）

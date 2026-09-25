@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../demo/demo_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_badge.dart';
-import '../widgets/app_top_bar.dart';
 import '../widgets/history_card.dart';
 import '../widgets/record_hero_card.dart';
 import '../widgets/section_header.dart';
@@ -16,10 +15,13 @@ import 'screen_frame.dart';
 /// 首页待机态。
 class HomeIdleScreen extends StatelessWidget {
   /// 构造待机页。
+  ///
+  /// [greeting] / [userName] 传入非空才渲染（App 无登录，首页默认不传 →
+  /// 不显示问候语与头像；屏幕目录 demo 态仍可传值展示设计稿形态）。
   const HomeIdleScreen({
     super.key,
-    required this.greeting,
-    required this.userName,
+    this.greeting = '',
+    this.userName = '',
     required this.heroStatusText,
     required this.heroStatusTail,
     required this.modes,
@@ -35,10 +37,10 @@ class HomeIdleScreen extends StatelessWidget {
     this.busyHint,
   });
 
-  /// 问候语（「早上好，苏木」）。
+  /// 问候语（「早上好，苏木」；空则不渲染）。
   final String greeting;
 
-  /// 用户名（头像文字取首字）。
+  /// 用户名（头像文字取首字；空则不渲染头像）。
   final String userName;
 
   /// Hero 状态行主文案（待机中 / 录音中）。
@@ -115,23 +117,14 @@ class HomeIdleScreen extends StatelessWidget {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(greeting, style: AppTextStyles.greeting),
-                    const SizedBox(height: 4),
-                    Text('开始记录', style: AppTextStyles.pageTitle),
-                  ],
-                ),
-                GestureDetector(
-                  onTap: onAvatarTap,
-                  behavior: HitTestBehavior.opaque,
-                  child: AppAvatar(text: userName.isEmpty ? '苏' : userName.characters.first),
-                ),
+                if (greeting.isNotEmpty) ...<Widget>[
+                  Text(greeting, style: AppTextStyles.greeting),
+                  const SizedBox(height: 4),
+                ],
+                Text('开始记录', style: AppTextStyles.pageTitle),
               ],
             ),
           ),

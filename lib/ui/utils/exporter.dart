@@ -11,11 +11,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:media_store_plus/media_store_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+
+import 'export_destination.dart';
 
 /// 导出格式。
 enum ExportFormat {
@@ -59,54 +64,83 @@ extension ExportFormatX on ExportFormat {
       };
 }
 
-/// 按格式导出纪要（Markdown 源），返回写入后的**绝对路径**。
+/// 按格式导出纪要（Markdown 源），返回**给用户展示的保存位置**。
+///
+/// - [ExportDestination.appDownload]（默认）：Android 上经 MediaStore 写入
+///   公共 `Download/SmartMinutes/`（10+ 零权限）；其他平台写应用文档目录。
+/// - [ExportDestination.askEachTime]：弹系统「另存为」，由用户选位置与文件名。
 Future<String> exportMeeting({
   required String fileName,
+  required String markdown,
+  required ExportFormat format,
+  ExportDestination destination = ExportDestination.appDownload,
+}) async {
+  final List<int> bytes = await exportBytes(markdown: markdown, format: format);
+  final String safeName = sanitizeFileName(fileName);
+  final String fullExt = format.extension;
+
+  // 「每次导出时选择」：系统另存为（SAF），取消返回 null。
+  if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
+    final String? pickedPath = await FilePicker.platform.saveFile(
+      fileName: '$safeName$fullExt',
+      bytes: Uint8List.fromList(bytes),
+    );
+    if (pickedPath == null) {
+      throw const ExportCancelledException();
+    }
+    return pickedPath;
+  }
+
+  // 默认：Android → 公共 Download/SmartMinutes/；其他平台 → 应用文档目录。
+  if (Platform.isAndroid) {
+    final String localPath = await _writeLocalBytes(
+      bytes: bytes,
+      fileName: safeName,
+      extension: fullExt,
+    );
+    final SaveInfo? info = await MediaStore().saveFile(
+      tempFilePath: localPath,
+      dirType: DirType.download,
+      dirName: DirName.download,
+    );
+    if (info == null) {
+      // 极端情况（用户在系统弹窗拒绝）：回落本地可访问路径，不静默丢文件。
+      return localPath;
+    }
+    return 'Download/SmartMinutes/$safeName$fullExt';
+  }
+  return _writeLocalBytes(bytes: bytes, fileName: safeName, extension: fullExt);
+}
+
+/// 用户在系统「另存为」里取消导出。
+class ExportCancelledException implements Exception {
+  const ExportCancelledException();
+
+  @override
+  String toString() => '已取消导出';
+}
+
+/// 生成导出字节（格式 → 字节，写盘前的一步，便于「另存为」直接带 bytes）。
+Future<List<int>> exportBytes({
   required String markdown,
   required ExportFormat format,
 }) async {
   switch (format) {
     case ExportFormat.markdown:
-      return exportTextFile(fileName: fileName, content: markdown, extension: '.md');
+      return utf8.encode(markdown);
     case ExportFormat.txt:
-      return exportTextFile(
-        fileName: fileName,
-        content: markdownToPlainText(markdown),
-        extension: '.txt',
-      );
+      return utf8.encode(markdownToPlainText(markdown));
     case ExportFormat.word:
-      return exportBytesFile(
-        fileName: fileName,
-        bytes: buildDocxBytes(markdown),
-        extension: '.docx',
-      );
+      return buildDocxBytes(markdown);
     case ExportFormat.pdf:
-      return exportBytesFile(
-        fileName: fileName,
-        bytes: await buildPdfBytes(markdown),
-        extension: '.pdf',
-      );
+      return buildPdfBytes(markdown);
   }
 }
 
-/// 导出文本文件，返回写入后的**绝对路径**。
-///
-/// [fileName] 会被安全化（去掉路径分隔符与非法字符）。
-Future<String> exportTextFile({
-  required String fileName,
-  required String content,
-  String extension = '.md',
-}) =>
-    exportBytesFile(
-      fileName: fileName,
-      bytes: utf8.encode(content),
-      extension: extension,
-    );
-
-/// 导出二进制文件（docx / pdf 等共用落盘逻辑）。
-Future<String> exportBytesFile({
-  required String fileName,
+/// 写入应用文档目录 `exports/`，返回本地绝对路径（临时中转 / 非安卓默认位置）。
+Future<String> _writeLocalBytes({
   required List<int> bytes,
+  required String fileName,
   required String extension,
 }) async {
   final Directory base = await getApplicationDocumentsDirectory();
@@ -114,8 +148,7 @@ Future<String> exportBytesFile({
   if (!dir.existsSync()) {
     await dir.create(recursive: true);
   }
-  final String safeName = sanitizeFileName(fileName);
-  final File file = File(p.join(dir.path, '$safeName$extension'));
+  final File file = File(p.join(dir.path, '$fileName$extension'));
   await file.writeAsBytes(bytes, flush: true);
   return file.path;
 }

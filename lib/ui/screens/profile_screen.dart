@@ -6,21 +6,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_switch.dart';
-import '../widgets/app_top_bar.dart';
 import '../widgets/surface_card.dart';
 import 'screen_frame.dart';
-
-/// 统计项。
-class ProfileStatView {
-  /// 构造统计项。
-  const ProfileStatView({required this.value, required this.label});
-
-  /// 数值（如「128」/「64h」）。
-  final String value;
-
-  /// 说明。
-  final String label;
-}
 
 /// 设置行。
 class ProfileSettingView {
@@ -77,29 +64,17 @@ class ProfileSectionView {
   final List<ProfileSettingView> rows;
 }
 
-/// 我的页。
+/// 设置页（原「我的」屏 05：App 无登录，用户卡与统计卡已移除）。
 class ProfileScreen extends StatelessWidget {
-  /// 构造我的页。
+  /// 构造设置页。
   const ProfileScreen({
     super.key,
-    required this.userName,
-    required this.userSubtitle,
-    required this.stats,
     required this.sections,
     required this.versionText,
     required this.onSettings,
     required this.onTabTap,
     this.selectedTab = 2,
   });
-
-  /// 用户名。
-  final String userName;
-
-  /// 用户副标题（「专业版 · 云端转写」）。
-  final String userSubtitle;
-
-  /// 统计项（3 个）。
-  final List<ProfileStatView> stats;
 
   /// 设置分组。
   final List<ProfileSectionView> sections;
@@ -113,7 +88,7 @@ class ProfileScreen extends StatelessWidget {
   /// 底部 Tab 点击。
   final ValueChanged<int> onTabTap;
 
-  /// 选中 Tab（默认 2 = 我的）。
+  /// 选中 Tab（默认 2 = 设置）。
   final int selectedTab;
 
   @override
@@ -129,54 +104,13 @@ class ProfileScreen extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Text('我的', style: AppTextStyles.pageTitle),
+                Text('设置', style: AppTextStyles.pageTitle),
                 AppCircleButton(
-                  icon: Icons.settings_outlined,
+                  icon: Icons.info_outline_rounded,
                   onTap: onSettings,
-                  tooltip: '设置',
+                  tooltip: '关于',
                   iconSize: 19,
                 ),
-              ],
-            ),
-          ),
-          SurfaceCard(
-            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 20, AppSpacing.page, 0),
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: <Widget>[
-                AppAvatar(
-                  text: userName.isEmpty ? '苏' : userName.characters.first,
-                  size: 58,
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(userName, style: AppTextStyles.cardTitle.copyWith(fontSize: 20)),
-                      const SizedBox(height: 5),
-                      Text(userSubtitle, style: AppTextStyles.meta),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SurfaceCard(
-            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
-            child: Row(
-              children: <Widget>[
-                for (int i = 0; i < stats.length; i++)
-                  Expanded(
-                    child: Column(
-                      children: <Widget>[
-                        Text(stats[i].value, style: AppTextStyles.statValue),
-                        const SizedBox(height: 5),
-                        Text(stats[i].label, style: AppTextStyles.metaSmall),
-                      ],
-                    ),
-                  ),
               ],
             ),
           ),

@@ -375,13 +375,6 @@ class _GalleryScreenHostState extends ConsumerState<GalleryScreenHost> {
 
   ProfileScreen _buildS05() {
     return ProfileScreen(
-      userName: '苏木',
-      userSubtitle: '专业版 · 云端转写',
-      stats: const <ProfileStatView>[
-        ProfileStatView(value: '128', label: '场会议'),
-        ProfileStatView(value: '64h', label: '累计时长'),
-        ProfileStatView(value: '112', label: '场已总结'),
-      ],
       sections: <ProfileSectionView>[
         ProfileSectionView(
           title: '模型与转写',

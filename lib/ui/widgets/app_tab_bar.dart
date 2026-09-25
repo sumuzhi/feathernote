@@ -20,11 +20,11 @@ class AppTabSpec {
   final IconData icon;
 }
 
-/// 三个 Tab：录音 / 历史 / 我的（顺序与 HTML `TABS` 一致）。
+/// 三个 Tab：录音 / 历史 / 设置（App 无登录，原「我的」页改为设置页）。
 const List<AppTabSpec> kAppTabs = <AppTabSpec>[
   AppTabSpec(label: '录音', icon: Icons.mic_rounded),
   AppTabSpec(label: '历史', icon: Icons.history_toggle_off_rounded),
-  AppTabSpec(label: '我的', icon: Icons.person_outline_rounded),
+  AppTabSpec(label: '设置', icon: Icons.settings_outlined),
 ];
 
 /// 底部 TabBar。

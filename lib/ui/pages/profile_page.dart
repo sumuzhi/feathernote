@@ -1,10 +1,8 @@
-/// 我的（屏 05）：用户卡 + 统计卡 + 设置组 + 版本行。
+/// 设置页（原「我的」屏 05：App 无登录，用户卡与统计卡已移除）。
 ///
 /// 设置项展示**真实运行参数**（引擎、模型、采样率），不是写死的演示值；
-/// 开关为本地偏好（暂未落库）。
-///
-/// 注：「实时链路自检」「诊断」「屏幕目录」入口已按产品决定移除
-/// （2026-09-25），诊断导出逻辑随之删除。
+/// 开关为本地偏好（暂未落库）。导出位置持久化在应用文档目录（见
+/// `export_destination.dart`）。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,12 +13,13 @@ import '../../backend/backend_api.dart' show HealthStatus;
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/profile_screen.dart';
-import '../utils/placeholders.dart';
+import '../utils/export_destination.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/export_destination_sheet.dart';
 
-/// 我的页。
+/// 设置页。
 class ProfilePage extends ConsumerStatefulWidget {
-  /// 构造我的页。
+  /// 构造设置页。
   const ProfilePage({super.key});
 
   @override
@@ -30,6 +29,19 @@ class ProfilePage extends ConsumerStatefulWidget {
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _diarization = true;
   bool _keepAudio = false;
+  ExportDestination _destination = ExportDestination.appDownload;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDestination();
+  }
+
+  Future<void> _loadDestination() async {
+    final ExportDestination saved = await loadExportDestination();
+    if (!mounted) return;
+    setState(() => _destination = saved);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,23 +51,25 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final AsyncValue<HealthStatus> asyncHealth = ref.watch(healthProvider);
     final HealthStatus? health = asyncHealth.value;
     final AppConfigView config = _configView();
-
-    int totalMs = 0;
     int summarized = 0;
     for (final MeetingSummary item in meetings) {
-      totalMs += item.durationMs;
       if (item.hasMinutes) summarized++;
     }
 
     return ProfileScreen(
-      userName: kUserDisplayName,
-      userSubtitle: '专业版 · 云端转写',
-      stats: <ProfileStatView>[
-        ProfileStatView(value: '${meetings.length}', label: '场会议'),
-        ProfileStatView(value: '${totalMs ~/ 3600000}h', label: '累计时长'),
-        ProfileStatView(value: '$summarized', label: '场已总结'),
-      ],
       sections: <ProfileSectionView>[
+        ProfileSectionView(
+          title: '导出',
+          rows: <ProfileSettingView>[
+            ProfileSettingView(
+              icon: Icons.folder_open_rounded,
+              title: '导出位置',
+              subtitle: '纪要 / 转写导出文件的保存位置',
+              value: exportDestinationLabel(_destination),
+              onTap: _pickDestination,
+            ),
+          ],
+        ),
         ProfileSectionView(
           title: '模型与转写',
           rows: <ProfileSettingView>[
@@ -85,15 +99,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ],
         ),
         ProfileSectionView(
-          title: '数据与导出',
+          title: '数据与存储',
           rows: <ProfileSettingView>[
-            ProfileSettingView(
-              icon: Icons.description_outlined,
-              title: '导出格式',
-              subtitle: '导出纪要时可选',
-              value: 'MD / PDF / Word / TXT',
-              onTap: () => _toast('在纪要页点「导出纪要」时选择格式'),
-            ),
             ProfileSettingView(
               icon: Icons.wifi_off_rounded,
               title: '音频留存',
@@ -102,6 +109,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               toggleValue: _keepAudio,
               switchLabel: '音频留存',
               onToggle: (bool value) => setState(() => _keepAudio = value),
+            ),
+            ProfileSettingView(
+              icon: Icons.storage_rounded,
+              title: '数据库',
+              subtitle:
+                  'SQLite · schema ${health?.schemaVersion ?? '—'} · $summarized 场已总结',
+              value: '${meetings.length} 条',
+              onTap: () => _toast('已存 ${meetings.length} 条会议'),
             ),
           ],
         ),
@@ -116,18 +131,20 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               onTap: () => _toast('引擎：${health?.engineName ?? '—'}'),
             ),
             ProfileSettingView(
-              icon: Icons.storage_rounded,
-              title: '数据库',
-              subtitle: 'SQLite · schema ${health?.schemaVersion ?? '—'}',
-              value: '${meetings.length} 条',
-              onTap: () => _toast('已存 ${meetings.length} 条会议'),
+              icon: Icons.layers_rounded,
+              title: '版本',
+              subtitle: config.buildStamp.isEmpty
+                  ? '端化运行 · 本地进程内后端'
+                  : '端化运行 · ${config.buildStamp}',
+              value: config.version,
+              onTap: () => _toast('版本 ${config.version} · ${config.buildStamp}'),
             ),
           ],
         ),
       ],
       versionText: '版本 ${config.version} · 端化运行'
           '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}',
-      onSettings: () => _toast('设置'),
+      onSettings: () => _toast('智能会议纪要 · 端化运行'),
       onTabTap: (int index) {
         switch (index) {
           case 0:
@@ -140,6 +157,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       },
       selectedTab: 2,
     );
+  }
+
+  /// 弹出导出位置选择并持久化。
+  Future<void> _pickDestination() async {
+    final ExportDestination? picked = await showExportDestinationSheet(context);
+    if (picked == null || !mounted) return;
+    await saveExportDestination(picked);
+    if (!mounted) return;
+    setState(() => _destination = picked);
   }
 
   AppConfigView _configView() {
@@ -164,7 +190,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       ref.read(toastProvider.notifier).show(text, tone: ToastTone.info);
 }
 
-/// 「我的」页展示用的配置投影（避免直接依赖 `AppConfig` 的 40 个字段）。
+/// 「设置」页展示用的配置投影（避免直接依赖 `AppConfig` 的 40 个字段）。
 class AppConfigView {
   /// 构造投影。
   const AppConfigView({

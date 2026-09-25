@@ -438,8 +438,8 @@ void main() {
       );
       expect(find.text('录音'), findsOneWidget);
       expect(find.text('历史'), findsOneWidget);
-      expect(find.text('我的'), findsOneWidget);
-      await tester.tap(find.text('我的'));
+      expect(find.text('设置'), findsOneWidget);
+      await tester.tap(find.text('设置'));
       expect(tapped, 2);
     });
 

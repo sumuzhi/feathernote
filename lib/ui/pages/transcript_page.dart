@@ -18,6 +18,7 @@ import '../providers/app_providers.dart';
 import '../providers/audio_player_controller.dart';
 import '../screens/transcript_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/export_destination.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/speaker_view.dart';
@@ -303,6 +304,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
   Future<void> _exportMarkdown(Meeting? meeting) async {
     final ExportFormat? format = await showExportFormatSheet(context);
     if (format == null || !mounted) return;
+    final ExportDestination destination = await loadExportDestination();
     final String content = _segments
         .map((TranscriptSegment s) => '- **${formatClock(s.startTime)}** ${s.text}')
         .join('\n');
@@ -311,12 +313,16 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
         fileName: '${meeting?.title ?? 'transcript'}-转写',
         markdown: content,
         format: format,
+        destination: destination,
       );
       if (!mounted) return;
       ref.read(toastProvider.notifier).show(
             '已导出：$path',
             tone: ToastTone.success,
           );
+    } on ExportCancelledException {
+      // 用户在系统「另存为」取消，不打扰。
+      return;
     } catch (error) {
       if (!mounted) return;
       ref.read(toastProvider.notifier).show('导出失败：$error', tone: ToastTone.warning);
