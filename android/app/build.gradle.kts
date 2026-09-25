@@ -6,16 +6,9 @@ plugins {
 
 android {
     namespace = "com.smartminutes.smart_minutes_flutter"
-    // 品牌更名「声羽 FeatherNote」：applicationId 换为新包名
-    // （⚠️ 与旧包 com.smartminutes.* 不互通——需重新安装，旧 App 需手动卸载）。
-    applicationId = "com.feathernote.app"
     // 部分插件（前台服务 / 音频）要求 compileSdk ≥ 37，故固定为 37
     // （flutter.compileSdkVersion 默认低于此值会导致构建失败）。
     compileSdk = 37
-    // 固定使用本机已完整落位的 NDK 29（flutter.ndkVersion 默认指向 28.2，
-    // 而本机 28.2 目录残缺——缺 source.properties 与 toolchains，会触发 sdkmanager
-    // 重装并因沙箱权限失败导致构建中断）。
-    ndkVersion = "29.0.14206865"
     // 固定使用本机已完整落位的 NDK 29（flutter.ndkVersion 默认指向 28.2，
     // 而本机 28.2 目录残缺——缺 source.properties 与 toolchains，会触发 sdkmanager
     // 重装并因沙箱权限失败导致构建中断）。
@@ -27,10 +20,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.smartminutes.smart_minutes_flutter"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // 品牌更名「声羽 FeatherNote」：applicationId 换为新包名
+        // （⚠️ 与旧包 com.smartminutes.* 不互通——需重新安装，旧 App 需手动卸载）。
+        applicationId = "com.feathernote.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
