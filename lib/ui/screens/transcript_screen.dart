@@ -151,6 +151,12 @@ class TranscriptScreen extends StatelessWidget {
                 else
                   for (int i = 0; i < visible.length; i++)
                     TranscriptTile(
+                      // 稳定 key：段由「segmentId + 起点」唯一定位。
+                      // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
+                      // 错误复用元素，进度组件就可能渲染到别的条目上。
+                      key: ValueKey<String>(
+                        '${visible[i].segmentId}@${visible[i].startTimeMs}',
+                      ),
                       item: visible[i],
                       onExpand: onExpandSegment == null ? null : () => onExpandSegment!(i),
                       onPlay: onPlaySegment == null ? null : () => onPlaySegment!(visible[i]),

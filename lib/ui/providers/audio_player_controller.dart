@@ -80,6 +80,7 @@ class AudioPlayerState {
   /// 构造状态。
   const AudioPlayerState({
     this.playingSegmentId,
+    this.playingStartMs = -1,
     this.isPlaying = false,
     this.currentPositionMs = 0,
     this.durationMs = 0,
@@ -89,6 +90,20 @@ class AudioPlayerState {
 
   /// 当前正在播放（或最后播放）的 segmentId。
   final String? playingSegmentId;
+
+  /// 当前段的起始毫秒（与 [playingSegmentId] 组成复合定位键）。
+  ///
+  /// 为什么要带上起点：实时 ASR 的 `segmentId` 是 `seg_$sentenceId`，而**任务重启后
+  /// sentence 编号会从 1 重新开始**，与旧的 `seg_1` 撞车（`SessionStore` 与数据库都
+  /// 以 segmentId 为键）。只按 segmentId 定位"当前段"会命中错误的条目。
+  final int playingStartMs;
+
+  /// 段的复合定位键（日志 / 测试用）。
+  static String keyOf(String segmentId, int startMs) => '$segmentId@$startMs';
+
+  /// 当前段的复合定位键（无当前段时为 null）。
+  String? get playingSegmentKey =>
+      playingSegmentId == null ? null : keyOf(playingSegmentId!, playingStartMs);
 
   /// 是否正在播放。
   final bool isPlaying;
@@ -106,14 +121,17 @@ class AudioPlayerState {
   final String? error;
 
   /// 是否当前 segment 正在播放。
-  bool isSegmentPlaying(String segmentId) =>
-      playingSegmentId == segmentId && isPlaying;
+  ///
+  /// [startMs] 必须一并比对（见 [playingStartMs] 关于 segmentId 撞车的说明）。
+  bool isSegmentPlaying(String segmentId, int startMs) =>
+      playingSegmentId == segmentId && playingStartMs == startMs && isPlaying;
 
   /// 该 segment 是否为「当前段」（正在播放**或已暂停停在该段**）。
   ///
   /// 只有当前段才展示进度条与「已播 / 段长」；播完/切走后自动清除，避免出现
   /// 「上一个段的进度组件残留、点其它按钮时位置错位」。
-  bool isSegmentActive(String segmentId) => playingSegmentId == segmentId;
+  bool isSegmentActive(String segmentId, int startMs) =>
+      playingSegmentId == segmentId && playingStartMs == startMs;
 
   /// 复制并替换部分字段。
   AudioPlayerState copyWith({
@@ -124,6 +142,7 @@ class AudioPlayerState {
     String? currentMeetingId,
     String? error,
     bool clearError = false,
+    int? playingStartMs,
 
     /// 清除「当前段」标记（播完 / 切走时用：`??` 无法把字段置回 null）。
     bool clearActive = false,
@@ -132,6 +151,7 @@ class AudioPlayerState {
         playingSegmentId: clearActive
             ? null
             : (playingSegmentId ?? this.playingSegmentId),
+        playingStartMs: clearActive ? -1 : (playingStartMs ?? this.playingStartMs),
         isPlaying: isPlaying ?? this.isPlaying,
         currentPositionMs: currentPositionMs ?? this.currentPositionMs,
         durationMs: durationMs ?? this.durationMs,
@@ -198,7 +218,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       _endMs = endMs;
 
       // 正在播当前段 → 暂停，保留断点。
-      if (state.isSegmentPlaying(segmentId)) {
+      if (state.isSegmentPlaying(segmentId, startMs)) {
         await pause();
         return;
       }
@@ -223,7 +243,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       }
 
       // 续播：停在本段中间 → 从断点继续；已播到段尾 → 从头开始。
-      final int resumedMs = state.isSegmentActive(segmentId)
+      final int resumedMs = state.isSegmentActive(segmentId, startMs)
           ? _resumePositionMs(startMs: startMs, endMs: endMs)
           : startMs;
       final int targetMs = clampSeekMs(resumedMs, state.durationMs);
@@ -232,6 +252,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
       state = state.copyWith(
         playingSegmentId: segmentId,
+        playingStartMs: startMs,
         isPlaying: true,
         currentPositionMs: targetMs,
         clearError: true,

@@ -151,8 +151,8 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       speakers: _speakers,
     );
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
-    final bool active = audioState.isSegmentActive(segment.segmentId);
-    final bool playing = audioState.isSegmentPlaying(segment.segmentId);
+    final bool active = audioState.isSegmentActive(segment.segmentId, segment.startTime);
+    final bool playing = audioState.isSegmentPlaying(segment.segmentId, segment.startTime);
     // 段内进度与已播时长：当前段才计算，其余场景恒为默认值。
     final int segDuration = segment.endTime - segment.startTime;
     final int played =

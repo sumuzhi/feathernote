@@ -140,7 +140,7 @@ void main() {
       expect(engine.lastSeekMs, 1000);
       expect(engine.playCalls, 1);
       expect(ctrl.endMsForTest, 5000);
-      expect(container.read(audioPlayerControllerProvider).isSegmentPlaying('s1'), isTrue);
+      expect(container.read(audioPlayerControllerProvider).isSegmentPlaying('s1', 1000), isTrue);
     });
 
     test('同一会议切换 segment 不再重新 setFilePath', () async {
@@ -190,7 +190,7 @@ void main() {
 
       final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
       await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
-      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1'), isTrue);
+      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000), isTrue);
 
       engine.tickTo(5100);
       await Future<void>.delayed(Duration.zero);
@@ -202,7 +202,7 @@ void main() {
         isNull,
         reason: '播完必须清除当前段，否则下一段点播时上一段的进度组件残留、布局错位',
       );
-      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1'), isFalse);
+      expect(container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000), isFalse);
     });
 
     test('再次点击当前段 = 暂停（停在当前位置，不回到开头）', () async {
@@ -220,7 +220,7 @@ void main() {
       expect(engine.pauseCalls, greaterThanOrEqualTo(1));
       expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
       expect(
-        container.read(audioPlayerControllerProvider).isSegmentActive('s1'),
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
         isTrue,
         reason: '暂停后仍是当前段（进度条保留）',
       );
@@ -260,6 +260,25 @@ void main() {
 
       expect(engine.lastSeekMs, 1000, reason: '播完后再点应从头开始');
     });
+    test('segmentId 撞车（ASR 重启后编号归零）时仍能定位到正确的一段', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      // 前一段：seg_1 @ 1000
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 'seg_1', startMs: 1000, endMs: 2000);
+      expect(container.read(audioPlayerControllerProvider).isSegmentActive('seg_1', 1000), isTrue);
+
+      // 重启后服务端又把编号从 1 开始 → 又一个 seg_1，但起点 7000。
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 'seg_1', startMs: 7000, endMs: 9000);
+
+      final AudioPlayerState state = container.read(audioPlayerControllerProvider);
+      expect(state.isSegmentActive('seg_1', 7000), isTrue, reason: '当前段应是后一段');
+      expect(state.isSegmentActive('seg_1', 1000), isFalse, reason: '旧的同 id 段不得再被认作当前段');
+      expect(engine.lastSeekMs, 7000, reason: '必须 seek 到新段起点');
+    });
+
     test('首次播放：播放器回放的迟到 playing=false 事件不得把组件打没', () async {
       final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
       final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
@@ -268,7 +287,7 @@ void main() {
       final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
       await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
       expect(
-        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1'),
+        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1', 1000),
         isTrue,
         reason: '首次播放后播放组件必须出现（历史 bug：只在第一次不显示）',
       );
@@ -278,7 +297,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(
-        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1'),
+        container.read(audioPlayerControllerProvider).isSegmentPlaying('s1', 1000),
         isTrue,
         reason: '我们仍在播，迟到的 playing=false 必须被忽略',
       );
