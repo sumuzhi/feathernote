@@ -44,11 +44,12 @@ dev_dependencies:
 
 # App 图标：brand-assets 渲染产物（icon-1024 主图 / icon-fg 前景层）。
 # 运行 `dart run flutter_launcher_icons` 重新生成 android res。
+# ⚠️ 自适应背景用品牌深棕（icon 本体为透明底 + 橙色图形，浅色底会发灰）。
 flutter_launcher_icons:
   image_path: "assets/brand/icon-1024.png"
   android: true
   ios: false
-  adaptive_icon_background: "#FAF3EC"
+  adaptive_icon_background: "#221A14"
   adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"
 
 flutter:

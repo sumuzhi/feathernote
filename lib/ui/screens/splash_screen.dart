@@ -5,7 +5,13 @@
 /// 2. 四圈录音波纹（呼应产品核心动作）：1.5s 内由内向外扩散淡出，逐圈延迟 .22s；
 /// 3. 「声记」（字距 10）→ "SONICMEMO"（字距 5）→ slogan「听见每一场会议的重点」。
 ///
+/// 性能要点：
+/// - AnimatedBuilder **只包波纹 + 图标**，文案区静态不随动画逐帧重建；
+/// - `didChangeDependencies` 里 precacheImage 预热图标解码，避免首帧掉帧；
+/// - debug 构建（JIT + 无 shader 缓存）动画天然比 release 卡，真机以 release 验收。
+///
 /// 路由：`/splash` 为 initialLocation，动画结束后 `go('/')`（不留返回栈）。
+/// **时长控制**：[kSplashDuration]（本文件顶部常量），改一处即调总时长。
 library;
 
 import 'dart:async';
@@ -54,6 +60,13 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 提前解码启动图标：避免首帧绘制时同步触发 460KB PNG 解码造成掉帧。
+    precacheImage(const AssetImage('assets/brand/icon-1024.png'), context);
+  }
+
+  @override
   void dispose() {
     _timer?.cancel();
     _controller.dispose();
@@ -65,86 +78,92 @@ class _SplashScreenState extends State<SplashScreen>
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Center(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (BuildContext context, Widget? _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              SizedBox(
-                width: 190,
-                height: 190,
-                child: Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none, // 波纹可溢出光晕区（对齐 HTML 动效）
-                  children: <Widget>[
-                    // 四圈录音波纹：逐圈延迟 .22s 扩散淡出。
-                    for (int i = 0; i < 4; i++)
-                      _RippleRing(
-                        progress: _rippleProgress(_controller.value, i * 0.22),
-                      ),
-                    // 图标：100×100 圆角 24，缩放入场 + 阴影。
-                    Transform.scale(
-                      scale: 0.82 + 0.18 * _iconIn.value,
-                      child: Opacity(
-                        opacity: _iconIn.value,
-                        child: Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: const <BoxShadow>[
-                              BoxShadow(
-                                color: Color(0x52F0783C), // rgba(240,120,60,.32)
-                                offset: Offset(0, 14),
-                                blurRadius: 34,
+        // ⚠️ AnimatedBuilder 只包「动的东西」（波纹 + 图标）；
+        // 文案区保持静态，不随动画每帧重建（修复启动页卡顿）。
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SizedBox(
+              width: 190,
+              height: 190,
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (BuildContext context, Widget? _) => SizedBox(
+                  width: 190,
+                  height: 190,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none, // 波纹可溢出光晕区（对齐 HTML 动效）
+                    children: <Widget>[
+                      // 四圈录音波纹：逐圈延迟 .22s 扩散淡出。
+                      for (int i = 0; i < 4; i++)
+                        _RippleRing(
+                          progress: _rippleProgress(_controller.value, i * 0.22),
+                        ),
+                      // 图标：100×100 圆角 24，缩放入场 + 阴影。
+                      Transform.scale(
+                        scale: 0.82 + 0.18 * _iconIn.value,
+                        child: Opacity(
+                          opacity: _iconIn.value,
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: const <BoxShadow>[
+                                BoxShadow(
+                                  color: Color(0x52F0783C), // rgba(240,120,60,.32)
+                                  offset: Offset(0, 14),
+                                  blurRadius: 34,
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(24),
+                              child: Image.asset(
+                                'assets/brand/icon-1024.png',
+                                fit: BoxFit.cover,
                               ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(24),
-                            child: Image.asset(
-                              'assets/brand/icon-1024.png',
-                              fit: BoxFit.cover,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 34),
-              // 「声记」：42px / w600 / 字距 10。
-              Text(
-                '声 记',
-                style: AppTextStyles.pageTitle.copyWith(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 10,
-                  color: AppColors.ink,
-                ),
+            ),
+            const SizedBox(height: 34),
+            // 「声记」：42px / w600 / 字距 10。
+            Text(
+              '声 记',
+              style: AppTextStyles.pageTitle.copyWith(
+                fontSize: 42,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 10,
+                color: AppColors.ink,
               ),
-              const SizedBox(height: 10),
-              Text(
-                'SONICMEMO',
-                style: AppTextStyles.meta.copyWith(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 5,
-                  color: AppColors.muted,
-                ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'SONICMEMO',
+              style: AppTextStyles.meta.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 5,
+                color: AppColors.muted,
               ),
-              const SizedBox(height: 26),
-              Text(
-                '听见每一场会议的重点',
-                style: AppTextStyles.metaSmall.copyWith(
-                  fontSize: 13.5,
-                  letterSpacing: 2,
-                  color: AppColors.muted,
-                ),
+            ),
+            const SizedBox(height: 26),
+            Text(
+              '听见每一场会议的重点',
+              style: AppTextStyles.metaSmall.copyWith(
+                fontSize: 13.5,
+                letterSpacing: 2,
+                color: AppColors.muted,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -152,14 +171,13 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// 第 [ring] 圈在控制器进度 [t]（0–1）下的波纹进度；未开始返回 0。
   ///
-  /// 每圈占 1 个完整周期（1.0），延迟 ring×0.22 —— 第 4 圈需要在周期内自然
-  /// 收尾，故用「进度偏移」而不是 1+off：t - off，<0 视为未开始。
+  /// 每圈延迟 ring×0.22s（折算到 0–1 进度即 start），local <0 视为未开始。
   static double _rippleProgress(double t, double offsetSeconds) {
     const double period = 1.0; // 控制器 1.5s = 1 圈波纹周期
     final double start = offsetSeconds / 1.5; // .22s 延迟折算到 0–1 进度
     final double local = t - start;
     if (local <= 0) return 0;
-    return (local % period == 0) ? period : local;
+    return local % period == 0 ? period : local;
   }
 }
 
@@ -175,17 +193,20 @@ class _RippleRing extends StatelessWidget {
     if (clamped <= 0 || clamped >= 1) return const SizedBox.shrink();
     final double alpha = 0.42 * (1 - clamped);
     final double scale = 0.55 + 1.8 * clamped;
-    return IgnorePointer(
-      child: Transform.scale(
-        scale: scale,
-        child: Container(
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: AppColors.orange.withValues(alpha: alpha),
-              width: 2,
+    // RepaintBoundary 隔离每圈重绘，波纹推进不拖累整页。
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: Transform.scale(
+          scale: scale,
+          child: Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: AppColors.orange.withValues(alpha: alpha),
+                width: 2,
+              ),
             ),
           ),
         ),
