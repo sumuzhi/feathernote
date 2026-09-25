@@ -1,0 +1,8 @@
+# Debug 图标：品牌深棕底 + 白色前景图形（与 Release 橙底一眼区分）。
+# 用法：dart run flutter_launcher_icons -f flutter_launcher_icons-debug.yaml
+flutter_launcher_icons:
+  image_path: "assets/brand/icon-combined-1024.png"
+  android: true
+  ios: false
+  adaptive_icon_background: "#221A14"
+  adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"

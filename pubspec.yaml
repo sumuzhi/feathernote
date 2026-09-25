@@ -42,14 +42,11 @@ dev_dependencies:
     sdk: flutter
   mocktail: ^1.0.5
 
-# App 图标：brand-assets 渲染产物。主题色方案：橙底（#F0783C）+ 白色前景图形。
-# 运行 `dart run flutter_launcher_icons` 重新生成 android res。
-flutter_launcher_icons:
-  image_path: "assets/brand/icon-combined-1024.png"
-  android: true
-  ios: false
-  adaptive_icon_background: "#F0783C"
-  adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"
+# App 图标按构建类型区分（Release 橙底 / Debug 深棕底）：
+# 配置见 flutter_launcher_icons-release.yaml / flutter_launcher_icons-debug.yaml，
+# 生成产物分别落 android/app/src/release/res 与 android/app/src/debug/res
+# （app/build.gradle.kts 的 sourceSets 按 buildType 选择）。
+# 重新生成：先 -f debug 后 -f release（后者回填 main 默认资源）。
 
 flutter:
   uses-material-design: true

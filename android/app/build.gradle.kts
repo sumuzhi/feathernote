@@ -33,12 +33,21 @@ android {
         versionName = flutter.versionName
     }
 
+    buildFeatures {
+        // 允许 buildType 级 resValue（Debug/Release 的图标背景色区分）。
+        resValues = true
+    }
+
     buildTypes {
         debug {
             // Debug 包名加 .debug 后缀：与 Release 版可并存安装、互不覆盖。
             applicationIdSuffix = ".debug"
+            // Debug 图标背景：品牌深棕（与 Release 橙底一眼区分）。
+            resValue("color", "ic_launcher_background", "#221A14")
         }
         release {
+            // Release 图标背景：主题橙。
+            resValue("color", "ic_launcher_background", "#F0783C")
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")

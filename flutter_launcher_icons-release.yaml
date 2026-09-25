@@ -1,0 +1,8 @@
+# Release 图标：主题橙底 + 白色前景图形（正式观感）。
+# 用法：dart run flutter_launcher_icons -f flutter_launcher_icons-release.yaml
+flutter_launcher_icons:
+  image_path: "assets/brand/icon-combined-1024.png"
+  android: true
+  ios: false
+  adaptive_icon_background: "#F0783C"
+  adaptive_icon_foreground: "assets/brand/icon-fg-1024.png"
