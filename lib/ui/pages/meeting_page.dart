@@ -1,8 +1,10 @@
 /// 纪要页（屏 03 常规 / 屏 11 超长）。
 ///
 /// 长纪要的阅读体验完全落在 [MinutesScreen]/[MinutesCard]：
-/// 摘要默认展示、超长时给出「展开全文 · 摘要约 N 字」、分节带「共 N 条」与
-/// 「查看全部 N 条」、底部「查看完整转写」是独立入口行。
+/// 摘要默认展示、超长时给出「展开全文 · 摘要约 N 字」、底部「查看完整转写」
+/// 是独立入口行。分节标题与「查看全部 N 条」等文案**不再由本页手动拼接注入**——
+/// 这些属于 LLM 输出之外的占位展示，原始模型并不产出此类数据，故仅由
+/// 设计预览（gallery/home_idle）的静态数据承载，真实纪要一律如实呈现分节内容。
 library;
 
 import 'dart:async';
@@ -345,14 +347,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     final List<MinutesSectionView> sections = <MinutesSectionView>[
       for (int i = 0; i < outline.sections.length; i++)
         MinutesSectionView(
-          title: outline.sections[i].total > 0
-              ? '${outline.sections[i].title} · 共 ${outline.sections[i].total} 条'
-              : outline.sections[i].title,
+          title: outline.sections[i].title,
           items: _visibleItems(outline.sections[i].items),
           orangeDots: i == 0,
-          moreLabel: outline.sections[i].items.length > _maxItemsPerSection
-              ? '查看全部 ${outline.sections[i].total} 条${outline.sections[i].noun}'
-              : null,
         ),
     ];
 
