@@ -541,7 +541,7 @@ class BailianRealtimeSession {
   final List<int> _pending = <int>[];
   final List<Uint8List> _ring = <Uint8List>[];
   int _ringBytesTotal = 0;
-  final Map<int, int> _revById = <int, int>{};
+  final Map<String, int> _revById = <String, int>{};
 
   RealtimeTask? _task;
   Timer? _startTimer;
@@ -551,6 +551,10 @@ class BailianRealtimeSession {
   bool _suspended = false;
   bool _restarted = false;
   int _restartCount = 0;
+
+  /// 任务序号（每次 [open] 递增）：segmentId 带上它做命名空间隔离——
+  /// 服务端 sentence_id 每个任务都从 1 重新编号，不隔离会撞车覆盖旧句子。
+  int _taskSeq = 0;
 
   /// 是否处于挂起态（暂停：任务已结束、连接已断，等待恢复重开）。
   bool get isSuspended => _suspended;
@@ -600,7 +604,10 @@ class BailianRealtimeSession {
   /// 建立（或重建）百炼任务。
   Future<void> open() async {
     if (_closed || _task != null) return;
-    // 新任务上下文：空句读数必须归零，否则重启后计数会跨任务累计而失真。
+    // 新任务上下文：任务序号递增（segmentId 命名空间隔离，防跨任务覆盖），
+    // 修订表与空句读数归零（避免跨任务累计失真）。
+    _taskSeq += 1;
+    _revById.clear();
     _resetEmptySentenceStats();
     final RealtimeTask task = RealtimeTask(
       cfg,
@@ -840,8 +847,8 @@ class BailianRealtimeSession {
       }
     }
 
-    final int revision = (_revById[sentenceId] ?? 0) + 1;
-    _revById[sentenceId] = revision;
+    final int revision = (_revById['${_taskSeq}_$sentenceId'] ?? 0) + 1;
+    _revById['${_taskSeq}_$sentenceId'] = revision;
 
     logInfo(
       'asr',
@@ -852,7 +859,7 @@ class BailianRealtimeSession {
 
     onEvent(
       StreamEvent(
-        segmentId: 'seg_$sentenceId',
+        segmentId: 'seg_${_taskSeq}_$sentenceId',
         speakerId: kPendingSpeakerId,
         text: text,
         startTime: taskBaseMs + begin,
@@ -977,7 +984,10 @@ class BailianRealtimeSession {
     _startTimer = null;
     _statsTimer?.cancel();
     _statsTimer = null;
+    // 立即脱管任务：恢复路径的 open() 依赖 _task == null 才能重开
+    //（消除 suspend/resume 竞态：恢复先到时 open 不会被 return 掉）。
     final RealtimeTask? task = _task;
+    _task = null;
     if (task != null) {
       _drain();
       if (_pending.isNotEmpty && task.state == RealtimeState.running) {
@@ -1004,12 +1014,20 @@ class BailianRealtimeSession {
   }
 
   /// 从挂起恢复：重开新任务继续转写（事件仍走原事件流，订阅不变）。
+  ///
+  /// **时间基准补偿**：新任务的内部时间 0 对应「暂停点」，故
+  /// taskBaseMs = meetingClockMs（暂停前已推送的音频毫秒）——
+  /// 恢复后的句子时间戳接续在暂停点之后，不会回跳覆盖旧句子。
   Future<void> resume() async {
     if (!_suspended || _closed) return;
     _suspended = false;
+    taskBaseMs = meetingClockMs;
     _lastSilencePendingBytes = -1;
     _lastSilenceWarnAtMs = 0;
-    logInfo('asr', '从挂起恢复：重开实时任务 session=$sessionId');
+    logInfo(
+      'asr',
+      '从挂起恢复：重开实时任务 session=$sessionId 时间基准=${taskBaseMs}ms',
+    );
     await open();
   }
 

@@ -210,6 +210,11 @@ class RecorderController extends Notifier<RecorderUiState> {
   Timer? _ticker;
   Timer? _watchdog;
   Timer? _diagTimer;
+
+  /// 暂停→挂起实时会话的延迟（15s < 服务端 23s 超时阈值）：
+  /// 短暂停不挂起（任务保活无缝接续），长暂停到点挂起断开防超时判死。
+  static const Duration kRealtimeSuspendDelay = Duration(seconds: 15);
+  Timer? _suspendTimer;
   Stopwatch? _startWatch;
   int _resumedAtMs = 0;
   int _elapsedBaseMs = 0;
@@ -487,17 +492,14 @@ class RecorderController extends Notifier<RecorderUiState> {
         logWarn('recorder', '暂停失败：$error');
         _failWith('暂停失败：$error');
       }
-      // 挂起实时会话：暂停期间无数据上传，百炼 23 秒收不到数据即判死任务
-      // （request timeout after 23 seconds）——必须主动 finish-task 并断开。
-      try {
-        final String? sessionId = state.sessionId;
-        final BackendApi? api = _api;
-        if (sessionId != null && api != null) {
-          await api.pauseRealtimeSession(sessionId);
-        }
-      } catch (error) {
-        logWarn('recorder', '挂起实时会话失败（不影响已录数据）：$error');
-      }
+      // 延迟挂起实时会话：**15 秒内恢复则任务保活、无缝接续**（不重连、
+      // 无覆盖）；超过 15 秒（仍小于服务端 23s 阈值）才挂起断开，避免
+      // 暂停期间被服务端 23s 超时判死。
+      _suspendTimer?.cancel();
+      _suspendTimer = Timer(kRealtimeSuspendDelay, () {
+        if (state.phase != RecorderPhase.paused) return;
+        unawaited(_suspendRealtime());
+      });
       return;
     }
     if (state.phase == RecorderPhase.paused) {
@@ -509,7 +511,9 @@ class RecorderController extends Notifier<RecorderUiState> {
       _lastWatchdogChunkCount = _chunkCount;
       _stallTicks = 0;
       _droppedWhilePaused = 0;
-      // 先重开实时任务（新 task），再恢复采集——避免恢复初期的帧被丢弃。
+      // 取消延迟挂起（短暂停：任务一直活着，无缝接续）；若已挂起则重开任务。
+      _suspendTimer?.cancel();
+      _suspendTimer = null;
       try {
         final String? sessionId = state.sessionId;
         final BackendApi? api = _api;
@@ -547,7 +551,21 @@ class RecorderController extends Notifier<RecorderUiState> {
   /// 后台触发终稿」；正常情况下毫秒级返回。若因 IO / 网络异常卡住，
   /// 这里最多等 [kStopTimeout]，超时不再卡在 `stopping`，而是回到待机并提示
   /// 「已在后台继续处理」，用户可在历史页查看终稿状态。
+  /// 挂起实时会话（延迟挂起定时器到点；会话已关闭/不存在时 no-op）。
+  Future<void> _suspendRealtime() async {
+    final String? sessionId = _api == null ? null : state.sessionId;
+    final BackendApi? api = _api;
+    if (sessionId == null || api == null) return;
+    try {
+      await api.pauseRealtimeSession(sessionId);
+    } catch (error) {
+      logWarn('recorder', '挂起实时会话失败（不影响已录数据）：$error');
+    }
+  }
+
   Future<String?> stopAndGenerate() async {
+    _suspendTimer?.cancel();
+    _suspendTimer = null;
     final String? meetingId = state.meetingId;
     if (meetingId == null) return null;
     _elapsedBaseMs = elapsedMs;
@@ -613,6 +631,8 @@ class RecorderController extends Notifier<RecorderUiState> {
 
   /// 放弃本次录音（✕）。
   Future<void> discard() async {
+    _suspendTimer?.cancel();
+    _suspendTimer = null;
     final String? meetingId = state.meetingId;
     _stopTicker();
     _stopWatchdog();
