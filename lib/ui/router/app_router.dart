@@ -39,19 +39,19 @@ final GoRouter appRouter = GoRouter(
       path: '/',
       name: 'record',
       pageBuilder: (BuildContext context, GoRouterState state) =>
-          _transitionPage(state, const HomePage()),
+          _tabPage(state, const HomePage()),
     ),
     GoRoute(
       path: '/history',
       name: 'history',
       pageBuilder: (BuildContext context, GoRouterState state) =>
-          _transitionPage(state, const HistoryPage()),
+          _tabPage(state, const HistoryPage()),
     ),
     GoRoute(
       path: '/profile',
       name: 'profile',
       pageBuilder: (BuildContext context, GoRouterState state) =>
-          _transitionPage(state, const ProfilePage()),
+          _tabPage(state, const ProfilePage()),
     ),
     GoRoute(
       path: '/meeting/:id',
@@ -103,11 +103,38 @@ final GoRouter appRouter = GoRouter(
 /// 页面过渡时长（全站统一）。
 const Duration kPageTransitionDuration = Duration(milliseconds: 220);
 
-/// 统一的淡入 + 轻微上移过渡页（告别硬切导致的闪屏）。
+/// Tab 根页过渡：**纯淡入**。
 ///
-/// 所有页面都包一层 [AppBackHandler]：系统返回键由它统一接管
-/// （详情页退回上一步 → 首页双击返回才退出）。
-CustomTransitionPage<void> _transitionPage(GoRouterState state, Widget child) =>
+/// Tab 之间是平级关系，没有方向性，「淡入 + 上滑」会显得内容凭空挪动；
+/// 平级切换只做透明度过渡（220ms）。
+CustomTransitionPage<void> _tabPage(GoRouterState state, Widget child) =>
+    CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: AppBackHandler(child: child),
+      transitionDuration: kPageTransitionDuration,
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      transitionsBuilder:
+          (
+            BuildContext context,
+            Animation<double> animation,
+            Animation<double> secondaryAnimation,
+            Widget child,
+          ) {
+            final CurvedAnimation curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOut,
+              reverseCurve: Curves.easeIn,
+            );
+            return FadeTransition(opacity: curved, child: child);
+          },
+    );
+
+/// 压栈页过渡：**右滑入 + 淡入**（iOS 导航直觉），带次级视差。
+///
+/// - 进入：新页从右侧 8% 处滑入并淡入（easeOutCubic）；
+/// - 次级（被覆盖页）：向左轻移 3% 形成视差层次；
+/// - 返回：全部反向播放（easeInCubic，180ms）。
+CustomTransitionPage<void> _pushPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
       child: AppBackHandler(child: child),
@@ -125,18 +152,33 @@ CustomTransitionPage<void> _transitionPage(GoRouterState state, Widget child) =>
               curve: Curves.easeOutCubic,
               reverseCurve: Curves.easeInCubic,
             );
+            final CurvedAnimation secondary = CurvedAnimation(
+              parent: secondaryAnimation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
             return FadeTransition(
               opacity: curved,
               child: SlideTransition(
                 position: Tween<Offset>(
-                  begin: const Offset(0, 0.02),
+                  begin: const Offset(0.08, 0),
                   end: Offset.zero,
                 ).animate(curved),
-                child: child,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(-0.03, 0),
+                    end: Offset.zero,
+                  ).animate(secondary),
+                  child: child,
+                ),
               ),
             );
           },
     );
+
+/// 兼容旧调用名（转写 / 纪要等压栈页统一走 [_pushPage]）。
+CustomTransitionPage<void> _transitionPage(GoRouterState state, Widget child) =>
+    _pushPage(state, child);
 
 /// 系统返回键统一接管。
 ///

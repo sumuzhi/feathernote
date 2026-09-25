@@ -26,6 +26,7 @@ import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/minutes_outline.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/export_format_sheet.dart';
 import '../widgets/minutes_card.dart';
 
 /// 纪要页。
@@ -292,10 +293,13 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   Future<void> _export() async {
     final Meeting? meeting = _meeting;
     if (meeting == null) return;
+    final ExportFormat? format = await showExportFormatSheet(context);
+    if (format == null || !mounted) return;
     try {
-      final String path = await exportTextFile(
+      final String path = await exportMeeting(
         fileName: meeting.title,
-        content: meeting.minutesMd ?? '',
+        markdown: meeting.minutesMd ?? '',
+        format: format,
       );
       if (!mounted) return;
       ref.read(toastProvider.notifier).show(

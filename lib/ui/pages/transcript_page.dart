@@ -22,6 +22,7 @@ import '../utils/exporter.dart';
 import '../utils/formatters.dart';
 import '../utils/speaker_view.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/export_format_sheet.dart';
 import '../widgets/filter_chips.dart';
 import '../widgets/speaker_chips.dart';
 import '../widgets/transcript_tile.dart';
@@ -300,14 +301,16 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
   }
 
   Future<void> _exportMarkdown(Meeting? meeting) async {
+    final ExportFormat? format = await showExportFormatSheet(context);
+    if (format == null || !mounted) return;
     final String content = _segments
         .map((TranscriptSegment s) => '- **${formatClock(s.startTime)}** ${s.text}')
         .join('\n');
     try {
-      final String path = await exportTextFile(
+      final String path = await exportMeeting(
         fileName: '${meeting?.title ?? 'transcript'}-转写',
-        content: content,
-        extension: '.md',
+        markdown: content,
+        format: format,
       );
       if (!mounted) return;
       ref.read(toastProvider.notifier).show(

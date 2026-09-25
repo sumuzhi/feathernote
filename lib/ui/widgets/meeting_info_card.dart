@@ -77,7 +77,11 @@ class MeetingInfoCard extends StatelessWidget {
   }
 }
 
-/// 「查看完整转写」入口行（浅橙圆角行 + 文档图标 + 字数 ›）。
+/// 「查看完整转写」入口行。
+///
+/// 视觉规格（对齐设计稿 CSS）：
+/// `height: 41px; padding: 11px 14px; display: flex;
+///  justify-content: space-between; align-items: center;`
 class _TranscriptEntry extends StatelessWidget {
   const _TranscriptEntry({required this.chars, required this.onTap});
 
@@ -90,29 +94,27 @@ class _TranscriptEntry extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        height: 41,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: AppColors.orangeSoft,
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: <Widget>[
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.orangeWash,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.description_rounded,
-                size: 18,
-                color: AppColors.orange,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.description_rounded,
+                  size: 18,
+                  color: AppColors.orange,
+                ),
+                const SizedBox(width: 8),
+                Text('查看完整转写', style: AppTextStyles.settingTitle),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(child: Text('查看完整转写', style: AppTextStyles.subHead)),
             Text(
               chars,
               style: AppTextStyles.meta.copyWith(color: AppColors.muted),

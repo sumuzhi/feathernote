@@ -116,11 +116,25 @@ class HistoryCard extends StatelessWidget {
                       height: 28,
                       child: Align(
                         alignment: Alignment.centerRight,
-                        child: Text(
-                          '···',
-                          style: AppTextStyles.itemTitle.copyWith(
-                            color: AppColors.faint,
-                            letterSpacing: 1,
+                        // 操作 icon：More.svg 三点（#C4B3A4，18×18，点径 2.4）。
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              for (int i = 0; i < 3; i++) ...<Widget>[
+                                if (i > 0) const SizedBox(width: 2.5),
+                                Container(
+                                  width: 2.4,
+                                  height: 2.4,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFC4B3A4),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),

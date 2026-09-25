@@ -10,6 +10,7 @@ environment:
 
 # 依赖按字母序排列（`sort_pub_dependencies`）；说明写在行内注释里。
 dependencies:
+  archive: ^3.6.1 # 导出 Word：纯 Dart 生成 docx（zip + OOXML）
   dio: ^5.11.1 # SSE 流式读取 + 拦截器 + 超时/取消
   drift: ^2.35.0 # 类型安全 SQL（schema 用原始 DDL 建表，见 storage/schema.dart）
   drift_flutter: ^0.3.1 # 后台 isolate 打开数据库，避免阻塞 UI 线程
@@ -23,6 +24,7 @@ dependencies:
   markdown: ^7.3.1
   path: ^1.9.1
   path_provider: ^2.1.6
+  pdf: ^3.11.1 # 导出 PDF：复用随包 NotoSansSC 字体（中文不缺字形）
   permission_handler: ^13.0.2 # 麦克风 / 通知 运行时权限
   record: ^7.1.1 # Android pcm16bits Stream；可指定 sampleRate / numChannels
   # sqlite3 3.x 起自带原生库，**不要**再引 sqlite3_flutter_libs（0.6.0 起已是空包 / EOL）。
