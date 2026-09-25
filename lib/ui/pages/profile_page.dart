@@ -125,7 +125,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ],
         ),
       ],
-      versionText: '版本 ${config.version} · 端化运行',
+      versionText: '版本 ${config.version} · 端化运行'
+          '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}',
       onSettings: () => _toast('设置'),
       onTabTap: (int index) {
         switch (index) {
@@ -155,6 +156,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       summaryStrategy: config.summaryStrategy,
       languageLabel: language,
       version: config.version,
+      buildStamp: config.buildStamp,
     );
   }
 
@@ -172,6 +174,7 @@ class AppConfigView {
     required this.summaryStrategy,
     required this.languageLabel,
     required this.version,
+    this.buildStamp = '',
   });
 
   /// 纪要模型。
@@ -191,4 +194,7 @@ class AppConfigView {
 
   /// 版本号。
   final String version;
+
+  /// 构建戳（空串表示未注入）。
+  final String buildStamp;
 }

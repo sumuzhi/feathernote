@@ -130,6 +130,7 @@ class AppConfig {
     required this.localHttpPort,
     required this.useMockEngine,
     required this.version,
+    required this.buildStamp,
   });
 
   // ── 引擎 ──
@@ -270,6 +271,11 @@ class AppConfig {
   /// 应用版本号。
   final String version;
 
+  /// 构建戳（构建时以 `--dart-define=BUILD_STAMP=...` 注入，如 `0925-2240/7aa4281`）。
+  ///
+  /// 用于「手机 App 与下载页是否同一构建」的目视核对；未注入为空串。
+  final String buildStamp;
+
   /// 默认的运行时配置（未指定的键取原 Node 版默认值）。
   ///
   /// 优先使用 `--dart-define` 注入的值；未注入时回落到默认值。
@@ -323,6 +329,7 @@ class AppConfig {
       localHttpPort: Secrets.localHttpPort,
       useMockEngine: Secrets.useMockEngine || _readString('ENGINE_PROVIDER', 'bailian') == 'mock',
       version: _readString('SMART_MINUTES_VERSION', '1.0.0'),
+      buildStamp: _readString('BUILD_STAMP', ''),
     );
   }
 
