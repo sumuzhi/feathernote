@@ -27,6 +27,10 @@ class _FakeEngine implements AudioPlayerEngine {
   /// 模拟 Android 上「文件未就绪」：setFilePath 返回 null。
   bool setFilePathReturnsNull = false;
 
+  /// 模拟 Android 上 setFilePath 之后、真正开播前，位置流回放一个**等于文件时长**的
+  /// 异常大值（真机实测会触发 `playing=false → 置为未播放` 的提前清除）。
+  bool playEmitsSpuriousPosition = false;
+
   @override
   Future<Duration?> setFilePath(String path) async {
     setFilePathCalls++;
@@ -37,6 +41,11 @@ class _FakeEngine implements AudioPlayerEngine {
   @override
   Future<void> play() async {
     playCalls++;
+    if (playEmitsSpuriousPosition) {
+      // 在 await 期间（_startedPlaying 尚未置 true）回放异常位置，复现提前自动停。
+      _position = _duration;
+      _positionCtrl.add(_position);
+    }
     _stateCtrl.add(PlayerState(true, ProcessingState.ready));
   }
 
@@ -344,6 +353,39 @@ void main() {
 
       expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
       expect(container.read(audioPlayerControllerProvider).playingSegmentId, isNull);
+    });
+
+    test('加载期位置流回放异常大值（≈文件时长）不得提前清除当前段', () async {
+      // 真机实证根因：setFilePath 之后、play() 还没返回前，位置流回放了
+      // 一个 >= _endMs 的异常值（可达文件时长），旧逻辑立刻 _autoStop 把当前段清空，
+      // 导致"点第一段首次播放不显示进度条"。本测试复现并锁定该回归。
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      engine.playEmitsSpuriousPosition = true;
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
+        isTrue,
+        reason: '加载/缓冲期位置误报不得提前清除当前段，否则进度条在点第一段的瞬间被收掉',
+      );
+      expect(
+        container.read(audioPlayerControllerProvider).isPlaying,
+        isTrue,
+        reason: '误报位置后仍处于播放中',
+      );
+
+      // 真正播到段尾仍应正常自动停（确认闸门只挡误报，不挡正常结束）。
+      engine.tickTo(5100);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
+        isFalse,
+        reason: '正常段尾自动停仍然生效',
+      );
     });
   });
 }

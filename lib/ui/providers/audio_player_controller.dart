@@ -196,6 +196,15 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   /// 因此：由我们自己调用 `pause()` / 自动停来置 false，忽略与意图相反的迟到事件。
   bool _intentPlaying = false;
 
+  /// 是否「确实已开始播放」（仅 `play()` 成功返回后置 true）。
+  ///
+  /// 存在理由：位置监听的自动停依赖 `position >= _endMs`。但 `setFilePath` 之后、
+  /// 真正开播之前的缓冲期，位置流偶尔会回放一个**异常大的位置值**（可达文件时长），
+  /// 此时 `_endMs` 已就绪，`ms >= _endMs` 会被误满足 → `_autoStop` 提前把当前段清空
+  /// （真机日志实证：点击后 2.76s 内出现 `playing=false → 置为未播放`）。
+  /// 用「是否真开播」这道闸门，让自动停只在播放稳定后才生效，彻底挡掉加载期误报。
+  bool _startedPlaying = false;
+
   /// 是否已释放（ Riverpod 3 Notifier 没有 `mounted`，自己跟踪）。
   bool _disposed = false;
 
@@ -294,9 +303,10 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
           ? _resumePositionMs(startMs: startMs, endMs: endMs)
           : startMs;
       final int targetMs = clampSeekMs(resumedMs, state.durationMs);
-      await _player.seek(Duration(milliseconds: targetMs));
-      await _player.play();
 
+      // ★ 关键修复：在 seek / play 之前就把「当前段 + isPlaying」一次性置位。
+      // 这样转写页的 tile 在加载 / 缓冲期间就能立即渲染进度条，不再有
+      // "isPlaying 已 true 但 playingSegmentId 还 null" 的幽灵窗口（真机实证 2.76s）。
       state = state.copyWith(
         playingSegmentId: segmentId,
         playingStartMs: startMs,
@@ -304,6 +314,23 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         currentPositionMs: targetMs,
         clearError: true,
       );
+      logInfo(
+        'play',
+        '▶ 段已置为激活（seek 前）',
+        <String, Object?>{
+          '当前段': state.playingSegmentKey,
+          'seek到': targetMs,
+          '请求起点': startMs,
+          '请求终点': endMs,
+          '自动停止点': _endMs,
+          'durationMs': state.durationMs,
+          'isPlaying': state.isPlaying,
+        },
+      );
+
+      await _player.seek(Duration(milliseconds: targetMs));
+      await _player.play();
+      _startedPlaying = true;
       logInfo(
         'play',
         '✅ 已开始播放',
@@ -315,10 +342,13 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
           '自动停止点': _endMs,
           'durationMs': state.durationMs,
           'isPlaying': state.isPlaying,
+          'startedPlaying': _startedPlaying,
         },
       );
     } catch (error) {
-      state = state.copyWith(isPlaying: false, error: '播放失败：$error');
+      _intentPlaying = false;
+      _startedPlaying = false;
+      state = state.copyWith(isPlaying: false, clearActive: true, error: '播放失败：$error');
       _toast('播放失败：$error', tone: ToastTone.warning);
     }
   }
@@ -326,6 +356,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   /// 暂停当前播放（保留位置，供下次续播）。
   Future<void> pause() async {
     _intentPlaying = false;
+    _startedPlaying = false;
     try {
       await _player.pause();
     } catch (_) {
@@ -344,6 +375,8 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   /// 外部切页/手动停止时调用。
   Future<void> stop() async {
+    _intentPlaying = false;
+    _startedPlaying = false;
     try {
       await _player.pause();
     } catch (_) {
@@ -365,6 +398,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     final String decision;
     if (playerState.processingState == ProcessingState.completed) {
       _intentPlaying = false;
+      _startedPlaying = false;
       state = state.copyWith(isPlaying: false, clearActive: true);
       decision = 'completed → 清除当前段';
     } else if (playerState.playing) {
@@ -397,7 +431,14 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       if (_disposed) return;
       final int ms = position.inMilliseconds;
       state = state.copyWith(currentPositionMs: ms);
-      if (_endMs > 0 && ms >= _endMs && state.isPlaying) {
+      // 仅在「确实已开播」后允许自动停：挡掉加载/缓冲期位置流回放的异常大值
+      // （如等于文件时长），否则会提前把当前段清空。
+      // 叠加 `ms < durationMs`：段末（< 文件总长）才停；异常值（≈文件时长）必然被拦。
+      if (_startedPlaying &&
+          _endMs > 0 &&
+          ms >= _endMs &&
+          (state.durationMs <= 0 || ms < state.durationMs) &&
+          state.isPlaying) {
         _autoStop();
       }
     });
@@ -405,6 +446,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
   Future<void> _autoStop() async {
     _intentPlaying = false;
+    _startedPlaying = false;
     try {
       await _player.pause();
     } catch (_) {
