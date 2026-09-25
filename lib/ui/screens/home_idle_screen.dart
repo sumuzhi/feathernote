@@ -22,6 +22,7 @@ class HomeIdleScreen extends StatelessWidget {
     super.key,
     this.greeting = '',
     this.dailyQuote,
+    this.onQuoteTap,
     this.userName = '',
     required this.heroStatusText,
     required this.heroStatusTail,
@@ -43,6 +44,9 @@ class HomeIdleScreen extends StatelessWidget {
 
   /// 「一句话」文案（进入首页时从一言 API 取；null / 空 = 不渲染）。
   final String? dailyQuote;
+
+  /// 点击「一句话」（弹详情 + 复制；null = 仅展示不可点）。
+  final VoidCallback? onQuoteTap;
 
   /// 用户名（头像文字取首字；空则不渲染头像）。
   final String userName;
@@ -86,7 +90,7 @@ class HomeIdleScreen extends StatelessWidget {
   /// 忙态原因（显示在 Hero 副文案下方）。
   final String? busyHint;
 
-  /// 屏 01 的演示态（供「屏幕目录」直接使用 HTML 文案与数据）。
+/// 屏 01 的演示态（供「屏幕目录」直接使用 HTML 文案与数据）。
   factory HomeIdleScreen.demo({
     Key? key,
     required VoidCallback onMicTap,
@@ -130,13 +134,31 @@ class HomeIdleScreen extends StatelessWidget {
                 ],
                 Text('开始记录', style: AppTextStyles.pageTitle),
                 // 「一句话」：一言 API（诗词），随每次进首页刷新；无网静默隐藏。
+                // 点击弹窗查看全文并可一键复制。
                 if (dailyQuote != null && dailyQuote!.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 6),
-                  Text(
-                    dailyQuote!,
-                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  GestureDetector(
+                    onTap: onQuoteTap,
+                    behavior: HitTestBehavior.opaque,
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            dailyQuote!,
+                            style: AppTextStyles.metaSmall
+                                .copyWith(color: AppColors.muted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.expand_more_rounded,
+                          size: 14,
+                          color: AppColors.muted,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],

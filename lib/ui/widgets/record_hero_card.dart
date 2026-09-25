@@ -1,8 +1,7 @@
 /// 首页待机 Hero 卡（HTML `#s01 .hero`）。
 ///
-/// 组成：状态行 → 172px 光晕（内含 124px 橙色麦克风按钮）→ 主文案 → 副文案 →
-/// 模式分段控件（可选）。App 不区分录音场景，[modes] 传空时以「能力点」
-/// 静态胶囊行补位，避免按钮下方空落。
+/// 组成：状态行 → 172px 光晕（内含 124px 橙色麦克风按钮）→ 主文案 → 副文案。
+/// App 不区分录音场景：[modes] 已废弃（传空即不渲染分段控件，也不渲染补位行）。
 library;
 
 import 'package:flutter/material.dart';
@@ -64,13 +63,6 @@ class RecordHeroCard extends StatelessWidget {
   /// 忙态原因（如「上一段正在生成纪要…」）。
   final String? busyHint;
 
-  /// 无场景模式时的静态能力点（与设计稿副文案呼应，填补分段控件位置）。
-  static const List<String> kCapabilityChips = <String>[
-    '中英文转写',
-    '说话人区分',
-    'AI 结构化纪要',
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -121,41 +113,9 @@ class RecordHeroCard extends StatelessWidget {
               labels: modes,
               selectedIndex: selectedMode,
               onChanged: onModeChanged ?? (_) {},
-            )
-          else ...<Widget>[
-            const SizedBox(height: 16),
-            const _CapabilityChipsRow(),
-          ],
+            ),
         ],
       ),
-    );
-  }
-}
-
-/// 能力点胶囊行（无场景模式时的补位内容；窄屏自动换行）。
-class _CapabilityChipsRow extends StatelessWidget {
-  const _CapabilityChipsRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
-      children: <Widget>[
-        for (final String label in RecordHeroCard.kCapabilityChips)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.grayWash,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-            ),
-            child: Text(
-              label,
-              style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-            ),
-          ),
-      ],
     );
   }
 }

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/log/log.dart';
 import '../../domain/meeting.dart';
 import '../../domain/recording_mode.dart';
 import '../../domain/segment.dart';
@@ -23,6 +24,7 @@ import '../utils/formatters.dart';
 import '../utils/speaker_view.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/history_card.dart';
+import '../widgets/quote_dialog.dart';
 import '../widgets/speaker_chips.dart';
 import '../widgets/transcript_tile.dart';
 
@@ -62,12 +64,31 @@ class _HomePageState extends ConsumerState<HomePage> {
   ///
   /// 纪要 / 终稿在后台继续跑（[RecorderController.stopAndGenerate] 已改为秒级返回），
   /// 因此这里拿到 meetingId 就跳，不做整页遮罩。
+  ///
+  /// ⚠️ [_stopping] 必须用 try/finally 复位：否则 stopAndGenerate 抛异常
+  /// （如收尾链路错误）会让主页 hero 永远显示「正在结束并生成…」并禁录。
   Future<void> _stop() async {
     if (_stopping) return;
     setState(() => _stopping = true);
-    final String? meetingId =
-        await ref.read(recorderProvider.notifier).stopAndGenerate();
+    String? meetingId;
+    Object? failure;
+    try {
+      meetingId = await ref.read(recorderProvider.notifier).stopAndGenerate();
+    } catch (error) {
+      failure = error;
+    } finally {
+      // 无论成功 / 失败都先解除转圈态（跳详情页也由 meetingId 分支处理）。
+      if (mounted && meetingId == null) setState(() => _stopping = false);
+    }
     if (!mounted) return;
+    if (failure != null) {
+      logWarn('record', '结束并生成失败：$failure');
+      ref.read(toastProvider.notifier).show(
+            '结束并生成失败，请到历史页查看',
+            tone: ToastTone.warning,
+          );
+      return;
+    }
     if (meetingId != null) {
       // 上锁：从详情页返回首页时，若本会话仍在生成，开始录音保持禁用。
       ref.read(generationInProgressProvider.notifier).begin(meetingId);
@@ -76,7 +97,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
     // 兜底：理论上录音中必有 meetingId；为空时提示 + 停首页，绝不卡在 loading。
-    setState(() => _stopping = false);
     ref.read(toastProvider.notifier).show(
           '本次录音未生成会议记录，请到历史页查看',
           tone: ToastTone.warning,
@@ -149,11 +169,22 @@ class _HomePageState extends ConsumerState<HomePage> {
     final String? busyHint = generating
         ? '上一段正在生成纪要…'
         : (_starting ? '正在启动录音…' : (_stopping ? '正在结束并生成…' : null));
+    final String? dailyQuote = ref.watch(dailyQuoteProvider).value;
 
     return HomeIdleScreen(
       heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
-      dailyQuote: ref.watch(dailyQuoteProvider).value,
+      dailyQuote: dailyQuote,
+      onQuoteTap: dailyQuote == null || dailyQuote.isEmpty
+          ? null
+          : () async {
+              final bool copied = await showQuoteDialog(context, dailyQuote);
+              if (!mounted || !copied) return;
+              ref.read(toastProvider.notifier).show(
+                    '已复制到剪切板',
+                    tone: ToastTone.success,
+                  );
+            },
       recentItems: recent,
       onMicTap: _start,
       onViewAll: () => context.go('/history'),

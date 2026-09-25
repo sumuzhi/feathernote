@@ -94,7 +94,9 @@ class TranscriptScreen extends StatelessWidget {
             .toList(growable: false);
 
     return ScreenFrame(
-      bottomSpacer: 100,
+      // 只滚动转写列表：顶栏 / 信息条 / 筛选 / 命中条固定（自行管理滚动）。
+      scrollable: false,
+      bottomSpacer: 0,
       bottomCta: Row(
         children: <Widget>[
           Expanded(
@@ -111,6 +113,7 @@ class TranscriptScreen extends StatelessWidget {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // 固定 header：顶栏 / 信息条 / 筛选 chips / 命中条不随列表滚动。
           AppTopBar(
             title: '完整转写',
             subtitle: meetingName,
@@ -134,36 +137,41 @@ class TranscriptScreen extends StatelessWidget {
               onNext: hit!.onNext,
               onClose: hit!.onClose,
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 8, 22, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                if (visible.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 24),
-                    child: Text(
-                      '该说话人暂无转写内容',
-                      style: AppTextStyles.meta,
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                else
-                  for (int i = 0; i < visible.length; i++)
-                    TranscriptTile(
-                      // 稳定 key：段由「segmentId + 起点」唯一定位。
-                      // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
-                      // 错误复用元素，进度组件就可能渲染到别的条目上。
-                      key: ValueKey<String>(
-                        '${visible[i].segmentId}@${visible[i].startTimeMs}',
+          // 仅转写列表滚动（底部留白避开 CTA）。
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  if (visible.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 24),
+                      child: Text(
+                        '该说话人暂无转写内容',
+                        style: AppTextStyles.meta,
+                        textAlign: TextAlign.center,
                       ),
-                      item: visible[i],
-                      onExpand: onExpandSegment == null ? null : () => onExpandSegment!(i),
-                      onPlay: onPlaySegment == null ? null : () => onPlaySegment!(visible[i]),
-                    ),
-                if (segmentLoadingText != null)
-                  AppSegmentedLoadingPill(text: segmentLoadingText!),
-              ],
+                    )
+                  else
+                    for (int i = 0; i < visible.length; i++)
+                      TranscriptTile(
+                        // 稳定 key：段由「segmentId + 起点」唯一定位。
+                        // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
+                        // 错误复用元素，进度组件就可能渲染到别的条目上。
+                        key: ValueKey<String>(
+                          '${visible[i].segmentId}@${visible[i].startTimeMs}',
+                        ),
+                        item: visible[i],
+                        onExpand:
+                            onExpandSegment == null ? null : () => onExpandSegment!(i),
+                        onPlay:
+                            onPlaySegment == null ? null : () => onPlaySegment!(visible[i]),
+                      ),
+                  if (segmentLoadingText != null)
+                    AppSegmentedLoadingPill(text: segmentLoadingText!),
+                ],
+              ),
             ),
           ),
         ],

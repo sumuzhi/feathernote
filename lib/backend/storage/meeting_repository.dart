@@ -286,7 +286,7 @@ class DriftMeetingRepository implements MeetingRepository {
     return Meeting(
       id: row.id,
       title: row.title,
-      createdAt: DateTime.tryParse(row.createdAt) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      createdAt: (DateTime.tryParse(row.createdAt) ?? DateTime.fromMillisecondsSinceEpoch(0)).toLocal(), // 存的是 UTC，读出转本地（否则时刻差 8 小时）
       durationMs: row.durationMs,
       sampleRate: row.sampleRate,
       speakerCount: row.speakerCount,
@@ -335,7 +335,7 @@ class DriftMeetingRepository implements MeetingRepository {
   static MeetingSummary summaryFromRow(MeetingRow row) => MeetingSummary(
     id: row.id,
     title: row.title,
-    createdAt: DateTime.tryParse(row.createdAt) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    createdAt: (DateTime.tryParse(row.createdAt) ?? DateTime.fromMillisecondsSinceEpoch(0)).toLocal(), // 存的是 UTC，读出转本地（否则时刻差 8 小时）
     durationMs: row.durationMs,
     speakerCount: row.speakerCount,
     status: MeetingStatus.fromValue(row.status),

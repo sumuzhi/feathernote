@@ -118,6 +118,8 @@ class ProfileScreen extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
+              // 底部留 TabBar 高度：修复最后一条设置项被底栏遮住一半。
+              padding: const EdgeInsets.only(bottom: AppSpacing.tabBarSpacer),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -218,35 +220,41 @@ class _SettingRow extends StatelessWidget {
               );
             }
 
-            return Row(
-              children: <Widget>[
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: AppColors.orangeSoft,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
+            return GestureDetector(
+              // 整行可点：选择类点行即编辑/查看（原仅右侧 value 可点）。
+              // 开关行不接管——开关自身响应，避免双触发。
+              onTap: row.toggle ? null : row.onTap,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: AppColors.orangeSoft,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(row.icon, size: 17, color: AppColors.orange),
                   ),
-                  alignment: Alignment.center,
-                  child: Icon(row.icon, size: 17, color: AppColors.orange),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(row.title, style: AppTextStyles.settingTitle),
-                      // 选择类条目（右侧有值）：不显示副标题，保持单行，
-                      // 信息由「标题 + 右值」承载，避免占两行。
-                      if (row.value == null || row.value!.isEmpty) ...<Widget>[
-                        const SizedBox(height: 3),
-                        Text(row.subtitle, style: AppTextStyles.metaSmall),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(row.title, style: AppTextStyles.settingTitle),
+                        // 选择类条目（右侧有值）：不显示副标题，保持单行，
+                        // 信息由「标题 + 右值」承载，避免占两行。
+                        if (row.value == null || row.value!.isEmpty) ...<Widget>[
+                          const SizedBox(height: 3),
+                          Text(row.subtitle, style: AppTextStyles.metaSmall),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                trailing,
-              ],
+                  trailing,
+                ],
+              ),
             );
           },
         ),

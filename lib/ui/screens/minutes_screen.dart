@@ -68,7 +68,9 @@ class MinutesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ScreenFrame(
-      bottomSpacer: 100,
+      // 只滚动纪要卡内容：顶栏 / 信息卡 / 提示条固定（自行管理滚动）。
+      scrollable: false,
+      bottomSpacer: 0,
       bottomCta: Row(
         children: <Widget>[
           Expanded(
@@ -95,6 +97,7 @@ class MinutesScreen extends StatelessWidget {
             actionIcon: Icons.ios_share_rounded,
             onAction: onShare,
           ),
+          // 固定 header：信息卡与提示条不随纪要内容滚动。
           MeetingInfoCard(
             title: meetingTitle,
             meta: meetingMeta,
@@ -124,7 +127,13 @@ class MinutesScreen extends StatelessWidget {
                 ],
               ),
             ),
-          MinutesCard(view: minutes),
+          // 仅纪要卡内容滚动（底部留白避开 CTA）。
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 100),
+              child: MinutesCard(view: minutes),
+            ),
+          ),
         ],
       ),
     );

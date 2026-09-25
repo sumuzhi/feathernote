@@ -178,7 +178,9 @@ class HistoryScreen extends StatelessWidget {
             child: (_isEmpty || _isSearchEmpty)
                 ? _buildEmptyState(context)
                 : SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(AppSpacing.page, 6, AppSpacing.page, 0),
+                    // 底部留 TabBar 高度：修复最后一条记录被底栏遮住一半。
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.page, 6, AppSpacing.page, AppSpacing.tabBarSpacer),
                     child: _buildList(),
                   ),
           ),
