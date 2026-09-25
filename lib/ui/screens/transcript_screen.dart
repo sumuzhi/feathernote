@@ -34,6 +34,7 @@ class TranscriptScreen extends StatelessWidget {
     this.hit,
     this.segmentLoadingText,
     this.onExpandSegment,
+    this.onPlaySegment,
   });
 
   /// 顶栏副标题（会议名）。
@@ -77,6 +78,9 @@ class TranscriptScreen extends StatelessWidget {
 
   /// 点击「展开这段」（回传条目下标）。
   final ValueChanged<int>? onExpandSegment;
+
+  /// 点击 segment 的播放按钮（回传条目下标）。
+  final ValueChanged<int>? onPlaySegment;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +150,7 @@ class TranscriptScreen extends StatelessWidget {
                     TranscriptTile(
                       item: visible[i],
                       onExpand: onExpandSegment == null ? null : () => onExpandSegment!(i),
+                      onPlay: onPlaySegment == null ? null : () => onPlaySegment!(i),
                     ),
                 if (segmentLoadingText != null)
                   AppSegmentedLoadingPill(text: segmentLoadingText!),

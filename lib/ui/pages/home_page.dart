@@ -184,6 +184,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           speakerLabel: speakerViewFor(speakerId: segment.speakerId, speakers: speakers).name,
           timeLabel: formatClock(segment.startTime),
           text: segment.text,
+          segmentId: segment.segmentId,
+          startTimeMs: segment.startTime,
+          endTimeMs: segment.endTime,
         ),
     ];
 

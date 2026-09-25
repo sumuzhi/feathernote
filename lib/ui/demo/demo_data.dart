@@ -98,6 +98,9 @@ List<TranscriptItemView> demoTranscriptViews({
         speakerLabel: '说话人 ${kDemoTranscript[i].speaker}',
         timeLabel: pendingLast && i == count - 1 ? '待上传' : kDemoTranscript[i].time,
         text: kDemoTranscript[i].text,
+        segmentId: 'demo-$i',
+        startTimeMs: 0,
+        endTimeMs: 0,
         pending: pendingLast && i == count - 1,
         highlight: i == highlightIndex,
         expandNote: i == highlightIndex ? expandNote : null,
@@ -116,6 +119,9 @@ List<TranscriptItemView> demoLongTranscriptViews() {
         text: i == 2
             ? '激活率这边我让数据团队重新拉了一版口径，新口径下实际完成 82%，原来的统计把沉默用户也算进分母了。这里要说明一下口径差异的具体影响：…'
             : kDemoTranscript[i].text,
+        segmentId: 'demo-long-$i',
+        startTimeMs: 0,
+        endTimeMs: 0,
         highlight: i == 2,
         expandNote: i == 2 ? '展开这段 · 1,860 字' : null,
       ),

@@ -15,6 +15,7 @@ import '../../domain/meeting.dart';
 import '../../domain/segment.dart';
 import '../../domain/speaker.dart';
 import '../providers/app_providers.dart';
+import '../providers/audio_player_controller.dart';
 import '../screens/transcript_screen.dart';
 import '../utils/exporter.dart';
 import '../utils/formatters.dart';
@@ -73,6 +74,8 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
   @override
   void dispose() {
     unawaited(_subscription?.cancel());
+    // 播放器 provider 在页面移除监听者后会自动 dispose，那里会释放 AudioPlayer。
+    // 不在 State.dispose() 里读 ref（Riverpod 此时已不允许）。
     super.dispose();
   }
 
@@ -146,12 +149,17 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       speakers: _speakers,
     );
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
+    final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
     return TranscriptItemView(
       ordinal: view.ordinal,
       speakerLabel: view.name,
       timeLabel: formatClock(segment.startTime),
       text: segment.text,
+      segmentId: segment.segmentId,
+      startTimeMs: segment.startTime,
+      endTimeMs: segment.endTime,
       highlight: highlight,
+      isPlaying: audioState.isSegmentPlaying(segment.segmentId),
       expandNote: highlight ? '展开这段 · ${formatCharCount(segment.text.length)}' : null,
     );
   }
@@ -209,6 +217,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
           ? '分段加载中 · 已显示 ${formatThousands(_segments.length)} 段'
           : null,
       onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
+      onPlaySegment: (int index) => _onPlaySegment(index),
       onBack: () => context.go('/meeting/${widget.meetingId}'),
       onSearch: () => unawaited(_promptSearch()),
       onCopyAll: () => unawaited(_copyAll()),
@@ -280,6 +289,16 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage> {
       if (!mounted) return;
       ref.read(toastProvider.notifier).show('导出失败：$error', tone: ToastTone.warning);
     }
+  }
+
+  Future<void> _onPlaySegment(int index) async {
+    final TranscriptSegment segment = _segments[index];
+    await ref.read(audioPlayerControllerProvider.notifier).playSegment(
+      meetingId: widget.meetingId,
+      segmentId: segment.segmentId,
+      startMs: segment.startTime,
+      endMs: segment.endTime,
+    );
   }
 
   void _toast(String text) =>
