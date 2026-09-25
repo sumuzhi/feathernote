@@ -141,7 +141,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           onTap: () => context.push('/meeting/${list[i].id}'),
         ),
     ];
-    final RecordingMode mode = ref.watch(recorderProvider).mode;
+    // App 不区分录音场景：模式选择已移除，recorder 恒为默认模式（会议）。
     // 生成锁：本会话纪要 / 终稿仍在生成时禁用开始录音，并给出可见原因。
     final bool generating = ref.watch(generationInProgressProvider) != null;
     final bool busy = _starting || _stopping || generating;
@@ -152,14 +152,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     return HomeIdleScreen(
       heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
-      modes: const <String>['会议', '访谈', '灵感'],
-      selectedMode: mode.index,
       recentItems: recent,
       onMicTap: _start,
-      onModeChanged: (int index) =>
-          ref.read(recorderProvider.notifier).setMode(RecordingMode.values[index]),
       onViewAll: () => context.go('/history'),
-      onAvatarTap: () => context.go('/profile'),
       onTabTap: _onTabTap,
       selectedTab: 0,
       busy: busy,

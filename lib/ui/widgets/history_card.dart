@@ -30,6 +30,9 @@ class HistoryItemView {
     this.dimBadge = false,
     this.onTap,
     this.onMore,
+    this.dismissKey,
+    this.confirmDismiss,
+    this.onDismissed,
   });
 
   /// 标题。
@@ -55,6 +58,18 @@ class HistoryItemView {
 
   /// 点击「···」。
   final VoidCallback? onMore;
+
+  /// 左滑删除的 Dismissible key（唯一标识；为 null = 不支持滑动删除）。
+  ///
+  /// 必须用**稳定标识**（如会议 ID）而不是 widget 实例：列表每次重建都会
+  /// 新建 [HistoryItemView]，用实例会导致 Dismissible 状态错乱。
+  final Object? dismissKey;
+
+  /// 左滑到底后确认删除（弹确认框，返回是否确认删除）。
+  final Future<bool> Function()? confirmDismiss;
+
+  /// 确认删除、卡片滑出动画结束后执行（真正删除数据）。
+  final VoidCallback? onDismissed;
 }
 
 /// 历史卡片。
@@ -76,96 +91,131 @@ class HistoryCard extends StatelessWidget {
       case HistoryBadge.none:
         badge = const SizedBox.shrink();
     }
+    final Widget card = Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.fromLTRB(18, 17, 18, 17),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(AppRadius.card2),
+          topRight: const Radius.circular(AppRadius.card2),
+          bottomLeft: Radius.circular(item.cut ? 0 : AppRadius.card2),
+          bottomRight: Radius.circular(item.cut ? 0 : AppRadius.card2),
+        ),
+        boxShadow: AppShadow.card,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  item.title,
+                  style: AppTextStyles.itemTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              GestureDetector(
+                onTap: item.onMore,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 44,
+                  height: 28,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    // 操作 icon：More.svg 三点（#C4B3A4，18×18，点径 2.4）。
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          for (int i = 0; i < 3; i++) ...<Widget>[
+                            if (i > 0) const SizedBox(width: 2.5),
+                            Container(
+                              width: 2.4,
+                              height: 2.4,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFC4B3A4),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            item.description,
+            style: AppTextStyles.meta,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 11),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  item.meta,
+                  style: AppTextStyles.metaSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Opacity(opacity: item.dimBadge ? 0.7 : 1, child: badge),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final Widget content;
+    if (item.dismissKey != null && item.confirmDismiss != null) {
+      // 左滑删除：仅向左滑（endToStart），红色背景 + 删除图标；
+      // confirmDismiss 里弹确认框，取消则卡片自动弹回。
+      content = Dismissible(
+        key: ValueKey<Object>(item.dismissKey!),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (DismissDirection _) async => await item.confirmDismiss!(),
+        onDismissed: (DismissDirection _) => item.onDismissed?.call(),
+        background: Container(
+          margin: const EdgeInsets.only(top: 12),
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 22),
+          decoration: BoxDecoration(
+            color: AppColors.red,
+            borderRadius: BorderRadius.circular(AppRadius.card2),
+          ),
+          child: Semantics(
+            button: true,
+            label: '删除',
+            child: const Icon(
+              Icons.delete_outline_rounded,
+              size: 24,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        child: card,
+      );
+    } else {
+      content = card;
+    }
+
     return Semantics(
       button: item.onTap != null,
       label: item.title,
       child: GestureDetector(
         onTap: item.onTap,
         behavior: HitTestBehavior.opaque,
-        child: Container(
-          margin: const EdgeInsets.only(top: 12),
-          padding: const EdgeInsets.fromLTRB(18, 17, 18, 17),
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(AppRadius.card2),
-              topRight: const Radius.circular(AppRadius.card2),
-              bottomLeft: Radius.circular(item.cut ? 0 : AppRadius.card2),
-              bottomRight: Radius.circular(item.cut ? 0 : AppRadius.card2),
-            ),
-            boxShadow: AppShadow.card,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      item.title,
-                      style: AppTextStyles.itemTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: item.onMore,
-                    behavior: HitTestBehavior.opaque,
-                    child: SizedBox(
-                      width: 44,
-                      height: 28,
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        // 操作 icon：More.svg 三点（#C4B3A4，18×18，点径 2.4）。
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              for (int i = 0; i < 3; i++) ...<Widget>[
-                                if (i > 0) const SizedBox(width: 2.5),
-                                Container(
-                                  width: 2.4,
-                                  height: 2.4,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFC4B3A4),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                item.description,
-                style: AppTextStyles.meta,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 11),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      item.meta,
-                      style: AppTextStyles.metaSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Opacity(opacity: item.dimBadge ? 0.7 : 1, child: badge),
-                ],
-              ),
-            ],
-          ),
-        ),
+        child: content,
       ),
     );
   }

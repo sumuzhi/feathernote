@@ -24,11 +24,11 @@ class HomeIdleScreen extends StatelessWidget {
     this.userName = '',
     required this.heroStatusText,
     required this.heroStatusTail,
-    required this.modes,
-    required this.selectedMode,
+    this.modes = const <String>[],
+    this.selectedMode = 0,
+    this.onModeChanged,
     required this.recentItems,
     required this.onMicTap,
-    required this.onModeChanged,
     required this.onViewAll,
     required this.onTabTap,
     this.selectedTab = 0,
@@ -62,7 +62,7 @@ class HomeIdleScreen extends StatelessWidget {
   final VoidCallback onMicTap;
 
   /// 切换模式。
-  final ValueChanged<int> onModeChanged;
+  final ValueChanged<int>? onModeChanged;
 
   /// 点击「查看全部 ›」。
   final VoidCallback onViewAll;

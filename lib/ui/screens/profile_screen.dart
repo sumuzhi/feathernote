@@ -225,8 +225,12 @@ class _SettingRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(row.title, style: AppTextStyles.settingTitle),
-                      const SizedBox(height: 3),
-                      Text(row.subtitle, style: AppTextStyles.metaSmall),
+                      // 选择类条目（右侧有值）：不显示副标题，保持单行，
+                      // 信息由「标题 + 右值」承载，避免占两行。
+                      if (row.value == null || row.value!.isEmpty) ...<Widget>[
+                        const SizedBox(height: 3),
+                        Text(row.subtitle, style: AppTextStyles.metaSmall),
+                      ],
                     ],
                   ),
                 ),

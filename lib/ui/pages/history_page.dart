@@ -151,7 +151,39 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
       dimBadge: cut,
       onTap: () => context.push('/meeting/${item.id}'),
       onMore: () => _showMoreMenu(item),
+      // 左滑删除：稳定 key（会议 ID）+ 确认框 + 确认后真删。
+      dismissKey: item.id,
+      confirmDismiss: () => _confirmDeleteDialog(item),
+      onDismissed: () => _deleteConfirmed(item),
     );
+  }
+
+  /// 删除确认框：返回 true = 用户确认删除。
+  Future<bool> _confirmDeleteDialog(MeetingSummary item) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('删除这条记录？'),
+        content: Text('「${item.title}」及其纪要与转写将一并删除。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  /// 已确认删除：调后端并解除可能的首页生成锁。
+  Future<void> _deleteConfirmed(MeetingSummary item) async {
+    final backend = await ref.read(backendProvider.future);
+    await backend.deleteMeeting(item.id);
   }
 
   Future<void> _showMoreMenu(MeetingSummary item) async {
@@ -208,26 +240,10 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
   }
 
   Future<void> _delete(MeetingSummary item) async {
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('删除这条记录？'),
-        content: Text('「${item.title}」及其纪要与转写将一并删除。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || ok != true) return;
-    final backend = await ref.read(backendProvider.future);
-    await backend.deleteMeeting(item.id);
+    if (!mounted) return;
+    final bool ok = await _confirmDeleteDialog(item);
+    if (!mounted || !ok) return;
+    await _deleteConfirmed(item);
   }
 
   int _totalHours(List<MeetingSummary> list) {
