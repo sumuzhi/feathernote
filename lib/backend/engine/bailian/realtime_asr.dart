@@ -7,7 +7,10 @@
 /// 2. 收到 `task-started` 后才可发音频；
 /// 3. `task-failed` 会关连接且不可复用 → 重连必须**重开 run-task**（新 taskId，旧上下文作废）；
 /// 4. `result-generated` 的 heartbeat 句要过滤；
-/// 5. 向百炼下发按 **100ms / 3200B 聚合**（不是逐 640B 帧）。
+/// 5. 向百炼下发按 **100ms / 3200B 聚合**（不是逐 640B 帧）；
+/// 6. `text` 为空的 `result-generated` **不是转写进度**，而是服务端「没听到有效语音」的
+///    信号 → 不产生 [StreamEvent]、不推进 revision，只累计并节流告警（见
+///    [BailianRealtimeSession.emptySentenceCount]）。
 library;
 
 import 'dart:async';
@@ -79,6 +82,28 @@ class RealtimeFailure implements Exception {
 /// 超过该时长仍未就绪，即判定失败并显式上报。
 const Duration kRealtimeStartTimeout = Duration(seconds: 10);
 
+/// 实时链路**周期性发送统计**的间隔。
+///
+/// 这一行是「实时没输出」类问题的**决定性读数**：一眼区分
+/// 「没在发（pending 堆积）」「发了但服务端不理（pending≈0、服务端消息年龄大）」
+/// 「服务端在回但我们没上屏（有消息、有句子）」。
+const Duration kAsrStatsInterval = Duration(seconds: 4);
+
+/// 「状态非 running 却仍在堆积音频」告警的**限频**间隔。
+const Duration kAsrBufferWarnInterval = Duration(seconds: 5);
+
+/// 服务端静默看门狗：`running` 下超过该时长未收到**任何**服务端消息即告警。
+const Duration kAsrSilenceTimeout = Duration(seconds: 18);
+
+/// 静默告警的限频间隔（避免每个 tick 刷屏）。
+const Duration kAsrSilenceWarnInterval = Duration(seconds: 10);
+
+/// 空句（服务端返回 `text` 为空的句子）告警的**条数节流**：累计满这么多条再打一次。
+const int kAsrEmptySentenceWarnBatch = 10;
+
+/// 空句告警的**时间节流**窗口：距上次打印超过该时长即再打一次。
+const Duration kAsrEmptySentenceWarnInterval = Duration(seconds: 5);
+
 /// WebSocket 的最小抽象（便于单测注入替身，不触网）。
 abstract class RealtimeSocket {
   /// 入站消息流（文本帧为 `String`）。
@@ -92,6 +117,15 @@ abstract class RealtimeSocket {
 
   /// 关闭连接。
   Future<void> close();
+
+  /// 关闭码（连接关闭**后**可读；未关闭 / 未知返回 null）。
+  ///
+  /// 服务端主动关闭（如配额 / 鉴权过期 / 被踢）时常带非 1000 的关闭码，
+  /// 之前完全没记录 → 「实时忽然没输出」无从判断是谁断的。这里透出。
+  int? get closeCode;
+
+  /// 关闭原因（连接关闭后可用；未知返回 null）。
+  String? get closeReason;
 }
 
 /// 基于 `dart:io` 的实现（握手可带自定义头 → 支持百炼的 Bearer 鉴权）。
@@ -109,6 +143,12 @@ class IoRealtimeSocket implements RealtimeSocket {
 
   @override
   final Stream<Object?> messages;
+
+  @override
+  int? get closeCode => _socket.closeCode;
+
+  @override
+  String? get closeReason => _socket.closeReason;
 
   @override
   void sendText(String text) => _socket.add(text);
@@ -135,6 +175,7 @@ class RealtimeHandlers {
     this.onFinished,
     this.onFailed,
     this.onError,
+    this.onServerMessage,
   });
 
   /// 收到 `task-started`。
@@ -151,6 +192,12 @@ class RealtimeHandlers {
 
   /// 底层错误。
   final void Function(Object error)? onError;
+
+  /// 收到**任意**服务端消息时回调：`(event, 是否 heartbeat)`。
+  ///
+  /// 含被过滤的 heartbeat 帧 —— 用于统计「服务端是否还在回话」与心跳数，
+  /// 支撑静默看门狗与发送统计（这是判断「发了但服务端不理」的唯一依据）。
+  final void Function(String event, bool heartbeat)? onServerMessage;
 }
 
 /// 百炼实时识别任务（低层，事件回调形式）。
@@ -234,7 +281,11 @@ class RealtimeTask {
     }
     _subscription = _socket!.messages.listen(
       _onMessage,
-      onError: (Object error) => handlers.onError?.call(error),
+      onError: (Object error) {
+        // WS 层错误必须留痕（此前只有 handlers 回调，无日志）。
+        logWarn('asr', 'WS 错误 task=$taskId：${error.runtimeType}: $error');
+        handlers.onError?.call(error);
+      },
       onDone: _onClose,
       cancelOnError: false,
     );
@@ -277,6 +328,9 @@ class RealtimeTask {
     final Object? header = msg['header'];
     if (header is! Map<String, dynamic>) return;
     final String? event = header['event'] as String?;
+    // 任意服务端消息都留痕（含被过滤的 heartbeat）：这是静默看门狗与心跳计数的
+    // 唯一依据，也是区分「服务端在回」与「服务端不理」的关键。
+    handlers.onServerMessage?.call(event ?? 'unknown', _isHeartbeat(msg));
     switch (event) {
       case 'task-started':
         state = RealtimeState.running;
@@ -319,10 +373,46 @@ class RealtimeTask {
     }
   }
 
-  /// 连接关闭。
+  /// 该消息是否为 heartbeat（`result-generated` → `payload.output.sentence.heartbeat`）。
+  static bool _isHeartbeat(Map<String, dynamic> msg) {
+    final Object? payload = msg['payload'];
+    if (payload is! Map<String, dynamic>) return false;
+    final Object? output = payload['output'];
+    if (output is! Map<String, dynamic>) return false;
+    final Object? sentence = output['sentence'];
+    if (sentence is! Map<String, dynamic>) return false;
+    return sentence['heartbeat'] == true;
+  }
+
+  /// 连接关闭：**显式记录关闭码 / 原因**（服务端主动关闭此前完全无日志）。
   void _onClose() {
-    if (state != RealtimeState.finished && state != RealtimeState.failed) {
-      state = RealtimeState.closed;
+    final RealtimeSocket? socket = _socket;
+    final int? code = socket?.closeCode;
+    final String? reason = socket?.closeReason;
+    final bool abnormal = state != RealtimeState.finished && state != RealtimeState.failed;
+    if (abnormal) state = RealtimeState.closed;
+    if (socket == null) {
+      // 由 [abort] 主动关闭（`_socket` 已置 null）→ 只留 info，避免误报「异常关闭」。
+      logInfo('asr', 'WS 已主动关闭 task=$taskId state=${state.name}');
+    } else if (abnormal) {
+      logWarn(
+        'asr',
+        'WS 连接被关闭（非正常结束）task=$taskId state=${state.name} '
+        'closeCode=${code ?? '—'} closeReason=${reason ?? '—'}',
+      );
+      // **链路已死**：必须走重启路径。否则 `_task.state` 停在非 running，
+      // `_drain` 只缓冲不下发 → 录音继续、本地 PCM 照常，但实时句子永久静默。
+      // 复用 `onFailed` → 会话侧 `_onTaskDown`（新 run-task + 环形回放 + 次数护栏）。
+      handlers.onFailed?.call(
+        'E_WS_CLOSED',
+        'WS 连接被关闭（closeCode=${code ?? '—'} closeReason=${reason ?? '—'}）',
+      );
+    } else {
+      logInfo(
+        'asr',
+        'WS 连接正常关闭 task=$taskId state=${state.name} '
+        'closeCode=${code ?? '—'} closeReason=${reason ?? '—'}',
+      );
     }
     _resolve();
   }
@@ -395,8 +485,16 @@ class BailianRealtimeSession {
     this.maxRestart = 3,
     this.socketFactory,
     this.startTimeout = kRealtimeStartTimeout,
+    this.statsInterval = kAsrStatsInterval,
+    this.silenceTimeout = kAsrSilenceTimeout,
+    this.silenceWarnInterval = kAsrSilenceWarnInterval,
+    int Function()? nowMs,
   }) : chunkBytes = ((cfg.realtimeFrameMs / 1000) * cfg.realtimeSampleRate).round() * 2,
-       ringBytes = ((cfg.realtimeRingMs / 1000) * cfg.realtimeSampleRate).round() * 2;
+       ringBytes = ((cfg.realtimeRingMs / 1000) * cfg.realtimeSampleRate).round() * 2,
+       _now = nowMs ?? _wallClockMs;
+
+  /// 墙钟毫秒（默认时钟；单测可注入可控时钟）。
+  static int _wallClockMs() => DateTime.now().millisecondsSinceEpoch;
 
   /// 冻结配置。
   final AppConfig cfg;
@@ -422,6 +520,18 @@ class BailianRealtimeSession {
   /// 启动超时（收到 `task-started` 的容忍上限；单测可缩短）。
   final Duration startTimeout;
 
+  /// 发送统计 / 静默看门狗的**执行间隔**（单测可缩短）。
+  final Duration statsInterval;
+
+  /// 服务端静默阈值：`running` 下超过该时长无任何服务端消息即视为异常（单测可缩短）。
+  final Duration silenceTimeout;
+
+  /// 静默告警的限频间隔（单测可缩短）。
+  final Duration silenceWarnInterval;
+
+  /// 时钟（默认墙钟；单测注入可控时钟，便于断言看门狗）。
+  final int Function() _now;
+
   /// 向百炼单次下发的字节数（100ms@16k 单声道 16bit = 3200B）。
   final int chunkBytes;
 
@@ -435,10 +545,41 @@ class BailianRealtimeSession {
 
   RealtimeTask? _task;
   Timer? _startTimer;
+  Timer? _statsTimer;
   bool _closed = false;
   bool _finishing = false;
   bool _restarted = false;
   int _restartCount = 0;
+
+  /// 累计成功下发的音频帧数 / 字节数。
+  int sentFrames = 0;
+  int sentBytes = 0;
+
+  /// 累计收到的服务端消息数（含 heartbeat）与心跳帧数。
+  int serverMessageCount = 0;
+  int heartbeatCount = 0;
+
+  /// 最近一次收到服务端消息的时钟毫秒（0 = 尚未收到任何消息）。
+  int lastServerMsgAtMs = 0;
+
+  int _lastBufferWarnAtMs = 0;
+  int _lastSilenceWarnAtMs = 0;
+  int _lastSilencePendingBytes = -1;
+
+  /// 累计收到的**空文本**句子数（`text.trim().isEmpty` 且非心跳）。
+  ///
+  /// 这是「服务端有没有听到语音」的**唯一诚实读数**：有语音时百炼会回吐逐步增长的
+  /// 非空文本；持续返回空句 = 服务端认为当前没有有效语音信号。
+  int _emptySentenceCount = 0;
+
+  /// 空句计数对外只读出口（供测试与诊断断言）。
+  int get emptySentenceCount => _emptySentenceCount;
+
+  int _lastEmptyWarnAtMs = 0;
+  int _lastEmptyWarnCount = 0;
+
+  /// 尚未下发的缓冲字节数（诊断 / 测试：判断链路是否「堵住」）。
+  int get pendingBytes => _pending.length;
 
   /// 最近一次失败原因（诊断用；成功启动后清空）。
   String? lastError;
@@ -455,6 +596,8 @@ class BailianRealtimeSession {
   /// 建立（或重建）百炼任务。
   Future<void> open() async {
     if (_closed || _task != null) return;
+    // 新任务上下文：空句读数必须归零，否则重启后计数会跨任务累计而失真。
+    _resetEmptySentenceStats();
     final RealtimeTask task = RealtimeTask(
       cfg,
       handlers: RealtimeHandlers(
@@ -464,6 +607,7 @@ class BailianRealtimeSession {
         onFinished: () => logInfo('asr', '实时任务已结束 session=$sessionId'),
         onFailed: (String code, String message) => unawaited(_onTaskDown(code, message)),
         onError: onError,
+        onServerMessage: _onServerMessage,
       ),
       socketFactory: socketFactory,
     );
@@ -472,6 +616,8 @@ class BailianRealtimeSession {
     // 到点即判失败并上报，避免音频帧无声无息地堆在 `_pending` 里。
     _startTimer?.cancel();
     _startTimer = Timer(startTimeout, _onStartTimeout);
+    // 周期发送统计 + 服务端静默看门狗（只起一个 Timer，close 时统一取消）。
+    _statsTimer ??= Timer.periodic(statsInterval, (Timer _) => _tickDiagnostics());
     await task.start();
   }
 
@@ -501,6 +647,9 @@ class BailianRealtimeSession {
     _startTimer?.cancel();
     _startTimer = null;
     lastError = null;
+    // 新任务就绪 → 复位静默基线（避免拿旧任务的时间误判静默）。
+    _lastSilencePendingBytes = -1;
+    _lastSilenceWarnAtMs = 0;
     if (_restarted && _ring.isNotEmpty) {
       final BytesBuilder replay = BytesBuilder(copy: false);
       for (final Uint8List chunk in _ring) {
@@ -521,14 +670,114 @@ class BailianRealtimeSession {
     logInfo('asr', '实时任务已就绪 session=$sessionId meeting=$meetingId（开始下发音频）');
   }
 
+  /// 收到任意服务端消息（含 heartbeat）：刷新「服务端是否还在回话」的读数。
+  void _onServerMessage(String event, bool heartbeat) {
+    serverMessageCount++;
+    lastServerMsgAtMs = _now();
+    if (heartbeat) heartbeatCount++;
+  }
+
+  /// 周期诊断（每 [statsInterval]）：**一行说清**「在不在发 / 服务端理不理 / 堵没堵」。
+  void _tickDiagnostics() {
+    if (_closed) return;
+    final RealtimeTask? task = _task;
+    if (task == null) return;
+    logInfo(
+      'asr',
+      '发送统计 session=$sessionId state=${task.state.name} '
+      'pending未发送=${_pending.length}B 已发帧=$sentFrames 已发=${sentBytes}B '
+      '距服务端消息=${_serverMsgAgeLabel()} 服务端消息=$serverMessageCount '
+      '心跳=$heartbeatCount 重连=$_restartCount/$maxRestart running=$isRunning',
+    );
+    _checkServerSilence(task);
+  }
+
+  /// 「距上次收到服务端消息」的可读标签。
+  String _serverMsgAgeLabel() {
+    if (lastServerMsgAtMs == 0) return '从未收到';
+    final int age = _now() - lastServerMsgAtMs;
+    return age < 0 ? '0ms' : '${age}ms';
+  }
+
+  /// 服务端静默看门狗：`running` 下长时间收不到任何服务端消息即告警；
+  /// 持续静默（或缓冲同时增长）→ 判定链路僵死，**复用 `_onTaskDown` 重启**。
+  void _checkServerSilence(RealtimeTask task) {
+    if (_closed || _finishing) return;
+    if (task.state != RealtimeState.running) return;
+    if (lastServerMsgAtMs == 0) return; // 还没收到过任何消息 → 交给启动超时兜底
+    final int now = _now();
+    final int silentMs = now - lastServerMsgAtMs;
+    if (silentMs < silenceTimeout.inMilliseconds) {
+      // 有消息 / 未达阈值 → 复位。
+      _lastSilencePendingBytes = -1;
+      _lastSilenceWarnAtMs = 0;
+      return;
+    }
+    final bool growing =
+        _lastSilencePendingBytes >= 0 && _pending.length > _lastSilencePendingBytes;
+    _lastSilencePendingBytes = _pending.length;
+    // 硬阈值：静默持续到 2× 阈值仍无任何消息 → 即便缓冲未增长也判死（心跳默认开启，
+    // 真正健康的链路不会这么久一句 heartbeat 都没有）。
+    final bool dead = growing || silentMs >= silenceTimeout.inMilliseconds * 2;
+    if (now - _lastSilenceWarnAtMs >= silenceWarnInterval.inMilliseconds) {
+      _lastSilenceWarnAtMs = now;
+      logWarn(
+        'asr',
+        '服务端静默 ${silentMs}ms（>${silenceTimeout.inSeconds}s）session=$sessionId '
+        'state=${task.state.name} pending未发送=${_pending.length}B 未发送帧=${_pending.length ~/ chunkBytes} '
+        '已发帧=$sentFrames 心跳=$heartbeatCount '
+        '缓冲${growing ? '持续增长→判定链路僵死' : '未增长'}'
+        '${dead ? '，触发重连' : '（继续观察）'}',
+      );
+    }
+    if (dead) {
+      _lastSilencePendingBytes = -1;
+      unawaited(
+        _onTaskDown(
+          'E_SILENT',
+          '服务端 ${silentMs}ms 无任何消息${growing ? '且缓冲持续增长' : ''}',
+        ),
+      );
+    }
+  }
+
+  /// 状态非 running 却仍在堆积 → 限频 warn（明确「因状态非 running 而缓冲」，绝不静默）。
+  void _maybeWarnBuffering(RealtimeTask task) {
+    final int now = _now();
+    if (now - _lastBufferWarnAtMs < kAsrBufferWarnInterval.inMilliseconds) return;
+    _lastBufferWarnAtMs = now;
+    logWarn(
+      'asr',
+      '音频未下发（缓冲中，未丢）session=$sessionId 因状态非 running：'
+      'state=${task.state.name} pending=${_pending.length}B 未发送帧=${_pending.length ~/ chunkBytes} '
+      '（重连成功后按环形缓冲回放）',
+    );
+  }
+
   /// 把累积的 PCM 凑满 [chunkBytes] 后下发。
+  ///
+  /// **不再静默**：
+  /// - 状态非 running 却仍在堆积 → 限频 warn（[_maybeWarnBuffering]）；
+  /// - 发送失败（状态在循环中变化 / socket 异常）→ **把该包放回队首**（绝不丢），退出。
   void _drain() {
     final RealtimeTask? task = _task;
-    if (task == null || task.state != RealtimeState.running) return;
+    if (task == null) return;
+    if (task.state != RealtimeState.running) {
+      if (_pending.length >= chunkBytes) _maybeWarnBuffering(task);
+      return;
+    }
     while (_pending.length >= chunkBytes) {
       final Uint8List chunk = Uint8List.fromList(_pending.sublist(0, chunkBytes));
       _pending.removeRange(0, chunkBytes);
-      task.sendAudio(chunk);
+      if (task.sendAudio(chunk)) {
+        sentFrames++;
+        sentBytes += chunk.length;
+      } else {
+        // 发送未成功 → 放回队首，绝不静默丢弃。
+        _pending.insertAll(0, chunk);
+        _maybeWarnBuffering(task);
+        break;
+      }
     }
   }
 
@@ -559,13 +808,17 @@ class BailianRealtimeSession {
   }
 
   /// 把 `result-generated` 句子映射为 [StreamEvent] 并回调。
+  ///
+  /// **空句不是进度**（历史 Bug）：此前只要不是「`sentence_begin` + 空文本」，其余空文本
+  /// 句也会 `revision++`、打印 `实时句子 ... text=""` 并往逐字稿塞一个空 [StreamEvent] ——
+  /// 日志看着像「正在转写」，实际服务端一句语音都没听到；连续空句还会把逐字稿灌成空。
+  /// 现在空句被彻底剥离：不计数 revision、不发事件、不打 `实时句子`，只累计告警。
   void _onSentence(Map<String, dynamic> sentence) {
     if (sentence['heartbeat'] == true) return;
     final int sentenceId = _roundNum(sentence['sentence_id']);
     final String text = (sentence['text'] as String?) ?? '';
-    // 句子开始事件（空文本）：仅建立 revision 基线，不上屏。
-    if (sentence['sentence_begin'] == true && text.isEmpty) {
-      _revById.putIfAbsent(sentenceId, () => 0);
+    if (text.trim().isEmpty) {
+      _onEmptySentence(sentenceId, sentence);
       return;
     }
 
@@ -607,6 +860,38 @@ class BailianRealtimeSession {
     );
   }
 
+  /// 空句（服务端认为没有有效语音）：只累计 + 节流告警，**绝不伪装成转写进度**。
+  void _onEmptySentence(int sentenceId, Map<String, dynamic> sentence) {
+    _emptySentenceCount += 1;
+    final int now = _now();
+    final bool firstEver = _lastEmptyWarnCount == 0 && _lastEmptyWarnAtMs == 0;
+    final bool reachBatch =
+        _emptySentenceCount - _lastEmptyWarnCount >= kAsrEmptySentenceWarnBatch;
+    final bool reachWindow =
+        !firstEver &&
+        _lastEmptyWarnAtMs > 0 &&
+        now - _lastEmptyWarnAtMs >= kAsrEmptySentenceWarnInterval.inMilliseconds;
+    if (firstEver || reachBatch || reachWindow) {
+      _lastEmptyWarnAtMs = now;
+      _lastEmptyWarnCount = _emptySentenceCount;
+      logWarn(
+        'asr',
+        '服务端仅返回空句 ×$_emptySentenceCount（未见有效语音：通常意味着采集到的音频'
+        '是静音/无有效信号）session=$sessionId id=$sentenceId',
+      );
+    }
+    if (sentence['sentence_end'] == true) {
+      logWarn('asr', '句终但文本为空 id=$sentenceId（本次未识别到语音）session=$sessionId');
+    }
+  }
+
+  /// 复位空句读数与节流状态（每次开新任务时调用，避免跨任务累计）。
+  void _resetEmptySentenceStats() {
+    _emptySentenceCount = 0;
+    _lastEmptyWarnAtMs = 0;
+    _lastEmptyWarnCount = 0;
+  }
+
   /// 任务异常中断：尽力重开（新 `run-task` + 回放环形缓冲 + 时间戳补偿）。
   Future<void> _onTaskDown(String code, String message) async {
     if (_closed || _finishing) return;
@@ -621,6 +906,8 @@ class BailianRealtimeSession {
     }
     _restartCount += 1;
     _restarted = true;
+    // 新任务 → 空句读数归零（后续 open() 也会再归一刀，这里提前复位便于诊断观测）。
+    _resetEmptySentenceStats();
     // 重启后会把环形缓冲重放给新任务，新任务的内部时间 0 对应「重放起点」，
     // 故时间基准 = 当前时钟 − 环形缓冲时长（避免时间戳整体后移一个环形缓冲时长）。
     final int compensated = meetingClockMs - ringDurationMs();
@@ -675,9 +962,16 @@ class BailianRealtimeSession {
     _closed = true;
     _startTimer?.cancel();
     _startTimer = null;
+    _statsTimer?.cancel();
+    _statsTimer = null;
     final RealtimeTask? task = _task;
     _task = null;
-    logInfo('asr', '关闭实时会话 session=$sessionId（state=${task?.state.name ?? 'none'}）');
+    logInfo(
+      'asr',
+      '关闭实时会话 session=$sessionId（state=${task?.state.name ?? 'none'} '
+      '已发帧=$sentFrames 已发=${sentBytes}B 服务端消息=$serverMessageCount '
+      '心跳=$heartbeatCount pending未发送=${_pending.length}B）',
+    );
     task?.abort();
   }
 

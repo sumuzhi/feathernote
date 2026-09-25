@@ -294,6 +294,12 @@ class _SilentSocket implements RealtimeSocket {
   Stream<Object?> get messages => _incoming.stream;
 
   @override
+  int? get closeCode => null;
+
+  @override
+  String? get closeReason => null;
+
+  @override
   void sendText(String text) {}
 
   @override
@@ -315,6 +321,12 @@ class _TaskFailedSocket implements RealtimeSocket {
 
   @override
   Stream<Object?> get messages => _incoming.stream;
+
+  @override
+  int? get closeCode => null;
+
+  @override
+  String? get closeReason => null;
 
   @override
   void sendText(String text) {

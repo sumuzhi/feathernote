@@ -31,6 +31,7 @@ import '../../core/error/app_error.dart';
 import '../../core/ids.dart';
 import '../../core/log/log.dart';
 import '../../core/pcm/audio_frame.dart';
+import '../../core/pcm/level_meter.dart';
 import '../../core/pcm/resampler.dart';
 import '../../core/platform/mic_source.dart';
 import '../../core/platform/recording_foreground_service.dart';
@@ -69,6 +70,20 @@ const int kMicStallSeconds = 3;
 
 /// 单次录音内允许的自动重启次数（防抖，避免无限重启打转）。
 const int kMaxMicRestarts = 1;
+
+/// **静音流**判定阈值（诊断窗口数）：连续这么多个 1s 诊断窗口内采集峰值都低于
+/// [kSilencePeakThreshold]，即认定「麦克风在吐静音」。
+///
+/// 为什么需要它：看门狗只判「有没有收到 chunk」，而 `AudioRecord` 哑掉后**仍在按
+/// 字节填充**（实测：8.76s 的录音里前 2.78s 有波形、之后 100% 全零，字节总数完整）。
+/// 这类「字节流在涨但内容为零」的静音流，看门狗永远抓不到 —— 只有看能量才发现。
+const int kMicSilentSeconds = 3;
+
+/// 单次录音内因**静音**触发的重启上限。
+///
+/// 与 [kMaxMicRestarts] **分开计数**：环境本来就安静时不该耗尽断流重启的预算；
+/// 且静音最多只重启一次，避免「重启→仍静音→再重启」打转。
+const int kMaxSilenceRestarts = 1;
 
 /// 音频诊断采样周期。
 const Duration kAudioDiagInterval = Duration(seconds: 1);
@@ -215,6 +230,40 @@ class RecorderController extends Notifier<RecorderUiState> {
   /// 暂停期间被忽略的 chunk 数（诊断用；正常行为，非错误）。
   int _droppedWhilePaused = 0;
 
+  // ── 静音流检测（「字节流在涨但内容全零」的唯一抓手）──
+  /// 当前诊断窗口内的采集峰值（窗口结束即清零重来）。
+  int _windowPeak = 0;
+
+  /// 当前诊断窗口内的 RMS 累加（用于日志，判断"有多安静"）。
+  double _windowRmsSum = 0;
+
+  /// 当前诊断窗口内参与 RMS 统计的 chunk 数。
+  int _windowRmsCount = 0;
+
+  /// 连续被判为静音的诊断窗口数（遇到有声音的窗口即归零）。
+  int _silentSeconds = 0;
+
+  /// 静音告警是否已提示过（同一会话只提示一次，避免每秒刷屏）。
+  bool _silenceWarned = false;
+
+  /// 因静音触发的重启次数（与 [_restarts] 分开计数）。
+  int _silenceRestarts = 0;
+
+  /// 最近一个完整诊断窗口的峰值（诊断 / 测试用；尚未产生窗口时为 -1）。
+  int _lastWindowPeak = -1;
+
+  /// 最近一个完整诊断窗口的 RMS（诊断 / 测试用）。
+  double _lastWindowRms = 0;
+
+  /// 连续静音窗口数（诊断 / 测试用）。
+  int get silentSeconds => _silentSeconds;
+
+  /// 最近一个完整诊断窗口的峰值（诊断 / 测试用；尚未产生窗口时为 -1）。
+  int get lastWindowPeak => _lastWindowPeak;
+
+  /// 因静音触发的重启次数（诊断 / 测试用）。
+  int get silenceRestartCount => _silenceRestarts;
+
   /// 本会话收到的 PCM chunk 数（诊断 / 测试用）。
   int get chunkCount => _chunkCount;
 
@@ -356,6 +405,14 @@ class RecorderController extends Notifier<RecorderUiState> {
       _loggedFirstFrame = false;
       _recovering = false;
       _droppedWhilePaused = 0;
+      _windowPeak = 0;
+      _windowRmsSum = 0;
+      _windowRmsCount = 0;
+      _silentSeconds = 0;
+      _silenceWarned = false;
+      _silenceRestarts = 0;
+      _lastWindowPeak = -1;
+      _lastWindowRms = 0;
       _lastChunkAtMs = _nowMs();
       _pcmSubscription = _listenPcm(pcmStream);
       logInfo('recorder', '步骤⑧监听已挂载 耗时=${watch.elapsedMilliseconds}ms');
@@ -598,6 +655,12 @@ class RecorderController extends Notifier<RecorderUiState> {
     final Resampler? resampler = _resampler;
     final Uint8List pcm = resampler == null ? chunk : resampler.convert(chunk);
     if (pcm.isEmpty) return;
+    // 能量采样：**看门狗看字节，这里看声音**。底层 AudioRecord 哑掉后仍会按字节
+    // 填充（实测全零），只有峰值能暴露「采到了但采的是静音」。
+    final PcmLevel level = measurePcm(pcm);
+    if (level.peak > _windowPeak) _windowPeak = level.peak;
+    _windowRmsSum += level.rms;
+    _windowRmsCount++;
     final List<AudioFrame> frames = _slicer.push(pcm);
     for (final AudioFrame frame in frames) {
       _frameCount++;
@@ -611,7 +674,18 @@ class RecorderController extends Notifier<RecorderUiState> {
   }
 
   /// 麦克风异常中断的统一恢复路径：先试着重启一次，仍不行就收尾并提示。
-  Future<void> _recoverMic(String reason) async {
+  Future<void> _recoverMic(
+    String reason, {
+    bool abortOnExhausted = true,
+
+    /// 是否计入 [_restarts] 预算。静音触发的恢复传 `false`：它由
+    /// [_silenceRestarts] 单独限次，不应吃掉断流看门狗的重启名额。
+    bool countAgainstBudget = true,
+
+    /// 覆盖给用户看的提示文案。静音场景需要比默认「录音中断（$reason）」更明确的
+    /// 说法——"字节在涨但没声音"这件事，用户必须能从提示里直接读懂。
+    String? userMessage,
+  }) async {
     if (_disposed) return;
     if (state.phase != RecorderPhase.recording && state.phase != RecorderPhase.paused) {
       return;
@@ -625,15 +699,26 @@ class RecorderController extends Notifier<RecorderUiState> {
     }
     _recovering = true;
     try {
-      if (_restarts >= kMaxMicRestarts) {
-        logWarn('recorder', '麦克风中断（$reason）且已达重启上限 $_restarts，转入收尾');
-        await _abortAfterMicFailure(reason);
-        return;
+      if (countAgainstBudget) {
+        if (_restarts >= kMaxMicRestarts) {
+          // 静音触发的恢复不收尾：安静的会议室不是故障，掐掉用户正在进行的会议
+          // 比"让它继续录"糟糕得多。此时已录内容保留，用户可随时手动结束。
+          if (!abortOnExhausted) {
+            logWarn(
+              'recorder',
+              '麦克风异常（$reason）已达重启上限 $_restarts，按调用方要求**不收尾**，录音继续',
+            );
+            return;
+          }
+          logWarn('recorder', '麦克风中断（$reason）且已达重启上限 $_restarts，转入收尾');
+          await _abortAfterMicFailure(reason);
+          return;
+        }
+        _restarts++;
       }
-      _restarts++;
       logWarn('recorder', '麦克风中断（$reason），尝试第 $_restarts 次自动重启');
       ref.read(toastProvider.notifier).show(
-        '录音中断（$reason），正在自动恢复…',
+        userMessage ?? '录音中断（$reason），正在自动恢复…',
         tone: ToastTone.warning,
       );
       final MicSource? mic = _mic;
@@ -737,13 +822,83 @@ class RecorderController extends Notifier<RecorderUiState> {
     _diagTimer?.cancel();
     _diagTimer = Timer.periodic(kAudioDiagInterval, (Timer _) {
       if (_disposed) return;
+      // 暂停 / 恢复中本来就不产数据：能量窗口不参与静音判定，直接复位。
+      if (state.phase != RecorderPhase.recording) {
+        _windowPeak = 0;
+        _windowRmsSum = 0;
+        _windowRmsCount = 0;
+        _silentSeconds = 0;
+      } else {
+        _closeDiagWindow();
+      }
       logInfo(
         'recorder',
         '音频诊断 已录=${elapsedMs}ms chunk=$_chunkCount 帧=$_frameCount '
         '上送=${pushedBytes}B 后端落盘=${backendPcmBytes}B '
-        '距上次chunk=${_nowMs() - _lastChunkAtMs}ms 阶段=${state.phase.name} 重启=$_restarts',
+        '距上次chunk=${_nowMs() - _lastChunkAtMs}ms '
+        '峰值=$_lastWindowPeak RMS=${_lastWindowRms.toStringAsFixed(1)} '
+        '静音秒=$_silentSeconds 阶段=${state.phase.name} 重启=$_restarts',
       );
     });
+  }
+
+  /// 结算一个诊断窗口的能量读数并推进静音判定。
+  ///
+  /// 静音达到 [kMicSilentSeconds] 个窗口 → 明确告警 + 尝试重启采集流一次。
+  /// **绝不因静音而收尾**（安静的会议室不等于故障，掐掉用户会议是不可接受的）。
+  void _closeDiagWindow() {
+    _lastWindowPeak = _windowPeak;
+    final bool hadChunks = _windowRmsCount > 0;
+    // ⚠️ 必须在清零**之前**算出均值，否则日志里的 RMS 恒为 0.0（与峰值自相矛盾）。
+    final double windowRms = hadChunks ? _windowRmsSum / _windowRmsCount : 0;
+    _lastWindowRms = windowRms;
+    _windowPeak = 0;
+    _windowRmsSum = 0;
+    _windowRmsCount = 0;
+
+    if (!hadChunks) {
+      // 本窗口一个 chunk 都没有 → 那是「断流」，归看门狗管（[kMicStallSeconds]）。
+      // 静音检测只负责「字节在涨但内容为零」，两者职责不重叠、不重复触发重启。
+      _silentSeconds = 0;
+      return;
+    }
+
+    if (_lastWindowPeak >= kSilencePeakThreshold) {
+      // 采到声音 → 静音计数归零，并允许将来再次告警（新的一次静音事件）。
+      _silentSeconds = 0;
+      _silenceWarned = false;
+      return;
+    }
+    _silentSeconds++;
+    if (_silentSeconds < kMicSilentSeconds) return;
+    if (_silenceWarned) return;
+    _silenceWarned = true;
+    logWarn(
+      'recorder',
+      '[mic] 检测到静音流：连续 ${_silentSeconds}s 采集峰值 < $kSilencePeakThreshold'
+      '（麦克风可能已被系统掐断或输入源无信号；字节流仍在填充，但内容为零）',
+    );
+    if (_silenceRestarts >= kMaxSilenceRestarts) {
+      logWarn(
+        'recorder',
+        '[mic] 静音重启已达上限 $_silenceRestarts/$kMaxSilenceRestarts：'
+        '不再重启，录音继续（内容可能仍无效，请检查麦克风权限或输入源）',
+      );
+      ref.read(toastProvider.notifier).show(
+        '仍未采集到有效声音，请检查麦克风权限或输入设备',
+        tone: ToastTone.warning,
+      );
+      return;
+    }
+    _silenceRestarts++;
+    unawaited(
+      _recoverMic(
+        '连续 ${_silentSeconds}s 采集到静音',
+        abortOnExhausted: false,
+        countAgainstBudget: false,
+        userMessage: '未采集到有效声音，正在尝试恢复麦克风…',
+      ),
+    );
   }
 
   void _stopDiagnostics() {

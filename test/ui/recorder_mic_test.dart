@@ -33,6 +33,21 @@ import 'package:smart_minutes_flutter/ui/providers/recorder_controller.dart';
 /// [ms] 毫秒的静音 PCM（16kHz / 16bit / 单声道 = 32B/ms）。
 Uint8List _silence(int ms) => Uint8List(ms * 16 * 2);
 
+/// [ms] 毫秒的**有声** PCM（方波，峰值 5000，量级对齐真实语音）。
+///
+/// 何时用哪个：只看「有没有字节流动」的用例用 [_silence] 即可；但凡断言
+/// 「不该被静音检测/看门狗重启」，必须用 [_speech] —— 因为全零 PCM 在
+/// 采集语义上就是静音流（`AudioRecord` 哑掉的表现），会被静音检测正确命中。
+Uint8List _speech(int ms) {
+  final int samples = ms * 16;
+  final Uint8List bytes = Uint8List(samples * 2);
+  final ByteData view = ByteData.view(bytes.buffer);
+  for (int i = 0; i < samples; i++) {
+    view.setInt16(i * 2, i % 40 < 20 ? 5000 : -5000, Endian.little);
+  }
+  return bytes;
+}
+
 /// 让事件循环转几圈（流事件 / 多段 await 链都靠它收敛）。
 Future<void> _settle({int ms = 30}) async {
   for (int i = 0; i < 4; i++) {
@@ -276,14 +291,17 @@ void main() {
     await boot.rec.startRecording();
     await _settle();
 
+    // 用**有声** PCM：全零数据在采集语义上就是静音流，会被静音检测正确命中。
+    // 这里要验证的是「持续收帧时看门狗不误判」，故填充必须是真实幅度。
     for (int i = 0; i < (kMicStallSeconds + 1); i++) {
-      boot.mic.emit(_silence(100));
+      boot.mic.emit(_speech(100));
       await Future<void>.delayed(const Duration(milliseconds: 1000));
     }
     await _settle();
 
-    expect(boot.mic.startCalls, 1, reason: '一直有数据就不该重启');
+    expect(boot.mic.startCalls, 1, reason: '一直有（有声）数据就不该重启');
     expect(boot.rec.restartCount, 0);
+    expect(boot.rec.silentSeconds, 0, reason: '采集到声音 → 静音计数必须保持为 0');
   });
 
   test('未授权麦克风 → 停在待机并给出可读错误，且不起流', () async {
