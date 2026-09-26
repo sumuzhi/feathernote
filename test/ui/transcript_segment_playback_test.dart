@@ -452,13 +452,52 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10)); // 宽限期内
 
       AudioPlayerState state = container.read(audioPlayerControllerProvider);
-      expect(state.isPlaying, isFalse, reason: '播放已结束，按钮应切回播放图标');
+      expect(state.isPlaying, isFalse, reason: '真实音频已停');
+      expect(state.justFinished, isTrue, reason: '宽限期内必须处于「刚播完」标记下');
       expect(state.currentPositionMs, 5000, reason: '位置必须钉在段尾 → 进度条满格');
       expect(state.playingSegmentId, 's1', reason: '宽限期内组件仍在（满格视觉反馈）');
 
       await Future<void>.delayed(const Duration(milliseconds: 120)); // 宽限期已过
       state = container.read(audioPlayerControllerProvider);
       expect(state.playingSegmentId, isNull, reason: '宽限期结束后撤下播放组件');
+      expect(state.justFinished, isFalse, reason: '撤下时标记一并复位');
+    });
+
+    test('宽限期内图标状态跟随组件生命周期（保持暂停样式，与组件同生共死）', () async {
+      // 2026-09-26 用户反馈：播放/暂停 icon 仍走旧的 isPlaying 逻辑，
+      // 宽限期内组件还在渲染、icon 却提前切回「播放」，与组件脱节。
+      // 契约：图标判定 = isPlaying || (active && justFinished)。
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(
+        engine: engine,
+        audioPath: '/tmp/m.wav',
+        autoStopGrace: const Duration(milliseconds: 80),
+      );
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(5100);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 宽限期内：组件渲染中 → 图标应为「暂停」样式。
+      AudioPlayerState state = container.read(audioPlayerControllerProvider);
+      final bool iconShowsPause =
+          state.isSegmentPlaying('s1', 1000) ||
+          (state.isSegmentActive('s1', 1000) && state.justFinished);
+      expect(iconShowsPause, isTrue, reason: '组件可见期间图标必须保持「暂停」样式');
+
+      // 宽限期内点击图标 → 走重播分支（isSegmentPlaying 为 false，不命中暂停）。
+      expect(state.isSegmentPlaying('s1', 1000), isFalse);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      state = container.read(audioPlayerControllerProvider);
+      expect(state.isPlaying, isTrue);
+      expect(state.justFinished, isFalse, reason: '重新开播后「刚播完」标记必须复位');
+      expect(
+        state.isSegmentPlaying('s1', 1000),
+        isTrue,
+        reason: '重新开播后图标恢复「暂停」样式（正在播放）',
+      );
     });
 
     test('宽限期内重新开播则放弃撤除，不得吃掉新的播放会话', () async {

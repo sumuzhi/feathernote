@@ -171,6 +171,9 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
     final bool highlight = _hits.isNotEmpty && _hits[_hitCursor - 1] == index;
     final bool active = audioState.isSegmentActive(segment.segmentId, segment.startTime);
     final bool playing = audioState.isSegmentPlaying(segment.segmentId, segment.startTime);
+    // 图标跟随播放组件的生命周期：自动停后的满格宽限期内组件仍在渲染，
+    // 图标保持「暂停」样式，与进度条/时间一起同时消失（不能提前切回「播放」）。
+    final bool iconShowsPause = playing || (active && audioState.justFinished);
     // 段内进度与已播时长：当前段才计算，其余场景恒为默认值。
     final int segDuration = segment.endTime - segment.startTime;
     final int played =
@@ -185,7 +188,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       endTimeMs: segment.endTime,
       highlight: highlight,
       playActive: active,
-      isPlaying: playing,
+      isPlaying: iconShowsPause,
       playProgress: segDuration > 0 ? played / segDuration : 0,
       playPositionLabel: formatClock(played),
       playDurationLabel: formatClock(segDuration),

@@ -93,6 +93,7 @@ class AudioPlayerState {
     this.playingSegmentId,
     this.playingStartMs = -1,
     this.isPlaying = false,
+    this.justFinished = false,
     this.currentPositionMs = 0,
     this.durationMs = 0,
     this.currentMeetingId,
@@ -118,6 +119,15 @@ class AudioPlayerState {
 
   /// 是否正在播放。
   final bool isPlaying;
+
+  /// 自动停后的「满格宽限期」标记（组件仍在渲染、进度已钉满、音频已停）。
+  ///
+  /// 图标必须跟随**播放组件的生命周期**而不是 `isPlaying`：宽限期内组件还在，
+  /// 图标保持「暂停」样式，与进度条、时间一起同时消失；否则图标会提前 340ms
+  /// 切回「播放」，与仍然可见的组件脱节（2026-09-26 用户反馈）。
+  /// 注意：`isSegmentPlaying` 仍按 [isPlaying] 判定 —— 宽限期内点击图标走的是
+  /// 「重播」分支，不受本标记影响。
+  final bool justFinished;
 
   /// 当前播放位置（毫秒）。
   final int currentPositionMs;
@@ -148,6 +158,7 @@ class AudioPlayerState {
   AudioPlayerState copyWith({
     String? playingSegmentId,
     bool? isPlaying,
+    bool? justFinished,
     int? currentPositionMs,
     int? durationMs,
     String? currentMeetingId,
@@ -164,6 +175,7 @@ class AudioPlayerState {
             : (playingSegmentId ?? this.playingSegmentId),
         playingStartMs: clearActive ? -1 : (playingStartMs ?? this.playingStartMs),
         isPlaying: isPlaying ?? this.isPlaying,
+        justFinished: clearActive ? false : (justFinished ?? this.justFinished),
         currentPositionMs: currentPositionMs ?? this.currentPositionMs,
         durationMs: durationMs ?? this.durationMs,
         currentMeetingId: currentMeetingId ?? this.currentMeetingId,
@@ -328,6 +340,7 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         playingSegmentId: segmentId,
         playingStartMs: startMs,
         isPlaying: true,
+        justFinished: false,
         currentPositionMs: targetMs,
         clearError: true,
       );
@@ -485,11 +498,14 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   Future<void> _autoStop() async {
     _intentPlaying = false;
     _startedPlaying = false;
-    // ★ 先把位置钉在段尾：进度条立刻满格（played/segDuration = 1.0）、按钮切回
-    // 播放图标。否则最后的 320ms 补间还没画到最右端，组件就被下面的
-    // clearActive 卸载了 —— 用户肉眼看到「条没走到最右边就消失」
-    // （2026-09-26 日志实证：autoStop 逻辑到位，视觉被卸载竞争截断）。
-    state = state.copyWith(currentPositionMs: _endMs, isPlaying: false);
+    // ★ 先把位置钉在段尾：进度条立刻满格（played/segDuration = 1.0）。
+    // isPlaying 置 false（真实音频已停），但 justFinished 置 true —— 图标保持
+    // 「暂停」样式跟随组件生命周期，直到宽限期结束随组件一起消失。
+    state = state.copyWith(
+      currentPositionMs: _endMs,
+      isPlaying: false,
+      justFinished: true,
+    );
     try {
       await _player.pause();
     } catch (_) {
