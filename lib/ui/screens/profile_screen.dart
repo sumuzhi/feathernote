@@ -1,4 +1,4 @@
-/// 屏 05：我的（HTML `#s05`）。
+/// 屏 05：设置（HTML `#s05`；App 无登录，原用户卡已移除，统计模块保留）。
 library;
 
 import 'package:flutter/material.dart';
@@ -9,6 +9,18 @@ import '../widgets/app_switch.dart';
 import '../widgets/app_tab_bar.dart';
 import '../widgets/surface_card.dart';
 import 'screen_frame.dart';
+
+/// 统计项。
+class ProfileStatView {
+  /// 构造统计项。
+  const ProfileStatView({required this.value, required this.label});
+
+  /// 数值（如「128」/「64h」）。
+  final String value;
+
+  /// 说明。
+  final String label;
+}
 
 /// 设置行。
 class ProfileSettingView {
@@ -65,11 +77,12 @@ class ProfileSectionView {
   final List<ProfileSettingView> rows;
 }
 
-/// 设置页（原「我的」屏 05：App 无登录，用户卡与统计卡已移除）。
+/// 设置页（原「我的」屏 05：App 无登录，用户卡已移除，**统计模块保留**）。
 class ProfileScreen extends StatelessWidget {
   /// 构造设置页。
   const ProfileScreen({
     super.key,
+    required this.stats,
     required this.sections,
     required this.versionText,
     required this.onSettings,
@@ -91,6 +104,9 @@ class ProfileScreen extends StatelessWidget {
 
   /// 选中 Tab（默认 2 = 设置）。
   final int selectedTab;
+
+  /// 统计项（3 个：场会议 / 累计时长 / 场已总结）。
+  final List<ProfileStatView> stats;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +130,25 @@ class ProfileScreen extends StatelessWidget {
                   tooltip: '关于',
                   iconSize: 19,
                 ),
+              ],
+            ),
+          ),
+          // 统计模块（保留）：场会议 / 累计时长 / 场已总结。
+          SurfaceCard(
+            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+            child: Row(
+              children: <Widget>[
+                for (int i = 0; i < stats.length; i++)
+                  Expanded(
+                    child: Column(
+                      children: <Widget>[
+                        Text(stats[i].value, style: AppTextStyles.statValue),
+                        const SizedBox(height: 5),
+                        Text(stats[i].label, style: AppTextStyles.metaSmall),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

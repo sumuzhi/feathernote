@@ -81,6 +81,7 @@ class AppPillButton extends StatelessWidget {
     required this.onTap,
     this.stopIcon = false,
     this.expand = true,
+    this.height = 56,
   });
 
   /// 文案。
@@ -94,6 +95,9 @@ class AppPillButton extends StatelessWidget {
 
   /// 是否占满剩余宽度。
   final bool expand;
+
+  /// 按钮高度（默认 56；紧凑场景可传 44）。
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +126,7 @@ class AppPillButton extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          height: 56,
+          height: height,
           width: expand ? double.infinity : null,
           padding: expand ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 30),
           decoration: BoxDecoration(

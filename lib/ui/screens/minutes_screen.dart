@@ -74,15 +74,15 @@ class MinutesScreen extends StatelessWidget {
       bottomCta: Row(
         children: <Widget>[
           Expanded(
-            child: AppPillButton(label: '导出纪要', onTap: onExport),
+            child: AppPillButton(label: '导出纪要', onTap: onExport, height: 44),
           ),
           const SizedBox(width: 12),
           AppCircleButton(
             icon: favorited ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
             onTap: onFavorite,
             tooltip: '收藏',
-            size: 56,
-            iconSize: 19,
+            size: 44,
+            iconSize: 17,
           ),
         ],
       ),

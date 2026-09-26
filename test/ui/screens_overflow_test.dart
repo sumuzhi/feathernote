@@ -48,6 +48,11 @@ RecordingScreen _recording({List<TranscriptItemView>? items}) {
 
 ProfileScreen _profile() {
   return ProfileScreen(
+    stats: const <ProfileStatView>[
+      ProfileStatView(value: '128', label: '场会议'),
+      ProfileStatView(value: '64h', label: '累计时长'),
+      ProfileStatView(value: '96', label: '场已总结'),
+    ],
     sections: <ProfileSectionView>[
       ProfileSectionView(
         title: '模型与转写',

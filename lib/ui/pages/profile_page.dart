@@ -51,12 +51,19 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final AsyncValue<HealthStatus> asyncHealth = ref.watch(healthProvider);
     final HealthStatus? health = asyncHealth.value;
     final AppConfigView config = _configView();
+    int totalMs = 0;
     int summarized = 0;
     for (final MeetingSummary item in meetings) {
+      totalMs += item.durationMs;
       if (item.hasMinutes) summarized++;
     }
 
     return ProfileScreen(
+      stats: <ProfileStatView>[
+        ProfileStatView(value: '${meetings.length}', label: '场会议'),
+        ProfileStatView(value: '${totalMs ~/ 3600000}h', label: '累计时长'),
+        ProfileStatView(value: '$summarized', label: '场已总结'),
+      ],
       sections: <ProfileSectionView>[
         ProfileSectionView(
           title: '导出',
