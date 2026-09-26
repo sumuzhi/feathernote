@@ -96,19 +96,36 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     }
   }
 
-  /// 「生成前置」守卫：**逐字稿落库确认之前绝不生成纪要**。
+  /// 「生成前置」守卫：**终稿（filetrans）定稿之前绝不生成纪要**。
   ///
-  /// 背景：停录收尾（`onStop`）可能仍在后台进行（UI 超时抢跑）。若此刻立即生成，
-  /// 会读到 0 段逐字稿 → LLM 产出无源摘要（历史缺陷）。故这里轮询等待：
-  /// 直到「逐字稿非空」或「终稿状态已从 none 变化」（= onStop 已完成落库并触发终稿），
-  /// 再触发生成；真正为空则明确提示、不生成。
+  /// 数据统一约定（2026-09-26）：实时稿只作**录音中的实时预览**；停录后走
+  /// 离线 filetrans 产出终稿逐字稿，最终纪要只依据终稿生成并入库——
+  /// 全流程只存在这一份纪要，历史卡片摘要与详情页内容因此天然一致。
+  ///
+  /// 门控规则：
+  /// - `pending`：等待终稿（**即使实时逐字稿已落库也不抢跑**），done/failed 事件驱动后续；
+  /// - `done`：用终稿逐字稿生成；
+  /// - `failed`：终稿失败，用保留的实时稿**兜底**生成（保证用户拿到可用产物）；
+  /// - `none`：onStop 会同步落 pending；等不到时给 5s 宽限（覆盖 upload=false /
+  ///   自检等无终稿链路），超时按「无终稿」放行。
   Future<void> _ensureTranscriptThenGenerate() async {
     final DateTime deadline = DateTime.now().add(const Duration(seconds: 30));
+    DateTime? noneWithTranscriptSince;
     while (mounted) {
       final Meeting? m = _meeting;
       if (m == null) return;
-      // 逐字稿已落库（非空），或终稿已进入 pending/done/failed（onStop 必经此刻），即可推进。
-      if (m.segments.isNotEmpty || m.finalizeStatus != FinalizeStatus.none) break;
+      if (m.finalizeStatus == FinalizeStatus.pending) return;
+      if (m.finalizeStatus == FinalizeStatus.done ||
+          m.finalizeStatus == FinalizeStatus.failed) {
+        break;
+      }
+      if (m.segments.isNotEmpty) {
+        noneWithTranscriptSince ??= DateTime.now();
+        if (DateTime.now().difference(noneWithTranscriptSince) >=
+            const Duration(seconds: 5)) {
+          break;
+        }
+      }
       if (DateTime.now().isAfter(deadline)) break;
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -123,32 +140,26 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       return;
     }
     // 逐字稿仍为空：
-    if (m.finalizeStatus == FinalizeStatus.pending) {
-      // 终稿在处理中，完成后 `_onFinalizeDone` 会带终稿逐字稿强制重生成 —— 保持生成锁。
-      logInfo('meeting', '逐字稿暂空但终稿处理中，等待终稿完成后再生成 meeting=${widget.meetingId}');
-      return;
-    }
-    // 确实没有逐字稿（全程静音 / 引擎无输出）：明确提示，不再生成无源纪要。
     ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
     if (m.finalizeStatus == FinalizeStatus.failed) {
       setState(() => _finalizeError = m.finalizeError ?? '终稿处理失败');
     }
-    ref.read(toastProvider.notifier).show(
-          '未获取到逐字稿，暂无法生成纪要',
-          tone: ToastTone.warning,
-        );
+    ref
+        .read(toastProvider.notifier)
+        .show('未获取到逐字稿，暂无法生成纪要', tone: ToastTone.warning);
   }
 
   /// 终稿进度事件：只处理本会议的 done / failed。
   void _onTranscriptEvent(TranscriptEvent event) {
-    if (event is! FinalizeProgress || event.meetingId != widget.meetingId) return;
+    if (event is! FinalizeProgress || event.meetingId != widget.meetingId)
+      return;
     switch (event.status) {
       case 'done':
         unawaited(_onFinalizeDone());
       case 'failed':
         if (!mounted) return;
         setState(() => _finalizeError = event.error ?? '终稿处理失败');
-        unawaited(_refresh());
+        unawaited(_onFinalizeFailed());
       default:
         break;
     }
@@ -166,6 +177,25 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     }
   }
 
+  /// 终稿失败兜底：终稿逐字稿拿不到，用**保留的实时稿**生成纪要，
+  /// 保证用户至少拿到一份基于真实录音内容的产物（顶栏仍会展示失败原因）。
+  Future<void> _onFinalizeFailed() async {
+    await _refresh();
+    final Meeting? after = _meeting;
+    if (!mounted || after == null) return;
+    if (after.hasMinutes || after.segments.isEmpty) {
+      // 已有纪要或确实无内容：只解锁，不生成无源纪要。
+      ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
+      return;
+    }
+    logInfo(
+      'meeting',
+      '终稿失败，改用实时稿兜底生成纪要 meeting=${widget.meetingId} '
+          'segment=${after.segments.length}',
+    );
+    await _generate();
+  }
+
   Future<void> _generate({bool force = false}) async {
     if (_generating) return;
     setState(() {
@@ -179,22 +209,20 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       _generationSubscription = api
           .generateMinutesStream(widget.meetingId, force: force)
           .listen((String chunk) {
-        if (!mounted) return;
-        setState(() => _streamBuffer += chunk);
-      });
+            if (!mounted) return;
+            setState(() => _streamBuffer += chunk);
+          });
       await _generationSubscription?.asFuture<void>();
     } catch (error) {
       failure = error;
     }
     if (!mounted) return;
     if (failure != null) {
-      final String message =
-          failure is AppError ? failure.message : '$failure';
+      final String message = failure is AppError ? failure.message : '$failure';
       setState(() => _error = message);
-      ref.read(toastProvider.notifier).show(
-            '纪要生成失败：$message',
-            tone: ToastTone.warning,
-          );
+      ref
+          .read(toastProvider.notifier)
+          .show('纪要生成失败：$message', tone: ToastTone.warning);
     }
     await _refresh();
     // 生成结束（成功或失败都算结束）→ 解除首页「本会话生成中」锁，
@@ -257,7 +285,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     return MinutesScreen(
       generatedAt: '生成于 ${formatHm(meeting.createdAt)}',
       meetingTitle: meeting.title,
-      meetingMeta: '${formatDurationCn(meeting.durationMs)} · '
+      meetingMeta:
+          '${formatDurationCn(meeting.durationMs)} · '
           '${formatSpeakerCount(meeting.speakerCount)} · '
           '${formatDayTime(meeting.createdAt)}',
       badgeText: badgeText,
@@ -269,10 +298,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       onExport: _export,
       onFavorite: () {
         setState(() => _favorited = !_favorited);
-        ref.read(toastProvider.notifier).show(
-              _favorited ? '已收藏' : '已取消收藏',
-              tone: ToastTone.success,
-            );
+        ref
+            .read(toastProvider.notifier)
+            .show(_favorited ? '已收藏' : '已取消收藏', tone: ToastTone.success);
       },
       favorited: _favorited,
     );
@@ -285,10 +313,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       ClipboardData(text: '${meeting.title}\n\n${meeting.minutesMd ?? ''}'),
     );
     if (!mounted) return;
-    ref.read(toastProvider.notifier).show(
-          '纪要已复制，可直接分享',
-          tone: ToastTone.success,
-        );
+    ref
+        .read(toastProvider.notifier)
+        .show('纪要已复制，可直接分享', tone: ToastTone.success);
   }
 
   Future<void> _export() async {
@@ -305,19 +332,17 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         destination: destination,
       );
       if (!mounted) return;
-      ref.read(toastProvider.notifier).show(
-            '已导出：$path',
-            tone: ToastTone.success,
-          );
+      ref
+          .read(toastProvider.notifier)
+          .show('已导出：$path', tone: ToastTone.success);
     } on ExportCancelledException {
       // 用户在系统「另存为」取消，不打扰。
       return;
     } catch (error) {
       if (!mounted) return;
-      ref.read(toastProvider.notifier).show(
-            '导出失败：$error',
-            tone: ToastTone.warning,
-          );
+      ref
+          .read(toastProvider.notifier)
+          .show('导出失败：$error', tone: ToastTone.warning);
     }
   }
 
@@ -373,7 +398,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
             ? (outline.tailBody.isEmpty ? '纪要生成中…' : outline.tailBody)
             : outline.summary,
         sections: sections,
-        transcriptChars: '${formatThousands(meeting.segments.fold<int>(0, (int sum, segment) => sum + countChars(segment.text)))} 字 ›',
+        transcriptChars:
+            '${formatThousands(meeting.segments.fold<int>(0, (int sum, segment) => sum + countChars(segment.text)))} 字 ›',
         // 携带已加载的会议对象：转写页首帧即可渲染内容，避免「空态→内容」闪烁。
         // 压栈式跳转：转写页系统返回键原生 pop 回纪要页。
         onOpenTranscript: () =>
@@ -389,7 +415,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
 
   static const int _maxItemsPerSection = 3;
 
-  List<String> _visibleItems(List<String> items) => items.length > _maxItemsPerSection
+  List<String> _visibleItems(List<String> items) =>
+      items.length > _maxItemsPerSection
       ? items.sublist(0, _maxItemsPerSection)
       : items;
 }
@@ -401,28 +428,28 @@ class Outline {
 
   /// 空态。
   factory Outline.empty({String? error, VoidCallback? onRetry}) => Outline(
-        view: MinutesView(
-          title: '✦ AI 结构化纪要',
-          modelTag: '待生成',
-          abstractText: error == null ? '纪要尚未生成。' : '纪要生成失败：$error',
-          sections: const <MinutesSectionView>[],
-          transcriptChars: '0 字 ›',
-          onRetry: onRetry,
-        ),
-        chars: 0,
-      );
+    view: MinutesView(
+      title: '✦ AI 结构化纪要',
+      modelTag: '待生成',
+      abstractText: error == null ? '纪要尚未生成。' : '纪要生成失败：$error',
+      sections: const <MinutesSectionView>[],
+      transcriptChars: '0 字 ›',
+      onRetry: onRetry,
+    ),
+    chars: 0,
+  );
 
   /// 生成中。
   factory Outline.generating() => const Outline(
-        view: MinutesView(
-          title: '✦ AI 结构化纪要',
-          modelTag: 'qwen3.7-plus',
-          abstractText: '正在根据逐字稿生成结构化纪要，请稍候…',
-          sections: <MinutesSectionView>[],
-          transcriptChars: '…',
-        ),
-        chars: 0,
-      );
+    view: MinutesView(
+      title: '✦ AI 结构化纪要',
+      modelTag: 'qwen3.7-plus',
+      abstractText: '正在根据逐字稿生成结构化纪要，请稍候…',
+      sections: <MinutesSectionView>[],
+      transcriptChars: '…',
+    ),
+    chars: 0,
+  );
 
   /// 视图。
   final MinutesView view;

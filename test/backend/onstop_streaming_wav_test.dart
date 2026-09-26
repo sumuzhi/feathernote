@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_minutes_flutter/backend/engine/engine.dart';
+import 'package:smart_minutes_flutter/backend/services/finalize_poller.dart';
 import 'package:smart_minutes_flutter/backend/services/session_store.dart';
 import 'package:smart_minutes_flutter/backend/services/transcription_service.dart';
 import 'package:smart_minutes_flutter/backend/storage/audio_archive.dart';
@@ -35,29 +36,30 @@ Future<void> _settle() async {
 }
 
 Meeting _meeting(String id) => Meeting(
-      id: id,
-      title: '测试会议',
-      createdAt: DateTime(2026, 9, 24, 10),
-      durationMs: 0,
-      sampleRate: 16000,
-      speakerCount: 0,
-      status: MeetingStatus.recording,
-      source: MeetingSource.microphone,
-      finalizeStatus: FinalizeStatus.none,
-      transcriptSource: TranscriptSource.realtime,
-      audioStatus: AudioStatus.none,
-      audioBytes: 0,
-      minutesPartial: false,
-      segments: const <TranscriptSegment>[],
-      speakers: const <Speaker>[],
-    );
+  id: id,
+  title: '测试会议',
+  createdAt: DateTime(2026, 9, 24, 10),
+  durationMs: 0,
+  sampleRate: 16000,
+  speakerCount: 0,
+  status: MeetingStatus.recording,
+  source: MeetingSource.microphone,
+  finalizeStatus: FinalizeStatus.none,
+  transcriptSource: TranscriptSource.realtime,
+  audioStatus: AudioStatus.none,
+  audioBytes: 0,
+  minutesPartial: false,
+  segments: const <TranscriptSegment>[],
+  speakers: const <Speaker>[],
+);
 
 /// 内存仓储（只实现本用例用到的读 / 写）。
 class _Repo implements MeetingRepository {
   final Map<String, Meeting> saved = <String, Meeting>{};
 
   @override
-  Future<void> saveMeeting(Meeting meeting) async => saved[meeting.id] = meeting;
+  Future<void> saveMeeting(Meeting meeting) async =>
+      saved[meeting.id] = meeting;
 
   @override
   Future<void> updateMinutes(
@@ -118,7 +120,8 @@ class _Engine implements Engine {
     required String sessionId,
     required int sampleRate,
   }) {
-    final StreamController<StreamEvent> controller = StreamController<StreamEvent>();
+    final StreamController<StreamEvent> controller =
+        StreamController<StreamEvent>();
     _controllers[sessionId] = controller;
     return controller.stream;
   }
@@ -156,7 +159,8 @@ class _Engine implements Engine {
   }
 
   Future<void> closeAll() async {
-    for (final StreamController<StreamEvent> controller in _controllers.values) {
+    for (final StreamController<StreamEvent> controller
+        in _controllers.values) {
       if (!controller.isClosed) await controller.close();
     }
   }
@@ -166,19 +170,21 @@ class _Engine implements Engine {
 }
 
 void main() {
-  const MethodChannel pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+  const MethodChannel pathProvider = MethodChannel(
+    'plugins.flutter.io/path_provider',
+  );
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(pathProvider, (MethodCall call) async {
-      if (call.method == 'getTemporaryDirectory' ||
-          call.method == 'getApplicationSupportDirectory' ||
-          call.method == 'getApplicationDocumentsDirectory') {
-        return Directory.systemTemp.createTempSync('sm_wav_').path;
-      }
-      return null;
-    });
+          if (call.method == 'getTemporaryDirectory' ||
+              call.method == 'getApplicationSupportDirectory' ||
+              call.method == 'getApplicationDocumentsDirectory') {
+            return Directory.systemTemp.createTempSync('sm_wav_').path;
+          }
+          return null;
+        });
   });
 
   tearDown(() {
@@ -211,12 +217,21 @@ void main() {
     for (int i = 0; i < frames; i++) {
       svc.onAudioFrame(
         's1',
-        AudioFrame(flag: 0, seq: i, startMs: i * frameMs, pcm: Uint8List(frameBytes)),
+        AudioFrame(
+          flag: 0,
+          seq: i,
+          startMs: i * frameMs,
+          pcm: Uint8List(frameBytes),
+        ),
       );
     }
     await _settle();
 
-    final Meeting? stopped = await svc.onStop('m1', upload: true, sessionId: 's1');
+    final Meeting? stopped = await svc.onStop(
+      'm1',
+      upload: true,
+      sessionId: 's1',
+    );
     expect(stopped, isNotNull);
 
     // 1) 逐字稿已落库（空稿根因的另一道防线）。
@@ -234,7 +249,12 @@ void main() {
     // 防「头被写到文件尾部」（Android O_APPEND + setPosition(0) 的经典陷阱）：
     // 尾部 44B 绝不能再出现一个 RIFF 头。
     expect(
-      String.fromCharCodes(wav.sublist(wav.length - kWavHeaderBytes, wav.length - kWavHeaderBytes + 4)),
+      String.fromCharCodes(
+        wav.sublist(
+          wav.length - kWavHeaderBytes,
+          wav.length - kWavHeaderBytes + 4,
+        ),
+      ),
       isNot('RIFF'),
       reason: '头必须在文件开头，而不是被追加到尾部',
     );
@@ -244,7 +264,11 @@ void main() {
       parseWavDurationMs(wav),
       wavDurationMsFromPcmBytes(pcmBytes, sampleRate: 16000),
     );
-    expect(parseWavDurationMs(wav), 100, reason: '5×640B @16k/16bit/mono = 100ms');
+    expect(
+      parseWavDurationMs(wav),
+      100,
+      reason: '5×640B @16k/16bit/mono = 100ms',
+    );
   });
 
   test('无音频时 onStop 不产出 WAV（audioKey=null），但流程不崩', () async {
@@ -265,9 +289,79 @@ void main() {
     repo.saved['m1'] = _meeting('m1');
     await svc.startSession(sessionId: 's1', meetingId: 'm1');
 
-    final Meeting? stopped = await svc.onStop('m1', upload: true, sessionId: 's1');
+    final Meeting? stopped = await svc.onStop(
+      'm1',
+      upload: true,
+      sessionId: 's1',
+    );
     expect(stopped, isNotNull);
     expect(archive.captured, isNull, reason: 'PCM=0B 时不应产出 WAV');
     expect(stopped!.audioKey, isNull);
+    expect(
+      stopped.finalizeStatus,
+      FinalizeStatus.none,
+      reason: '无终稿来源时不得落 pending（纪要页门控依赖这个状态区分「等待终稿」与「无终稿链路」）',
+    );
   });
+
+  test('onStop 主落库必须同步写入 finalize_status=pending（数据统一门控的前提）', () async {
+    final _Repo repo = _Repo();
+    final _CapturingArchive archive = _CapturingArchive();
+    final _Engine engine = _Engine();
+    final SessionStore store = SessionStore();
+    final TranscriptionService svc = TranscriptionService(
+      engine: engine,
+      sessionStore: store,
+      persistence: repo,
+      archive: archive,
+      cfg: AppConfig.defaults(),
+    );
+    // Noop 轮询器：start 立即返回、不做上传/提交 —— 让 pending 稳定保留供断言。
+    svc.finalizePoller = _NoopFinalizePoller(engine: engine, persistence: repo);
+    addTearDown(() async {
+      await svc.dispose();
+      await engine.closeAll();
+    });
+    repo.saved['m1'] = _meeting('m1');
+
+    await svc.startSession(sessionId: 's1', meetingId: 'm1');
+    engine.emitSentence('s1', id: 'seg_1', text: '你好世界', start: 0, end: 1000);
+    svc.onAudioFrame(
+      's1',
+      AudioFrame(flag: 0, seq: 0, startMs: 0, pcm: Uint8List(frameBytes)),
+    );
+    await _settle();
+
+    final Meeting? stopped = await svc.onStop(
+      'm1',
+      upload: true,
+      sessionId: 's1',
+    );
+    expect(stopped, isNotNull);
+    expect(
+      stopped!.finalizeStatus,
+      FinalizeStatus.pending,
+      reason:
+          'pending 必须随 onStop 主落库一起写入 —— '
+          '纪要页读到 pending 就会等待终稿，绝不抢跑用实时稿生成纪要（数据统一 2026-09-26）',
+    );
+    expect(
+      repo.saved['m1']!.finalizeStatus,
+      FinalizeStatus.pending,
+      reason: '库中的快照同样必须是 pending',
+    );
+  });
+}
+
+/// Noop 终稿轮询器：start 立即返回，不触发真实上传 / 提交 / 落盘。
+class _NoopFinalizePoller extends FinalizePoller {
+  _NoopFinalizePoller({required super.engine, required super.persistence})
+    : super(cfg: AppConfig.defaults());
+
+  @override
+  Future<String> start(
+    String meetingId, {
+    required String wavPath,
+    bool diarization = true,
+  }) async => '';
 }

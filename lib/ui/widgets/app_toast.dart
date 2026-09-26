@@ -69,18 +69,32 @@ class ToastMessage {
 
 /// 统一 toast 容器装饰（背景 / 边框 / 圆角 / 阴影，全站唯一来源）。
 BoxDecoration appToastDecoration() => BoxDecoration(
-      color: const Color(0xFFFFF0E3),
-      border: Border.all(color: const Color(0xFFF2C9A3)),
-      borderRadius: BorderRadius.circular(14),
-      boxShadow: const <BoxShadow>[
-        BoxShadow(
-          color: Color(0x299E8066), // rgba(158,128,102,.16)
-          offset: Offset(0, 6),
-          blurRadius: 16,
-          spreadRadius: -4,
-        ),
-      ],
-    );
+  color: const Color(0xFFFFF0E3),
+  border: Border.all(color: const Color(0xFFF2C9A3)),
+  borderRadius: BorderRadius.circular(14),
+  boxShadow: const <BoxShadow>[
+    BoxShadow(
+      color: Color(0x299E8066), // rgba(158,128,102,.16)
+      offset: Offset(0, 6),
+      blurRadius: 16,
+      spreadRadius: -4,
+    ),
+  ],
+);
+
+/// Toast 文案环境的「归零」默认样式（**双下划线根因修复**）。
+///
+/// 背景：Toast 浮层挂在 `MaterialApp.builder` 层 —— 位于 Navigator 之外，
+/// **没有任何 [Material] 祖先**。此时 [Text] 继承的是 MaterialApp 的错误兜底样式
+/// （`_errorTextStyle`：`TextDecoration.underline` + `decorationStyle: double` +
+/// 黄色装饰色 + `fontFamily: monospace`）。Toast 自己的样式只覆盖了颜色 / 字号 /
+/// 字重，`decoration` 与 `fontFamily` 为 null 时**原样继承**——这就是文案下出现
+/// 「黄色双下划线」、且移除打包字体也修不掉的原因（字体只是被冤枉的）。
+/// 用本样式包一层 [DefaultTextStyle]，把 decoration / fontFamily 归零为系统默认。
+Widget toastTextEnvironment({required Widget child}) => DefaultTextStyle(
+  style: const TextStyle(decoration: TextDecoration.none),
+  child: child,
+);
 
 /// 普通提示条（统一浅橙样式）。
 class AppToast extends StatelessWidget {
@@ -97,30 +111,32 @@ class AppToast extends StatelessWidget {
       ToastTone.warning => Icons.wifi_off_rounded,
       ToastTone.success => Icons.check_circle_outline_rounded,
     };
-    return Container(
-      height: 59,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: appToastDecoration(),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: Icon(icon, size: 21, color: AppColors.orange),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message.text,
-              style: AppTextStyles.body15.copyWith(
-                fontWeight: FontWeight.w600,
-                color: AppColors.ink,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+    return toastTextEnvironment(
+      child: Container(
+        height: 59,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: appToastDecoration(),
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 34,
+              height: 34,
+              child: Icon(icon, size: 21, color: AppColors.orange),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message.text,
+                style: AppTextStyles.body15.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -151,66 +167,76 @@ class AppActionToast extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 59,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: appToastDecoration(),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(
-            width: 34,
-            height: 34,
-            child: Icon(Icons.wifi_off_rounded, size: 22, color: AppColors.orange),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Flexible(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.settingTitle.copyWith(color: AppColors.orange),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Flexible(
-                  child: Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 32,
-            child: TextButton(
-              onPressed: onAction,
-              style: TextButton.styleFrom(
-                backgroundColor: AppColors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                minimumSize: const Size(56, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                actionLabel,
-                style: AppTextStyles.metaSmall.copyWith(color: Colors.white),
+    return toastTextEnvironment(
+      child: Container(
+        height: 59,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: appToastDecoration(),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(
+              width: 34,
+              height: 34,
+              child: Icon(
+                Icons.wifi_off_rounded,
+                size: 22,
+                color: AppColors.orange,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.settingTitle.copyWith(
+                        color: AppColors.orange,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Flexible(
+                    child: Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.metaSmall.copyWith(
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 32,
+              child: TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  backgroundColor: AppColors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  minimumSize: const Size(56, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  actionLabel,
+                  style: AppTextStyles.metaSmall.copyWith(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -221,7 +247,11 @@ class AppActionToast extends StatelessWidget {
 /// [message] 为 null 时提示滑出并淡出。
 class AppToastOverlay extends StatelessWidget {
   /// 构造浮层宿主。
-  const AppToastOverlay({super.key, required this.message, required this.child});
+  const AppToastOverlay({
+    super.key,
+    required this.message,
+    required this.child,
+  });
 
   /// 当前提示（null = 不显示）。
   final ToastMessage? message;
@@ -250,7 +280,9 @@ class AppToastOverlay extends StatelessWidget {
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 180),
                 opacity: current == null ? 0 : 1,
-                child: current == null ? const SizedBox.shrink() : AppToast(message: current),
+                child: current == null
+                    ? const SizedBox.shrink()
+                    : AppToast(message: current),
               ),
             ),
           ),

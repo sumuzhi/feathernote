@@ -35,39 +35,38 @@ Meeting _meeting({
   String? finalizeError,
   int durationMs = 60000,
   List<TranscriptSegment> segments = const <TranscriptSegment>[],
-}) =>
-    Meeting(
-      id: 'm1',
-      title: 'Q3 产品规划评审',
-      createdAt: DateTime(2026, 9, 24, 9, 12),
-      durationMs: durationMs,
-      sampleRate: 16000,
-      speakerCount: 1,
-      status: MeetingStatus.stopped,
-      source: MeetingSource.microphone,
-      finalizeStatus: finalize,
-      transcriptSource: TranscriptSource.realtime,
-      audioStatus: AudioStatus.done,
-      audioBytes: 1024,
-      minutesPartial: false,
-      minutesMd: minutesMd,
-      finalizeError: finalizeError,
-      segments: segments,
-      speakers: const <Speaker>[],
-    );
+}) => Meeting(
+  id: 'm1',
+  title: 'Q3 产品规划评审',
+  createdAt: DateTime(2026, 9, 24, 9, 12),
+  durationMs: durationMs,
+  sampleRate: 16000,
+  speakerCount: 1,
+  status: MeetingStatus.stopped,
+  source: MeetingSource.microphone,
+  finalizeStatus: finalize,
+  transcriptSource: TranscriptSource.realtime,
+  audioStatus: AudioStatus.done,
+  audioBytes: 1024,
+  minutesPartial: false,
+  minutesMd: minutesMd,
+  finalizeError: finalizeError,
+  segments: segments,
+  speakers: const <Speaker>[],
+);
 
 TranscriptSegment _seg(String id) => TranscriptSegment(
-      meetingId: 'm1',
-      segmentId: id,
-      ordinal: 0,
-      speakerId: 'spk_1',
-      text: '终稿句子',
-      startTime: 0,
-      endTime: 1000,
-      confidence: 0.9,
-      seqStart: 0,
-      seqEnd: 49,
-    );
+  meetingId: 'm1',
+  segmentId: id,
+  ordinal: 0,
+  speakerId: 'spk_1',
+  text: '终稿句子',
+  startTime: 0,
+  endTime: 1000,
+  confidence: 0.9,
+  seqStart: 0,
+  seqEnd: 49,
+);
 
 /// 固定步长推进若干帧（不做 `pumpAndSettle`：加载态是无限动画）。
 Future<void> _settle(WidgetTester tester) async {
@@ -98,36 +97,44 @@ class _FakeBackend implements BackendApi {
   }
 
   @override
-  Stream<String> generateMinutesStream(String meetingId, {bool force = false}) async* {
+  Stream<String> generateMinutesStream(
+    String meetingId, {
+    bool force = false,
+  }) async* {
     generateCalls++;
     yield '## 新摘要\n\n（依据终稿重新生成）';
   }
 
   @override
-  Stream<List<MeetingSummary>> watchMeetings() => const Stream<List<MeetingSummary>>.empty();
+  Stream<List<MeetingSummary>> watchMeetings() =>
+      const Stream<List<MeetingSummary>>.empty();
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget _host(_FakeBackend backend) => ProviderScope(
-      overrides: [
-        backendProvider.overrideWith((Ref ref) async => backend),
-      ],
-      child: MaterialApp(
-        theme: buildAppTheme(),
-        home: const MeetingPage(meetingId: 'm1'),
-      ),
-    );
+  overrides: [backendProvider.overrideWith((Ref ref) async => backend)],
+  child: MaterialApp(
+    theme: buildAppTheme(),
+    home: const MeetingPage(meetingId: 'm1'),
+  ),
+);
 
 void main() {
   testWidgets('pending → done：自动刷新会议详情并用终稿重生成纪要', (WidgetTester tester) async {
-    final _FakeBackend backend = _FakeBackend(_meeting(finalize: FinalizeStatus.pending));
+    final _FakeBackend backend = _FakeBackend(
+      _meeting(finalize: FinalizeStatus.pending),
+    );
     await tester.pumpWidget(_host(backend));
     await _settle(tester);
 
     expect(backend.getMeetingCalls, 1, reason: '初始加载一次');
-    expect(find.textContaining('终稿处理中'), findsOneWidget, reason: 'pending 应显示处理中提示');
+    expect(
+      find.textContaining('终稿处理中'),
+      findsOneWidget,
+      reason: 'pending 应显示处理中提示',
+    );
 
     // 终稿完成：逐字稿由 filetrans 替换（segment 数变化）、时长变化。
     backend.meeting = _meeting(
@@ -153,12 +160,17 @@ void main() {
   });
 
   testWidgets('pending → failed：展示可读失败原因，且文案不骗用户', (WidgetTester tester) async {
-    final _FakeBackend backend = _FakeBackend(_meeting(finalize: FinalizeStatus.pending));
+    final _FakeBackend backend = _FakeBackend(
+      _meeting(finalize: FinalizeStatus.pending),
+    );
     await tester.pumpWidget(_host(backend));
     await _settle(tester);
     expect(find.textContaining('终稿处理中'), findsOneWidget);
 
-    backend.meeting = _meeting(finalize: FinalizeStatus.failed, finalizeError: '网络超时');
+    backend.meeting = _meeting(
+      finalize: FinalizeStatus.failed,
+      finalizeError: '网络超时',
+    );
     backend.emit(
       FinalizeProgress(meetingId: 'm1', status: 'failed', error: '网络超时'),
     );
@@ -170,7 +182,9 @@ void main() {
   });
 
   testWidgets('其它会议的事件不影响本页（meetingId 过滤）', (WidgetTester tester) async {
-    final _FakeBackend backend = _FakeBackend(_meeting(finalize: FinalizeStatus.pending));
+    final _FakeBackend backend = _FakeBackend(
+      _meeting(finalize: FinalizeStatus.pending),
+    );
     await tester.pumpWidget(_host(backend));
     await _settle(tester);
 
@@ -179,5 +193,75 @@ void main() {
 
     expect(backend.getMeetingCalls, 1, reason: '别的会议的 done 不应触发本页刷新');
     expect(find.textContaining('终稿处理中'), findsOneWidget);
+  });
+
+  testWidgets('数据统一：终稿 pending 期间不得用实时稿抢跑生成（done 后才生成）', (
+    WidgetTester tester,
+  ) async {
+    // 实时逐字稿已落库 + 无纪要 + 终稿处理中 —— 旧逻辑会立刻用实时稿生成第一份纪要，
+    // 与终稿完成后重新生成的第二份并存（历史 item 与详情不一致的根源）。
+    final _FakeBackend backend = _FakeBackend(
+      _meeting(
+        finalize: FinalizeStatus.pending,
+        minutesMd: null,
+        segments: <TranscriptSegment>[_seg('seg_r1')],
+      ),
+    );
+    await tester.pumpWidget(_host(backend));
+    await _settle(tester);
+
+    expect(backend.generateCalls, 0, reason: 'pending 期间绝不抢跑生成（实时稿只作录音中预览）');
+
+    // 终稿完成：filetrans 逐字稿替换实时稿 → 用终稿生成唯一一份纪要。
+    backend.meeting = _meeting(
+      finalize: FinalizeStatus.done,
+      minutesMd: null,
+      segments: <TranscriptSegment>[_seg('seg_f1'), _seg('seg_f2')],
+    );
+    backend.emit(FinalizeProgress(meetingId: 'm1', status: 'done'));
+    await _settle(tester);
+
+    expect(
+      backend.generateCalls,
+      greaterThanOrEqualTo(1),
+      reason: '终稿完成后用终稿生成',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('数据统一：终稿失败时用保留的实时稿兜底生成', (WidgetTester tester) async {
+    final _FakeBackend backend = _FakeBackend(
+      _meeting(
+        finalize: FinalizeStatus.pending,
+        minutesMd: null,
+        segments: <TranscriptSegment>[_seg('seg_r1')],
+      ),
+    );
+    await tester.pumpWidget(_host(backend));
+    await _settle(tester);
+    expect(backend.generateCalls, 0);
+
+    backend.meeting = _meeting(
+      finalize: FinalizeStatus.failed,
+      finalizeError: 'filetrans 未成功',
+      minutesMd: null,
+      segments: <TranscriptSegment>[_seg('seg_r1')],
+    );
+    backend.emit(
+      FinalizeProgress(
+        meetingId: 'm1',
+        status: 'failed',
+        error: 'filetrans 未成功',
+      ),
+    );
+    await _settle(tester);
+
+    expect(find.textContaining('终稿失败'), findsOneWidget);
+    expect(
+      backend.generateCalls,
+      greaterThanOrEqualTo(1),
+      reason: '终稿失败必须有实时稿兜底，用户不能空手而归',
+    );
+    expect(tester.takeException(), isNull);
   });
 }
