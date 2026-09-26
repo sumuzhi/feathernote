@@ -61,7 +61,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     return ProfileScreen(
       stats: <ProfileStatView>[
         ProfileStatView(value: '${meetings.length}', label: '场会议'),
-        ProfileStatView(value: '${totalMs ~/ 3600000}h', label: '累计时长'),
+        ProfileStatView(value: _formatHours(totalMs), label: '累计时长'),
         ProfileStatView(value: '$summarized', label: '场已总结'),
       ],
       sections: <ProfileSectionView>[
@@ -175,8 +175,20 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     setState(() => _destination = picked);
   }
 
-  AppConfigView _configView() {
-    final config = ref.watch(appConfigProvider);
+  /// 累计时长展示：不满 1 小时用 0.xh（保留 1 位小数，最小 0.1h）；
+  /// 满 1 小时取整小时（如 64h）。
+  String _formatHours(int totalMs) {
+    if (totalMs <= 0) return '0h';
+    final double hours = totalMs / 3600000;
+    if (hours < 1) {
+      final double value = (totalMs / 60000) / 60;
+      final double rounded = double.parse(value.toStringAsFixed(1));
+      return '${rounded < 0.1 ? 0.1 : rounded}h';
+    }
+    return '${hours.toStringAsFixed(0)}h';
+  }
+
+  AppConfigView _configView() {    final config = ref.watch(appConfigProvider);
     final bool zh = config.filetransLanguageHints.contains('zh');
     final bool en = config.filetransLanguageHints.contains('en');
     final String language = zh && en
