@@ -101,6 +101,8 @@ DEFINES=(
   # task-failed / filetrans 各步 / 纪要首字节 / 链路摘要）都用 **info 级**，
   # 即使不设 debug 也能看到；这里设 debug 是为了拿到最全的现场。
   "--dart-define=LOG_LEVEL=${LOG_LEVEL:-debug}"
+  # 构建戳（自动：月日-时分 / git 短哈希；可用 BUILD_STAMP=... 覆盖）。
+  "--dart-define=BUILD_STAMP=${BUILD_STAMP:-$(date +%m%d-%H%M)/$(git rev-parse --short HEAD)}"
 )
 
 echo "已注入真实百炼配置："
@@ -117,6 +119,7 @@ echo "  filetrans     = ${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-file
 echo "  llm           = ${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
 echo "  log level     = ${LOG_LEVEL:-debug}"
 echo "  api key 长度  = ${KEY_LEN}（值不打印；运行时可用 logcat 中 Authorization 的 len 核对）"
+echo "  build stamp   = ${BUILD_STAMP:-自动生成}"
 echo "  ↑ 实时/终稿是两套白名单：realtime 走 streaming 型号，filetrans 走 filetrans 型号，勿混用"
 
 CMD="${1:-run}"
