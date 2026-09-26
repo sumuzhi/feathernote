@@ -1,17 +1,13 @@
-/// 启动动画页（brand-assets/preview/splash.html 的 Flutter 复刻）。
+/// 启动页（**静态**，无动画 —— 2026-09-26 用户要求关闭开屏动画、加快进入）。
 ///
-/// 时序（约 2.4s 后自动进首页）：
-/// 1. 图标 100×100 圆角 24：scale .82→1 + 淡入（.5s，easeOutCubic）；
-/// 2. 四圈录音波纹（呼应产品核心动作）：1.5s 内由内向外扩散淡出，逐圈延迟 .22s；
-/// 3. 「声羽」（字距 10）→ "FEATHERNOTE"（字距 5）→ slogan「听见每一场会议的重点」。
+/// 进入策略：**后端装配完成即进首页**，不再固定停留 2.4s：
+/// - 最短停留 [_kMinDisplay]：避免首帧刚画完就切页的闪跳观感；
+/// - 兜底上限 [_kMaxWait]：后端装配再慢也不把用户挡在启动页
+///   （首页自带加载态，历史流 / 一句话已在路上）。
+/// 后端装配（配置校验 / DB 打开 / 引擎构建）、历史列表流与「一句话」预取
+/// 均在启动页期间并行完成，主页首帧即有数据（沿用原预热设计）。
 ///
-/// 性能要点：
-/// - AnimatedBuilder **只包波纹 + 图标**，文案区静态不随动画逐帧重建；
-/// - `didChangeDependencies` 里 precacheImage 预热图标解码，避免首帧掉帧；
-/// - debug 构建（JIT + 无 shader 缓存）动画天然比 release 卡，真机以 release 验收。
-///
-/// 路由：`/splash` 为 initialLocation，动画结束后 `go('/')`（不留返回栈）。
-/// **时长控制**：[kSplashDuration]（本文件顶部常量），改一处即调总时长。
+/// 视觉：静态终帧 = 图标 100×100 圆角 24 + 「声羽」/ FEATHERNOTE / slogan。
 library;
 
 import 'dart:async';
@@ -25,10 +21,13 @@ import '../providers/app_providers.dart';
 import '../providers/quote_provider.dart';
 import '../theme/app_theme.dart';
 
-/// 启动动画停留时长（波纹播完一轮 + 文案入场的冗余）。
-const Duration kSplashDuration = Duration(milliseconds: 2400);
+/// 启动页最短停留时长（防首帧闪跳的最小观感保护）。
+const Duration _kMinDisplay = Duration(milliseconds: 400);
 
-/// 启动动画页。
+/// 启动页最长等待（后端装配超限时放行进首页，不阻塞用户）。
+const Duration _kMaxWait = Duration(milliseconds: 2000);
+
+/// 启动页。
 class SplashScreen extends ConsumerStatefulWidget {
   /// 构造启动页。
   const SplashScreen({super.key});
@@ -37,40 +36,39 @@ class SplashScreen extends ConsumerStatefulWidget {
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  // 单控制器驱动：波纹循环（1.5s）+ 图标入场（前 .5s 共用时间轴）。
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1500),
-  );
-
-  late final Animation<double> _iconIn = CurvedAnimation(
-    parent: _controller,
-    curve: const Interval(0, 0.34, curve: Curves.easeOutCubic),
-  );
-
-  Timer? _timer;
+class _SplashScreenState extends ConsumerState<SplashScreen> {
+  bool _navigated = false;
 
   @override
   void initState() {
     super.initState();
     // 预热后端装配（配置校验 / DB 打开 / 引擎构建）与历史列表流：
-    // 这些原本发生在 splash 结束、主页首帧时——正是「动画完了卡一下」的根源。
-    // 现在借 2.4s 动画窗口在后台完成，主页首帧即有数据。
-    ref.watch(backendProvider.future).then(
+    // 主页首帧即有数据，不再有「进首页后卡一下」。
+    final Future<void> backendReady = ref.watch(backendProvider.future).then(
       (_) => logInfo('splash', '后端预热完成（装配 + DB 就绪）'),
       onError: (Object e) => logWarn('splash', '后端预热失败：$e'),
     );
     ref.watch(meetingsProvider);
     // 预取「一句话」：进入首页前请求已在路上（超时 3s），进首页即可见。
     ref.watch(dailyQuoteProvider);
-    _controller.forward(from: 0);
-    _timer = Timer(kSplashDuration, () {
-      if (!mounted) return;
-      // go 而非 push：启动页不留返回栈（系统返回在首页即为「双击退出」）。
-      context.go('/');
-    });
+
+    // 就绪即进首页：min(最短停留, 后端就绪) 与 兜底上限 取先到。
+    unawaited(
+      Future.wait<void>(<Future<void>>[
+        Future<void>.delayed(_kMinDisplay),
+        backendReady.timeout(
+          _kMaxWait,
+          onTimeout: () => logWarn('splash', '后端预热超过 $_kMaxWait，放行进首页'),
+        ),
+      ]).then((_) => _goHome()),
+    );
+  }
+
+  void _goHome() {
+    if (!mounted || _navigated) return;
+    _navigated = true;
+    // go 而非 push：启动页不留返回栈（系统返回在首页即为「双击退出」）。
+    context.go('/');
   }
 
   @override
@@ -81,84 +79,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   @override
-  void dispose() {
-    _timer?.cancel();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // 波纹全部播完（末圈 0.66 + 1.0 ≈ 1.66s）后不再逐帧 rebuild：
-    // 用静态展示替代，避免控制器空转期间的无效重绘（「最后一刻卡顿」来源之一）。
-    final bool animating = _controller.isAnimating || _controller.value < 1.0;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Center(
-        // ⚠️ AnimatedBuilder 只包「动的东西」（波纹 + 图标）；
-        // 文案区保持静态，不随动画每帧重建（修复启动页卡顿）。
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            SizedBox(
-              width: 190,
-              height: 190,
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (BuildContext context, Widget? _) {
-                  final double t = _controller.value;
-                  return SizedBox(
-                    width: 190,
-                    height: 190,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      clipBehavior:
-                          Clip.none, // 波纹可溢出光晕区（对齐 HTML 动效）
-                      children: <Widget>[
-                        // 四圈录音波纹：逐圈延迟 .22s 扩散淡出。
-                        for (int i = 0; i < 4; i++)
-                          _RippleRing(
-                            progress: _rippleProgress(t, i * 0.22),
-                          ),
-                        // 图标：100×100 圆角 24，缩放入场 + 阴影。
-                        Transform.scale(
-                          scale: 0.82 + 0.18 * _iconIn.value,
-                          child: Opacity(
-                            opacity: _iconIn.value,
-                            child: Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(24),
-                                boxShadow: const <BoxShadow>[
-                                  BoxShadow(
-                                    color:
-                                        Color(0x52F0783C), // rgba(240,120,60,.32)
-                                    offset: Offset(0, 14),
-                                    blurRadius: 34,
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(24),
-                                child: Image.asset(
-                                  'assets/brand/icon-combined-1024.png',
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                // 动画结束（波纹收尾完成）后展示静态终帧。
-                child: animating ? null : _buildStaticHero(),
-              ),
-            ),
+            const _BrandIcon(),
             const SizedBox(height: 34),
-            // 「声记」：42px / w600 / 字距 10。
+            // 「声羽」：42px / w600 / 字距 10。
             Text(
               '声 羽',
               style: AppTextStyles.pageTitle.copyWith(
@@ -192,79 +122,32 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       ),
     );
   }
-
-  /// 动画结束后的静态终帧（图标满幅，无波纹）。
-  Widget _buildStaticHero() {
-    return SizedBox(
-      width: 190,
-      height: 190,
-      child: Center(
-        child: Container(
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: const <BoxShadow>[
-              BoxShadow(
-                color: Color(0x52F0783C),
-                offset: Offset(0, 14),
-                blurRadius: 34,
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Image.asset(
-              'assets/brand/icon-combined-1024.png',
-              fit: BoxFit.cover,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 第 [ring] 圈在控制器进度 [t]（0–1）下的波纹进度；未开始返回 0。
-  ///
-  /// 每圈延迟 ring×0.22s（折算到 0–1 进度即 start），local <0 视为未开始。
-  static double _rippleProgress(double t, double offsetSeconds) {
-    const double period = 1.0; // 控制器 1.5s = 1 圈波纹周期
-    final double start = offsetSeconds / 1.5; // .22s 延迟折算到 0–1 进度
-    final double local = t - start;
-    if (local <= 0) return 0;
-    return local % period == 0 ? period : local;
-  }
 }
 
-/// 单圈波纹：2px 橙色圆环，scale .55→2.35，透明度 .42→0；周期外不渲染。
-///
-/// 性能关键：圆环**绘制内容完全静态**（固定 alpha 的 border），淡出与缩放
-/// 全部交给 [Opacity] / [Transform] 在合成层完成——不逐帧重绘 border，
-/// 也不会因 alpha 连续变化反复触发新 shader 编译（「最后一刻卡顿」根因）。
-class _RippleRing extends StatelessWidget {
-  const _RippleRing({required this.progress});
-
-  final double progress;
+/// 品牌图标：100×100 圆角 24 + 橙色投影（原动画终帧的静态版本）。
+class _BrandIcon extends StatelessWidget {
+  const _BrandIcon();
 
   @override
   Widget build(BuildContext context) {
-    final double clamped = progress.clamp(0.0, 1.0);
-    if (clamped <= 0 || clamped >= 1) return const SizedBox.shrink();
-    final double alpha = 0.42 * (1 - clamped);
-    final double scale = 0.55 + 1.8 * clamped;
-    return IgnorePointer(
-      child: Transform.scale(
-        scale: scale,
-        child: Opacity(
-          opacity: alpha,
-          child: Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.orange, width: 2),
-            ),
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x52F0783C), // rgba(240,120,60,.32)
+            offset: Offset(0, 14),
+            blurRadius: 34,
           ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Image.asset(
+          'assets/brand/icon-combined-1024.png',
+          fit: BoxFit.cover,
         ),
       ),
     );
