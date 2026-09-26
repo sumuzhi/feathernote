@@ -31,6 +31,11 @@ class _FakeEngine implements AudioPlayerEngine {
   /// 异常大值（真机实测会触发 `playing=false → 置为未播放` 的提前清除）。
   bool playEmitsSpuriousPosition = false;
 
+  /// > 0 时模拟冷启动 just_audio：play() 先发出 `playing=true` 事件，但 Future
+  /// 延迟指定毫秒才返回（模拟器实测：冷启动时该 Future 拖到音频播完、completed
+  /// 事件回来才 resolve）。用于锁定「闸门必须挂在状态事件上」的回归。
+  int playResolvesLateMs = 0;
+
   @override
   Future<Duration?> setFilePath(String path) async {
     setFilePathCalls++;
@@ -47,6 +52,9 @@ class _FakeEngine implements AudioPlayerEngine {
       _positionCtrl.add(_position);
     }
     _stateCtrl.add(PlayerState(true, ProcessingState.ready));
+    if (playResolvesLateMs > 0) {
+      await Future<void>.delayed(Duration(milliseconds: playResolvesLateMs));
+    }
   }
 
   @override
@@ -353,6 +361,43 @@ void main() {
 
       expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
       expect(container.read(audioPlayerControllerProvider).playingSegmentId, isNull);
+    });
+
+    test('冷启动 play() 迟迟不返回：真实开播事件也要闩上自动停闸门，段尾照常收尾', () async {
+      // 模拟器日志实证（2026-09-26）：冷启动时 just_audio 的 play() Future 拖到
+      // 音频播完、completed 事件回来才 resolve。旧逻辑在 await 返回后才闩自动停
+      // 闸门 → 首播全程自动停失效 → 播过段尾直达文件尾，靠迟到的 completed 收尾
+      // （组件比热启动多停留 ~1s，两次播放体验不一致的根因）。
+      // 锁定：playing=true 事件到达即闩门，play() 迟迟不返回也不影响段尾自动停。
+      final _FakeEngine engine = _FakeEngine()
+        ..duration = const Duration(seconds: 30)
+        ..playResolvesLateMs = 50;
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      final Future<void> playing =
+          ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      // 让 playSegment 走到 await _player.play()（play() 已发出 playing=true 事件并闩门）。
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      engine.tickTo(5100); // 越过段尾 → 应立刻自动停并清除当前段
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.pauseCalls, 1, reason: 'play() 未返回也必须在段尾自动停');
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
+        isFalse,
+        reason: '自动停后必须立刻清除当前段（与热启动行为一致）',
+      );
+
+      await playing; // play() 延迟返回后 playSegment 才完成
+      expect(
+        container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
+        isFalse,
+        reason: 'play() 迟到的返回不得把已清除的当前段/闸门状态带回来',
+      );
+      expect(container.read(audioPlayerControllerProvider).isPlaying, isFalse);
     });
 
     test('加载期位置流回放异常大值（≈文件时长）不得提前清除当前段', () async {

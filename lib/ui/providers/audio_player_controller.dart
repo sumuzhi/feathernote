@@ -196,13 +196,22 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   /// 因此：由我们自己调用 `pause()` / 自动停来置 false，忽略与意图相反的迟到事件。
   bool _intentPlaying = false;
 
-  /// 是否「确实已开始播放」（仅 `play()` 成功返回后置 true）。
+  /// 是否「确实已开始播放」（收到引擎 `playing=true` 事件即置 true）。
   ///
   /// 存在理由：位置监听的自动停依赖 `position >= _endMs`。但 `setFilePath` 之后、
   /// 真正开播之前的缓冲期，位置流偶尔会回放一个**异常大的位置值**（可达文件时长），
   /// 此时 `_endMs` 已就绪，`ms >= _endMs` 会被误满足 → `_autoStop` 提前把当前段清空
   /// （真机日志实证：点击后 2.76s 内出现 `playing=false → 置为未播放`）。
   /// 用「是否真开播」这道闸门，让自动停只在播放稳定后才生效，彻底挡掉加载期误报。
+  ///
+  /// ⚠️ 门闩时机（2026-09-26 日志实证）：必须挂在**状态事件**上，不能挂在
+  /// `await _player.play()` 返回之后。冷启动时 just_audio 的 `play()` Future 会拖到
+  /// 音频播完、`completed` 事件回来才 resolve（模拟器实测：`playing=true` 事件
+  /// 04.771 到达，而「已开始播放」08.206 才打出）→ 整个首播期间闸门一直关着，
+  /// 自动停失效 → 播过段尾直达文件尾，靠迟到的 `completed` 收尾（组件多停留
+  /// ~1s）。热启动 `play()` 立即返回，两首播收尾路径不同 = 「有时立刻消失、
+  /// 有时停留较久」的根因。加载期误报都发生在 `playing=false` 的缓冲期，
+  /// 收到 `playing=true` 即真实开播，此时闩门不会重放缓冲期误报。
   bool _startedPlaying = false;
 
   /// 是否已释放（ Riverpod 3 Notifier 没有 `mounted`，自己跟踪）。
@@ -330,7 +339,10 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
 
       await _player.seek(Duration(milliseconds: targetMs));
       await _player.play();
-      _startedPlaying = true;
+      // 兜底：热启动时 `play()` 立即返回，若状态事件尚未到达也先把门闩闩上。
+      // 仅在播放意图仍有效时置位 —— 若期间已被 `_autoStop()` 收尾（冷启动时
+      // `play()` 可能拖到播完才返回），不得把已关的闸门重新打开。
+      if (_intentPlaying) _startedPlaying = true;
       logInfo(
         'play',
         '✅ 已开始播放',
@@ -403,6 +415,13 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
       decision = 'completed → 清除当前段';
     } else if (playerState.playing) {
       if (!state.isPlaying) state = state.copyWith(isPlaying: true);
+      // 真实开播即闩上自动停闸门（不等 `await play()` 返回，理由见字段注释）：
+      // 冷启动时 `play()` Future 拖到音频播完才 resolve，等它返回再闩门会让
+      // 首播全程自动停失效 → 播过段尾直到文件尾才收，与热启动行为不一致。
+      if (!_startedPlaying) {
+        _startedPlaying = true;
+        logInfo('play', '🔐 自动停闸门已闩上（真实开播事件）');
+      }
       decision = 'playing=true → 置为播放中';
     } else if (_intentPlaying) {
       // 与意图相反（首次订阅回放 / buffering 期）→ 不采纳，反手纠正回播放中。
