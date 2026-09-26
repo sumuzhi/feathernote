@@ -643,8 +643,9 @@ class TranscriptionService {
     bool diarization = true,
   }) async {
     final FinalizePoller? poller = finalizePoller;
-    if (poller == null)
+    if (poller == null) {
       throw const AppError(ErrorCode.internal, 'finalizePoller 未装配');
+    }
     await poller.start(meetingId, wavPath: wavPath, diarization: diarization);
   }
 
@@ -842,16 +843,19 @@ class _SessionRuntime {
         if (String.fromCharCodes(head.sublist(0, 4)) != 'RIFF') {
           return '开头不是 RIFF（前 4B=${_hex(head.sublist(0, 4))}）';
         }
-        if (String.fromCharCodes(head.sublist(8, 12)) != 'WAVE')
+        if (String.fromCharCodes(head.sublist(8, 12)) != 'WAVE') {
           return '缺少 WAVE 标识';
-        if (String.fromCharCodes(head.sublist(36, 40)) != 'data')
+        }
+        if (String.fromCharCodes(head.sublist(36, 40)) != 'data') {
           return '缺少 data 块标识';
+        }
         final int dataSize = ByteData.view(
           head.buffer,
           head.offsetInBytes,
         ).getUint32(40, Endian.little);
-        if (dataSize != expectedData)
+        if (dataSize != expectedData) {
           return 'data 长度=$dataSize 期望=$expectedData';
+        }
         return null;
       } finally {
         await raf.close();

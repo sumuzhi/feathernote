@@ -151,8 +151,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
 
   /// 终稿进度事件：只处理本会议的 done / failed。
   void _onTranscriptEvent(TranscriptEvent event) {
-    if (event is! FinalizeProgress || event.meetingId != widget.meetingId)
+    if (event is! FinalizeProgress || event.meetingId != widget.meetingId) {
       return;
+    }
     switch (event.status) {
       case 'done':
         unawaited(_onFinalizeDone());
