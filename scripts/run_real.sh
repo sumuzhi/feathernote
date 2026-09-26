@@ -128,17 +128,22 @@ echo "  ↑ 实时/终稿是两套白名单：realtime 走 streaming 型号，fi
 # 5.5G）。构建成功后只保留最新一份快照，其余全部删除。
 prune_flutter_snapshots() {
   for dir in .dart_tool/flutter_build .dart_tool/hooks_runner; do
-    [[ -d "$dir" ]] || continue
-    local keep
-    keep=$(ls -t "$dir" 2>/dev/null | head -1)
-    [[ -z "$keep" ]] && continue
-    local freed=0
+    if [[ ! -d "$dir" ]]; then continue; fi
+    # 所有 local 一律**声明即初始化**（`local x` 裸声明在 set -u 下是隐患）。
+    local keep="" freed=0 entry=""
+    # 只保留 mtime 最新的一个快照**目录**；目录里的零散文件（如 sqlite3）
+    # 不可作 keep 锚点，否则会误删真正的快照目录（2026-09-26 实测）。
+    for entry in $(ls -t "$dir" 2>/dev/null); do
+      if [[ -d "$dir/$entry" ]]; then keep="$entry"; break; fi
+    done
     for entry in "$dir"/*; do
-      [[ "$(basename "$entry")" == "$keep" ]] && continue
+      if [[ "$(basename "$entry")" == "$keep" ]]; then continue; fi
       rm -rf "$entry"
       freed=1
     done
-    [[ "$freed" -eq 1 ]] && echo "🧹 已清理 $dir 过期快照（保留最新 $keep）"
+    if [[ "$freed" -eq 1 ]]; then
+      echo "🧹 已清理 $dir 过期快照（保留最新 $keep）"
+    fi
   done
 }
 
