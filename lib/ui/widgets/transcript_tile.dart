@@ -123,14 +123,18 @@ class TranscriptTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
+                // 单行 flex 布局：发言人（左，超长省略）… 播放按钮 / 进度条 /
+                // 已播-段长（右）。全部带 maxLines=1 约束，窄屏也不折行溢出。
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    Flexible(
+                    Expanded(
                       child: GestureDetector(
                         onTap: canPlay ? onPlay : null,
                         behavior: HitTestBehavior.opaque,
                         child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           text: TextSpan(
                             style: AppTextStyles.meta.copyWith(
                               fontWeight: FontWeight.w600,
@@ -160,16 +164,17 @@ class TranscriptTile extends StatelessWidget {
                         onTap: onPlay,
                       ),
                       if (item.playActive) ...<Widget>[
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: _SegmentProgressBar(
                             progress: item.playProgress.clamp(0.0, 1.0),
                             accent: accent,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         Text(
                           '${item.playPositionLabel} / ${item.playDurationLabel}',
+                          maxLines: 1,
                           style: AppTextStyles.meta.copyWith(
                             color: AppColors.ink,
                             fontWeight: FontWeight.w600,
