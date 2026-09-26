@@ -122,16 +122,38 @@ echo "  api key 长度  = ${KEY_LEN}（值不打印；运行时可用 logcat 中
 echo "  build stamp   = ${BUILD_STAMP:-自动生成}"
 echo "  ↑ 实时/终稿是两套白名单：realtime 走 streaming 型号，filetrans 走 filetrans 型号，勿混用"
 
+# ── 构建快照回收（防 .dart_tool 膨胀） ─────────────────────────────────────
+# flutter 每换一组 --dart-define（含每次变化的构建戳）就在 .dart_tool/flutter_build/
+# 新建一个 ~131MB 的快照目录且从不回收——几十次构建可积累数 GB（2026-09-26 实测
+# 5.5G）。构建成功后只保留最新一份快照，其余全部删除。
+prune_flutter_snapshots() {
+  for dir in .dart_tool/flutter_build .dart_tool/hooks_runner; do
+    [[ -d "$dir" ]] || continue
+    local keep
+    keep=$(ls -t "$dir" 2>/dev/null | head -1)
+    [[ -z "$keep" ]] && continue
+    local freed=0
+    for entry in "$dir"/*; do
+      [[ "$(basename "$entry")" == "$keep" ]] && continue
+      rm -rf "$entry"
+      freed=1
+    done
+    [[ "$freed" -eq 1 ]] && echo "🧹 已清理 $dir 过期快照（保留最新 $keep）"
+  done
+}
+
 CMD="${1:-run}"
 case "$CMD" in
   run)
     exec "$FLUTTER" run "${DEFINES[@]}"
     ;;
   build-debug)
-    exec "$FLUTTER" build apk --debug --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
+    "$FLUTTER" build apk --debug --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
+    prune_flutter_snapshots
     ;;
   build-release)
-    exec "$FLUTTER" build apk --release --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
+    "$FLUTTER" build apk --release --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
+    prune_flutter_snapshots
     ;;
   *)
     echo "用法：$0 [run|build-debug|build-release]"
