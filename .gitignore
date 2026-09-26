@@ -52,3 +52,8 @@ app.*.map.json
 
 # Kotlin / Gradle 构建缓存
 /android/.kotlin/
+
+# 密钥与本地环境（敏感，绝不入库）
+.env
+.env.*
+apk-share/

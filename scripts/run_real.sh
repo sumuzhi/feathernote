@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# 用「真实百炼数据」运行 Flutter App。
+# 用「真实百炼数据」构建 / 运行 声羽 FeatherNote。
 #
 # 背景：App 启动时会做配置强校验（lib/core/config/app_config.dart 的 validate()），
 # 缺少 DASHSCOPE_API_KEY 时不会静默失败，而是 **显式降级到 MockEngine**
 # （lib/backend/di.dart:70-72），并在顶部横幅提示降级原因。
 # 因此「想用真实数据」= 把有效 Key 通过 --dart-define 注入编译期常量。
 #
-# 密钥从原项目 smart-minutes/server/.env 读取，**不硬编码、不打印、不入库**。
+# 密钥从 **本项目根目录的 .env** 读取（不再读原项目 smart-minutes/server/.env），
+# **不硬编码、不打印、不入库**（.gitignore 已排除 .env / .env.*）。
 #
 # 用法：
-#   ./scripts/run_real.sh          # flutter run（自动选设备，含 Android 模拟器）
-#   ./scripts/run_real.sh build    # flutter build apk --debug
-#   SM_ENV_FILE=/path/to/.env ./scripts/run_real.sh
+#   ./scripts/run_real.sh              # flutter run（自动选设备，含 Android 模拟器）
+#   ./scripts/run_real.sh build-debug  # flutter build apk --debug  （arm64）
+#   ./scripts/run_real.sh build-release# flutter build apk --release（arm64）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ENV_FILE="${SM_ENV_FILE:-../smart-minutes/server/.env}"
+ENV_FILE="${SM_ENV_FILE:-.env}"
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "找不到环境文件：$ENV_FILE"
-  echo "请设置 SM_ENV_FILE 指向含 DASHSCOPE_API_KEY 的 .env"
+  echo "请在项目根目录创建 .env（含 DASHSCOPE_API_KEY=sk-... 等配置）"
   exit 1
 fi
 
@@ -30,6 +31,19 @@ set +a
 
 if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
   echo "$ENV_FILE 里 DASHSCOPE_API_KEY 为空，无法使用真实引擎"
+  exit 1
+fi
+
+# ── Key 注入校验（历史缺陷：注入值曾被污染成 414 字符 → 服务端 401） ────────
+# 合法 DashScope Key：sk- 前缀 + 20~200 字符。越界即中止构建，绝不带着脏值出包。
+KEY_LEN=${#DASHSCOPE_API_KEY}
+if [[ "$KEY_LEN" -lt 20 || "$KEY_LEN" -gt 200 ]]; then
+  echo "❌ DASHSCOPE_API_KEY 长度异常（$KEY_LEN 字符，合法 20~200），中止构建。"
+  echo "   请检查 $ENV_FILE 中该值是否被污染（换行 / 引号 / 注释粘进值里）。"
+  exit 1
+fi
+if [[ "$DASHSCOPE_API_KEY" != sk-* ]]; then
+  echo "❌ DASHSCOPE_API_KEY 未以 sk- 开头（疑似污染值），中止构建。"
   exit 1
 fi
 
@@ -72,6 +86,7 @@ export BAILIAN_REALTIME_MODEL
 
 FLUTTER="${FLUTTER_BIN:-/Users/sumuzhi/.workbuddy/binaries/flutter/flutter/bin/flutter}"
 
+# 每个 --dart-define 作为独立数组元素（值经双引号注入，shell 展开一次后定型）。
 DEFINES=(
   "--dart-define=DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY"
   "--dart-define=DASHSCOPE_WORKSPACE_ID=${DASHSCOPE_WORKSPACE_ID:-}"
@@ -101,7 +116,7 @@ fi
 echo "  filetrans     = ${BAILIAN_FILETRANS_MODEL:-qwen-audio-3.1-asr-flash-filetrans}"
 echo "  llm           = ${BAILIAN_LLM_MODEL:-qwen3.7-plus}"
 echo "  log level     = ${LOG_LEVEL:-debug}"
-echo "  api key 长度  = ${#DASHSCOPE_API_KEY}（值不打印）"
+echo "  api key 长度  = ${KEY_LEN}（值不打印；运行时可用 logcat 中 Authorization 的 len 核对）"
 echo "  ↑ 实时/终稿是两套白名单：realtime 走 streaming 型号，filetrans 走 filetrans 型号，勿混用"
 
 CMD="${1:-run}"
@@ -109,11 +124,14 @@ case "$CMD" in
   run)
     exec "$FLUTTER" run "${DEFINES[@]}"
     ;;
-  build)
-    exec "$FLUTTER" build apk --debug "${DEFINES[@]}"
+  build-debug)
+    exec "$FLUTTER" build apk --debug --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
+    ;;
+  build-release)
+    exec "$FLUTTER" build apk --release --split-per-abi --target-platform android-arm64 "${DEFINES[@]}"
     ;;
   *)
-    echo "用法：$0 [run|build]"
+    echo "用法：$0 [run|build-debug|build-release]"
     exit 1
     ;;
 esac
