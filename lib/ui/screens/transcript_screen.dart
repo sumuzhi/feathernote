@@ -139,10 +139,15 @@ class TranscriptScreen extends StatelessWidget {
               onNext: hit!.onNext,
               onClose: hit!.onClose,
             ),
-          // 仅转写列表滚动（底部留白避开 CTA）。
+          // 仅转写列表滚动（底部留白避开 CTA：手势条 inset + CTA 高度 + 余量）。
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(22, 8, 22, 100),
+              padding: EdgeInsets.fromLTRB(
+                22,
+                8,
+                22,
+                MediaQuery.viewPaddingOf(context).bottom + 100,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

@@ -92,15 +92,22 @@ class MinutesView {
 /// AI 结构化纪要卡。
 class MinutesCard extends StatelessWidget {
   /// 构造纪要卡。
-  const MinutesCard({super.key, required this.view});
+  ///
+  /// [margin] 默认带 16 顶部间距；用于「固定 header + 内容滚动」布局时
+  /// 可传顶部为 0（由页面在滚动区外提供固定间隔，滚动时间距不消失）。
+  const MinutesCard({super.key, required this.view, this.margin});
 
   /// 纪要数据。
   final MinutesView view;
 
+  /// 外边距。
+  final EdgeInsetsGeometry? margin;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
+      margin:
+          margin ?? const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
       padding: const EdgeInsets.fromLTRB(22, 20, 22, 6),
       decoration: BoxDecoration(
         color: AppColors.card,

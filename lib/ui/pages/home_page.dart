@@ -77,8 +77,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     } catch (error) {
       failure = error;
     } finally {
-      // 无论成功 / 失败都先解除转圈态（跳详情页也由 meetingId 分支处理）。
-      if (mounted && meetingId == null) setState(() => _stopping = false);
+      // 无条件复位：HomePage 是根路由，跳详情页后 State 仍存活——
+      // 不复位的话，从详情页返回主页会永远显示「正在结束并生成…」。
+      if (mounted) setState(() => _stopping = false);
     }
     if (!mounted) return;
     if (failure != null) {
