@@ -173,11 +173,19 @@ class AudioPlayerState {
 
 /// 音频播放控制器。
 class AudioPlayerController extends Notifier<AudioPlayerState> {
+  AudioPlayerController({
+    AudioPlayerEngine? engine,
+    this.autoStopGrace = const Duration(milliseconds: 340),
+  })
   // ignore: prefer_initializing_formals
-  AudioPlayerController({AudioPlayerEngine? engine}) : _engine = engine;
+  : _engine = engine;
 
   /// 注入的播放器引擎（测试用）。
   final AudioPlayerEngine? _engine;
+
+  /// 自动停后的「满条宽限期」：先把进度钉在段尾让 320ms 补间画满，
+  /// 宽限结束后才撤下播放组件。测试可传 [Duration.zero] 走立即撤除路径。
+  final Duration autoStopGrace;
   AudioPlayerEngine? _resolvedEngine;
   BackendApi? _api;
   StreamSubscription<Duration>? _positionSub;
@@ -448,6 +456,10 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
     _positionSub?.cancel();
     _positionSub = _player.positionStream.listen((Duration position) {
       if (_disposed) return;
+      // 非播放态（已暂停 / 自动停后的宽限期）忽略位置事件：暂停后位置流的
+      // 迟到/回放旧值会把断点位置改写（续播位置漂移），宽限期会把钉满的
+      // 进度条拖回去。正在播（isPlaying）或有意向播（加载期 seek 回放）才采纳。
+      if (!_intentPlaying && !state.isPlaying) return;
       int ms = position.inMilliseconds;
       // 单调护栏：同一当前段播放中，位置不应倒退。位置流偶发回调乱序 /
       // 缓冲期旧值回放会让进度条「后腿」（先回跳再追上）。仅压制 ≤400ms 的
@@ -473,14 +485,26 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
   Future<void> _autoStop() async {
     _intentPlaying = false;
     _startedPlaying = false;
+    // ★ 先把位置钉在段尾：进度条立刻满格（played/segDuration = 1.0）、按钮切回
+    // 播放图标。否则最后的 320ms 补间还没画到最右端，组件就被下面的
+    // clearActive 卸载了 —— 用户肉眼看到「条没走到最右边就消失」
+    // （2026-09-26 日志实证：autoStop 逻辑到位，视觉被卸载竞争截断）。
+    state = state.copyWith(currentPositionMs: _endMs, isPlaying: false);
     try {
       await _player.pause();
     } catch (_) {
       // ignore
     }
-    // 播完即清除「当前段」：进度条与「已播 / 段长」整块撤下，避免上一段的
-    // 播放组件残留导致下一段点播时布局错位。
-    state = state.copyWith(isPlaying: false, clearActive: true);
+    // 宽限期：让满格补间渲染完再撤下组件（播完的完整视觉反馈）。
+    // 期间用户重新开播 / 切到别的段 → 放弃撤除，交给新的播放会话自己收尾。
+    final String? activeKey = state.playingSegmentKey;
+    if (autoStopGrace > Duration.zero) {
+      await Future<void>.delayed(autoStopGrace);
+    }
+    if (_disposed) return;
+    final AudioPlayerState current = state;
+    if (current.isPlaying || current.playingSegmentKey != activeKey) return;
+    state = current.copyWith(isPlaying: false, clearActive: true);
   }
 
   void _toast(String text, {ToastTone tone = ToastTone.info}) {

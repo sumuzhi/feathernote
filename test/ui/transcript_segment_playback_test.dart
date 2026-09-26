@@ -117,12 +117,13 @@ class _FakeApi implements BackendApi {
 ProviderContainer _boot({
   required _FakeEngine engine,
   required String? audioPath,
+  Duration autoStopGrace = Duration.zero,
 }) =>
     ProviderContainer(
       overrides: [
         backendProvider.overrideWith((Ref ref) async => _FakeApi(audioPath: audioPath)),
         audioPlayerControllerProvider.overrideWith(
-          () => AudioPlayerController(engine: engine),
+          () => AudioPlayerController(engine: engine, autoStopGrace: autoStopGrace),
         ),
       ],
     );
@@ -430,6 +431,83 @@ void main() {
         container.read(audioPlayerControllerProvider).isSegmentActive('s1', 1000),
         isFalse,
         reason: '正常段尾自动停仍然生效',
+      );
+    });
+
+    test('自动停后进度钉在段尾（满格），宽限期结束才撤下组件', () async {
+      // 模拟器日志实证（2026-09-26）：autoStop 逻辑到位，但最后的 320ms 满格
+      // 补间还没画完组件就被 clearActive 卸载 → 肉眼看到「条没走到最右边」。
+      // 锁定：先钉满（位置=段尾、按钮切回播放图标），宽限期后才撤。
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(
+        engine: engine,
+        audioPath: '/tmp/m.wav',
+        autoStopGrace: const Duration(milliseconds: 80),
+      );
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(5100);
+      await Future<void>.delayed(const Duration(milliseconds: 10)); // 宽限期内
+
+      AudioPlayerState state = container.read(audioPlayerControllerProvider);
+      expect(state.isPlaying, isFalse, reason: '播放已结束，按钮应切回播放图标');
+      expect(state.currentPositionMs, 5000, reason: '位置必须钉在段尾 → 进度条满格');
+      expect(state.playingSegmentId, 's1', reason: '宽限期内组件仍在（满格视觉反馈）');
+
+      await Future<void>.delayed(const Duration(milliseconds: 120)); // 宽限期已过
+      state = container.read(audioPlayerControllerProvider);
+      expect(state.playingSegmentId, isNull, reason: '宽限期结束后撤下播放组件');
+    });
+
+    test('宽限期内重新开播则放弃撤除，不得吃掉新的播放会话', () async {
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(
+        engine: engine,
+        audioPath: '/tmp/m.wav',
+        autoStopGrace: const Duration(milliseconds: 80),
+      );
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(5100);
+      await Future<void>.delayed(const Duration(milliseconds: 10)); // 宽限期内
+
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      expect(engine.lastSeekMs, 1000, reason: '已播到段尾，重播应从头开始');
+
+      await Future<void>.delayed(const Duration(milliseconds: 150)); // 宽限期早已过期
+      final AudioPlayerState state = container.read(audioPlayerControllerProvider);
+      expect(state.isPlaying, isTrue);
+      expect(
+        state.playingSegmentId,
+        's1',
+        reason: '宽限期的延迟撤除必须被放弃，否则会把刚开播的组件拆掉',
+      );
+    });
+
+    test('非播放态下位置流的迟到事件不得改写断点位置', () async {
+      // 宽限期/暂停后位置流可能回放旧值：要么把钉满的进度条拖回去，
+      // 要么污染断点导致续播位置漂移。锁定：非播放态一律忽略。
+      final _FakeEngine engine = _FakeEngine()..duration = const Duration(seconds: 30);
+      final ProviderContainer container = _boot(engine: engine, audioPath: '/tmp/m.wav');
+      addTearDown(container.dispose);
+
+      final AudioPlayerController ctrl = container.read(audioPlayerControllerProvider.notifier);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000);
+      engine.tickTo(3000);
+      await Future<void>.delayed(Duration.zero);
+      await ctrl.playSegment(meetingId: 'm1', segmentId: 's1', startMs: 1000, endMs: 5000); // 暂停
+      expect(container.read(audioPlayerControllerProvider).currentPositionMs, 3000);
+
+      engine.tickTo(2800); // 迟到的旧位置
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(audioPlayerControllerProvider).currentPositionMs,
+        3000,
+        reason: '暂停后位置事件必须被忽略，断点不得漂移',
       );
     });
   });
