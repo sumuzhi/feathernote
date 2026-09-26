@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/log/log.dart';
+import '../providers/app_providers.dart';
 import '../providers/quote_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -53,7 +55,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void initState() {
     super.initState();
-    // 启动期预取「一句话」：进入首页前请求已在路上（超时 3s），进首页即可见。
+    // 预热后端装配（配置校验 / DB 打开 / 引擎构建）与历史列表流：
+    // 这些原本发生在 splash 结束、主页首帧时——正是「动画完了卡一下」的根源。
+    // 现在借 2.4s 动画窗口在后台完成，主页首帧即有数据。
+    ref.watch(backendProvider.future).then(
+      (_) => logInfo('splash', '后端预热完成（装配 + DB 就绪）'),
+      onError: (Object e) => logWarn('splash', '后端预热失败：$e'),
+    );
+    ref.watch(meetingsProvider);
+    // 预取「一句话」：进入首页前请求已在路上（超时 3s），进首页即可见。
     ref.watch(dailyQuoteProvider);
     _controller.forward(from: 0);
     _timer = Timer(kSplashDuration, () {
