@@ -7,6 +7,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -24,7 +25,6 @@ import '../utils/formatters.dart';
 import '../utils/speaker_view.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/history_card.dart';
-import '../widgets/quote_dialog.dart';
 import '../widgets/speaker_chips.dart';
 import '../widgets/transcript_tile.dart';
 
@@ -177,16 +177,18 @@ class _HomePageState extends ConsumerState<HomePage> {
       heroStatusText: busy ? '处理中' : '待机中',
       heroStatusTail: '今日已记录 $todayMinutes 分钟',
       dailyQuote: dailyQuote,
+      // 单击复制 / 双击刷新（双击由 GestureDetector 的双击窗口区分）。
       onQuoteTap: dailyQuote == null || dailyQuote.isEmpty
           ? null
           : () async {
-              final bool copied = await showQuoteDialog(context, dailyQuote);
-              if (!mounted || !copied) return;
+              await Clipboard.setData(ClipboardData(text: dailyQuote));
+              if (!mounted) return;
               ref.read(toastProvider.notifier).show(
                     '已复制到剪切板',
                     tone: ToastTone.success,
                   );
             },
+      onQuoteRefresh: () => ref.invalidate(dailyQuoteProvider),
       recentItems: recent,
       onMicTap: _start,
       onViewAll: () => context.go('/history'),

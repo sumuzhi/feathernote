@@ -23,6 +23,7 @@ class HomeIdleScreen extends StatelessWidget {
     this.greeting = '',
     this.dailyQuote,
     this.onQuoteTap,
+    this.onQuoteRefresh,
     this.userName = '',
     required this.heroStatusText,
     required this.heroStatusTail,
@@ -45,8 +46,11 @@ class HomeIdleScreen extends StatelessWidget {
   /// 「一句话」文案（进入首页时从一言 API 取；null / 空 = 不渲染）。
   final String? dailyQuote;
 
-  /// 点击「一句话」（弹详情 + 复制；null = 仅展示不可点）。
+  /// 单击「一句话」：复制到剪贴板。
   final VoidCallback? onQuoteTap;
+
+  /// 双击「一句话」：刷新句子。
+  final VoidCallback? onQuoteRefresh;
 
   /// 用户名（头像文字取首字；空则不渲染头像）。
   final String userName;
@@ -134,30 +138,18 @@ class HomeIdleScreen extends StatelessWidget {
                 ],
                 Text('开始记录', style: AppTextStyles.pageTitle),
                 // 「一句话」：一言 API（诗词），随每次进首页刷新；无网静默隐藏。
-                // 点击弹窗查看全文并可一键复制。
+                // 单击复制到剪贴板，双击刷新句子（交互由 onQuoteTap/onQuoteRefresh 提供）。
                 if (dailyQuote != null && dailyQuote!.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 6),
                   GestureDetector(
                     onTap: onQuoteTap,
+                    onDoubleTap: onQuoteRefresh,
                     behavior: HitTestBehavior.opaque,
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            dailyQuote!,
-                            style: AppTextStyles.metaSmall
-                                .copyWith(color: AppColors.muted),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.expand_more_rounded,
-                          size: 14,
-                          color: AppColors.muted,
-                        ),
-                      ],
+                    child: Text(
+                      dailyQuote!,
+                      style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
