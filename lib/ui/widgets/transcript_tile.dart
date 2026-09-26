@@ -174,9 +174,10 @@ class TranscriptTile extends StatelessWidget {
                         const SizedBox(width: 8),
                         Text(
                           '${item.playPositionLabel} / ${item.playDurationLabel}',
+                          // 设计规格：11px / w400 / #8B7565（AppColors.muted），字体跟随系统。
                           style: AppTextStyles.meta.copyWith(
-                            color: AppColors.ink,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 11,
+                            color: AppColors.muted,
                           ),
                         ),
                       ],
