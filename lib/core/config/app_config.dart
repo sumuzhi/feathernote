@@ -329,7 +329,7 @@ class AppConfig {
       localHttpPort: Secrets.localHttpPort,
       useMockEngine: Secrets.useMockEngine || _readString('ENGINE_PROVIDER', 'bailian') == 'mock',
       version: _readString('SMART_MINUTES_VERSION', '1.0.0'),
-      buildStamp: _readString('BUILD_STAMP', ''),
+      buildStamp: Secrets.buildStamp,
     );
   }
 

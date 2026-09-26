@@ -21,6 +21,13 @@ abstract final class Secrets {
   /// 是否强制使用 Mock 引擎（离线自测 / 单测）。
   static const bool useMockEngine = bool.fromEnvironment('MOCK', defaultValue: false);
 
+  /// 构建戳（`--dart-define=BUILD_STAMP=MMDD-HHMM/短哈希`，如 `0926-1355/d0f81c1`）。
+  ///
+  /// ⚠️ 必须走 **const** `String.fromEnvironment`：非 const 调用在 AOT 下不会
+  /// 折叠（实测两次不同戳的构建产物 MD5 完全相同 = 值根本没进包），
+  /// 曾导致「设置页版本行」一直为空、下载页的构建戳核对机制失效。
+  static const String buildStamp = String.fromEnvironment('BUILD_STAMP');
+
   /// 日志级别覆盖（`--dart-define=LOG_LEVEL=debug`）。
   static const String logLevel = String.fromEnvironment('LOG_LEVEL', defaultValue: 'info');
 
