@@ -32,11 +32,66 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
   static const int _longListThreshold = 12;
 
   final TextEditingController _search = TextEditingController();
+  final ScrollController _listScroll = ScrollController();
   int _filterIndex = 0;
   String _query = '';
 
+  /// 滚动位置是否已恢复（数据异步到达前不跳，避免 clamp 到 0）。
+  bool _scrollRestored = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 恢复上次的筛选 / 搜索 / 滚动位置（go_router 的 go() 会销毁本页 State）。
+    final HistoryUiCache cache = ref.read(historyUiCacheProvider);
+    _filterIndex = cache.filterIndex;
+    _query = cache.query;
+    _search.text = cache.query;
+    _listScroll.addListener(() {
+      if (_listScroll.hasClients) {
+        ref.read(historyUiCacheProvider).scrollOffset = _listScroll.offset;
+      }
+    });
+    _restoreScrollWhenReady();
+  }
+
+  /// 数据 / 列表就绪后恢复滚动位置（逐帧重试直到可滚动）。
+  void _restoreScrollWhenReady() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _scrollRestored) return;
+      if (!_listScroll.hasClients) {
+        _restoreScrollWhenReady();
+        return;
+      }
+      final double target = ref.read(historyUiCacheProvider).scrollOffset;
+      if (target <= 0) {
+        _scrollRestored = true;
+        return;
+      }
+      final double max = _listScroll.position.maxScrollExtent;
+      if (max <= 0) {
+        // 数据尚未加载（列表为空），等下一帧再试。
+        _restoreScrollWhenReady();
+        return;
+      }
+      _listScroll.jumpTo(target.clamp(0.0, max));
+      _scrollRestored = true;
+    });
+  }
+
+  /// 变更筛选 / 搜索：写回缓存并回到顶部（内容已变，原位置无意义）。
+  void _setFilterState(VoidCallback mutate) {
+    setState(mutate);
+    final HistoryUiCache cache = ref.read(historyUiCacheProvider);
+    cache.filterIndex = _filterIndex;
+    cache.query = _query;
+    cache.scrollOffset = 0;
+    if (_listScroll.hasClients) _listScroll.jumpTo(0);
+  }
+
   @override
   void dispose() {
+    _listScroll.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -100,8 +155,9 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
           FilterChipView(label: _filters[i], selected: i == _filterIndex),
       ],
       selectedFilter: _filterIndex,
-      onFilterChanged: (int index) => setState(() => _filterIndex = index),
-      onFilterButton: () => setState(() => _filterIndex = (_filterIndex + 1) % _filters.length),
+      onFilterChanged: (int index) => _setFilterState(() => _filterIndex = index),
+      onFilterButton: () =>
+          _setFilterState(() => _filterIndex = (_filterIndex + 1) % _filters.length),
       onTabTap: (int index) {
         switch (index) {
           case 0:
@@ -114,10 +170,11 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
       },
       onStartRecording: () => context.go('/'),
       searchController: _search,
-      onSearchChanged: (String value) => setState(() => _query = value),
+      scrollController: _listScroll,
+      onSearchChanged: (String value) => _setFilterState(() => _query = value),
       onSearchClear: () {
         _search.clear();
-        setState(() => _query = '');
+        _setFilterState(() => _query = '');
       },
       keyword: _query.trim(),
       items: <HistoryItemView>[
@@ -128,12 +185,12 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
           ? '共 ${filtered.length} 条 · 约 ${_totalHours(filtered)} 小时'
           : null,
       loadMoreText: '正在加载更多 · 已显示 ${filtered.length} / ${all.length}',
-      onClearFilters: () => setState(() {
+      onClearFilters: () => _setFilterState(() {
         _filterIndex = 0;
         _search.clear();
         _query = '';
       }),
-      onSearchAllTime: () => setState(() => _filterIndex = 0),
+      onSearchAllTime: () => _setFilterState(() => _filterIndex = 0),
       selectedTab: 1,
     );
   }

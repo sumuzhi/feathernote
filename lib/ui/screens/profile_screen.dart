@@ -135,7 +135,7 @@ class ProfileScreen extends StatelessWidget {
           ),
           // 统计模块（保留）：场会议 / 累计时长 / 场已总结。
           SurfaceCard(
-            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
+            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 8),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
             child: Row(
               children: <Widget>[

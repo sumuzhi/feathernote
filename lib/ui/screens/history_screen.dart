@@ -41,6 +41,7 @@ class HistoryScreen extends StatelessWidget {
     required this.onTabTap,
     required this.onStartRecording,
     this.searchController,
+    this.scrollController,
     this.searchHint = '搜索会议标题、纪要或待办…',
     this.onSearchChanged,
     this.onSearchClear,
@@ -79,6 +80,9 @@ class HistoryScreen extends StatelessWidget {
 
   /// 搜索框控制器。
   final TextEditingController? searchController;
+
+  /// 内容列表滚动控制器（页面用它恢复/缓存滚动位置）。
+  final ScrollController? scrollController;
 
   /// 搜索占位文案。
   final String searchHint;
@@ -127,6 +131,7 @@ class HistoryScreen extends StatelessWidget {
     return ScreenFrame(
       // 只滚动内容列表：标题 / 搜索 / 筛选 chips 固定在顶部不随列表滚动。
       scrollable: false,
+      scrollController: scrollController,
       tabIndex: selectedTab,
       onTabTap: onTabTap,
       body: Column(

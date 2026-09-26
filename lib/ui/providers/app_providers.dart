@@ -157,6 +157,24 @@ class ToastController extends Notifier<ToastMessage?> {
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
 
+/// 历史页 UI 状态缓存（切页保留）：筛选下标 / 搜索词 / 滚动位置。
+///
+/// 用**可变对象**持有（写入不触发重建）；HistoryPage 在状态变更时写回、
+/// 进入时恢复——go_router 的 `go()` 会销毁页外页面，此缓存兜住这些状态。
+class HistoryUiCache {
+  /// 选中的筛选下标（全部/今天/本周/已总结）。
+  int filterIndex = 0;
+
+  /// 搜索词。
+  String query = '';
+
+  /// 列表滚动位置（px）。
+  double scrollOffset = 0;
+}
+
+final Provider<HistoryUiCache> historyUiCacheProvider =
+    Provider<HistoryUiCache>((Ref ref) => HistoryUiCache());
+
 final NotifierProvider<ToastController, ToastMessage?> toastProvider =
     NotifierProvider<ToastController, ToastMessage?>(ToastController.new);
 
