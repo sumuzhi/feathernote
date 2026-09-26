@@ -133,25 +133,6 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           ),
-          // 统计模块（保留）：场会议 / 累计时长 / 场已总结。
-          SurfaceCard(
-            margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 8),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
-            child: Row(
-              children: <Widget>[
-                for (int i = 0; i < stats.length; i++)
-                  Expanded(
-                    child: Column(
-                      children: <Widget>[
-                        Text(stats[i].value, style: AppTextStyles.statValue),
-                        const SizedBox(height: 5),
-                        Text(stats[i].label, style: AppTextStyles.metaSmall),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
           Expanded(
             child: SingleChildScrollView(
               // 底部留白 = TabBar 全保留高度 + 20 余量：
@@ -160,6 +141,26 @@ class ProfileScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  // 统计模块（保留）：场会议 / 累计时长 / 场已总结。
+                  // 跟随设置项一起滚动。
+                  SurfaceCard(
+                    margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+                    child: Row(
+                      children: <Widget>[
+                        for (int i = 0; i < stats.length; i++)
+                          Expanded(
+                            child: Column(
+                              children: <Widget>[
+                                Text(stats[i].value, style: AppTextStyles.statValue),
+                                const SizedBox(height: 5),
+                                Text(stats[i].label, style: AppTextStyles.metaSmall),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   for (final ProfileSectionView section in sections) ...<Widget>[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(22, 20, 22, 9),
