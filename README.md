@@ -2,7 +2,7 @@
 
 > 听见每一场会议的重点 —— 录音 → 实时转写 → AI 纪要 → 多格式导出的 Flutter 会议纪要应用。
 
-声羽 FeatherNote 是 [smart-minutes](../smart-minutes)（Web 端智能语音会议纪要系统）的 **Flutter 原生重写版**，采用 **方案 B：Dart-native 进程内后端**——语音识别、纪要生成、存储全部跑在 App 进程内，**无独立服务器依赖**，适合侧载分发的 Android 自用形态。
+声羽 FeatherNote 是 **smart-minutes**（Web 端智能语音会议纪要系统）的 **Flutter 原生重写版**，采用 **方案 B：Dart-native 进程内后端**——语音识别、纪要生成、存储全部跑在 App 进程内，**无独立服务器依赖**，适合侧载分发的 Android 自用形态。
 
 ## 功能特性
 
