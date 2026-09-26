@@ -438,14 +438,14 @@ class AudioPlayerController extends Notifier<AudioPlayerState> {
         if (last > 0 && ms < last && last - ms <= 400) ms = last;
       }
       state = state.copyWith(currentPositionMs: ms);
-      // 仅在「确实已开播」后允许自动停：挡掉加载/缓冲期位置流回放的异常大值
-      // （如等于文件时长），否则会提前把当前段清空。
-      // 叠加 `ms < durationMs`：段末（< 文件总长）才停；异常值（≈文件时长）必然被拦。
-      if (_startedPlaying &&
-          _endMs > 0 &&
-          ms >= _endMs &&
-          (state.durationMs <= 0 || ms < state.durationMs) &&
-          state.isPlaying) {
+      // 自动停止：`_startedPlaying` 门闩挡掉加载/缓冲期的异常回放值后，
+      // 位置一旦到达段尾（或文件尾）即停止。
+      // ⚠️ 不再要求 `ms < durationMs`：模拟器 AudioTrack 时钟抖动会让位置
+      // 上报跳过段尾窗口直达文件尾（logcat 见 device stall time corrected），
+      // 旧保护条款会拦住自动停止 → 播放越过段尾直到 completed 才收
+      // （播放条多停留数秒，即「有时很快消失、有时停留较久」的差异来源）。
+      // 到达段尾/文件尾任一即停，行为一致且不会多播。
+      if (_startedPlaying && _endMs > 0 && ms >= _endMs && state.isPlaying) {
         _autoStop();
       }
     });
