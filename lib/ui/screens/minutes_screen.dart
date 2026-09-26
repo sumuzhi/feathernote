@@ -129,16 +129,17 @@ class MinutesScreen extends StatelessWidget {
             ),
           // header 与内容区之间的固定间隔（放滚动区外，滚动时不消失）。
           const SizedBox(height: 16),
-          // 仅纪要卡内容滚动（底部留白避开 CTA：手势条 inset + CTA 高度 + 余量）。
+          // AI 纪要卡固定占满剩余高度：仅卡片内部内容滚动（Clip 按圆角裁剪，
+          // 滚动时圆角不丢失）；卡片与屏底留 24 边距，CTA 悬浮其上。
           Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.viewPaddingOf(context).bottom + 100,
-              ),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 24),
               child: MinutesCard(
                 view: minutes,
-                // 顶部间距由上方固定 SizedBox 提供，卡片自带 margin 归零。
-                margin: const EdgeInsets.fromLTRB(AppSpacing.page, 0, AppSpacing.page, 0),
+                margin: EdgeInsets.zero,
+                scrollable: true,
+                scrollBottomPadding:
+                    MediaQuery.viewPaddingOf(context).bottom + 96,
               ),
             ),
           ),

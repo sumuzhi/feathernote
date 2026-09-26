@@ -95,7 +95,13 @@ class MinutesCard extends StatelessWidget {
   ///
   /// [margin] 默认带 16 顶部间距；用于「固定 header + 内容滚动」布局时
   /// 可传顶部为 0（由页面在滚动区外提供固定间隔，滚动时间距不消失）。
-  const MinutesCard({super.key, required this.view, this.margin});
+  const MinutesCard({
+    super.key,
+    required this.view,
+    this.margin,
+    this.scrollable = false,
+    this.scrollBottomPadding = 0,
+  });
 
   /// 纪要数据。
   final MinutesView view;
@@ -103,12 +109,22 @@ class MinutesCard extends StatelessWidget {
   /// 外边距。
   final EdgeInsetsGeometry? margin;
 
+  /// 是否内部滚动模式：卡片固定占满可用高度，仅摘要/分节等内容在卡片内
+  /// 滚动（Clip.antiAlias 按卡片圆角裁剪，滚动时圆角不丢失）。
+  /// gallery 等自适应高度场景保持 false。
+  final bool scrollable;
+
+  /// 内部滚动的底部留白（避开悬浮 CTA；仅 scrollable 模式生效）。
+  final double scrollBottomPadding;
+
   @override
   Widget build(BuildContext context) {
     return Container(
       margin:
           margin ?? const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 6),
+      // scrollable 模式下裁剪内部滚动内容，保证滚动时卡片圆角始终保留。
+      clipBehavior: scrollable ? Clip.antiAlias : Clip.none,
+      padding: EdgeInsets.fromLTRB(22, 20, 22, scrollable ? 0 : 6),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(AppRadius.card),
@@ -128,66 +144,84 @@ class MinutesCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 13),
-          Text(view.abstractText, style: AppTextStyles.abstract),
-          if (view.onRetry != null)
-            GestureDetector(
-              onTap: view.onRetry,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 12, 0, 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.refresh_rounded, size: 14, color: AppColors.orange),
-                    const SizedBox(width: 6),
-                    Text('重新生成纪要', style: AppTextStyles.action),
-                  ],
+          if (scrollable)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(bottom: scrollBottomPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _bodyChildren(),
                 ),
               ),
-            ),
-          if (view.expandNote != null)
-            GestureDetector(
-              onTap: view.onExpandAbstract,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 10, 0, 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(view.expandNote!, style: AppTextStyles.action),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.expand_more_rounded, size: 13, color: AppColors.orange),
-                  ],
-                ),
-              ),
-            ),
-          for (int i = 0; i < view.sections.length; i++) ...<Widget>[
-            // 分节之间不再画分割线（用户反馈横线过多影响观感），靠留白分隔。
-            if (i == 0) const SizedBox(height: 14) else const SizedBox(height: 16),
-            Text(view.sections[i].title, style: AppTextStyles.subHead),
-            const SizedBox(height: 4),
-            for (final String item in view.sections[i].items)
-              _BulletItem(text: item, orange: view.sections[i].orangeDots),
-            if (view.sections[i].moreLabel != null)
-              GestureDetector(
-                onTap: view.onMore == null ? null : () => view.onMore!(i),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(view.sections[i].moreLabel!, style: AppTextStyles.action),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.chevron_right_rounded, size: 13, color: AppColors.orange),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+            )
+          else
+            ..._bodyChildren(),
         ],
       ),
     );
+  }
+
+  /// 卡片头部以下的正文（摘要 / 重试 / 展开 / 分节）。
+  List<Widget> _bodyChildren() {
+    return <Widget>[
+      Text(view.abstractText, style: AppTextStyles.abstract),
+      if (view.onRetry != null)
+        GestureDetector(
+          onTap: view.onRetry,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 12, 0, 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.refresh_rounded, size: 14, color: AppColors.orange),
+                const SizedBox(width: 6),
+                Text('重新生成纪要', style: AppTextStyles.action),
+              ],
+            ),
+          ),
+        ),
+      if (view.expandNote != null)
+        GestureDetector(
+          onTap: view.onExpandAbstract,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 10, 0, 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(view.expandNote!, style: AppTextStyles.action),
+                const SizedBox(width: 4),
+                const Icon(Icons.expand_more_rounded, size: 13, color: AppColors.orange),
+              ],
+            ),
+          ),
+        ),
+      for (int i = 0; i < view.sections.length; i++) ...<Widget>[
+        // 分节之间不再画分割线（用户反馈横线过多影响观感），靠留白分隔。
+        if (i == 0) const SizedBox(height: 14) else const SizedBox(height: 16),
+        Text(view.sections[i].title, style: AppTextStyles.subHead),
+        const SizedBox(height: 4),
+        for (final String item in view.sections[i].items)
+          _BulletItem(text: item, orange: view.sections[i].orangeDots),
+        if (view.sections[i].moreLabel != null)
+          GestureDetector(
+            onTap: view.onMore == null ? null : () => view.onMore!(i),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(view.sections[i].moreLabel!, style: AppTextStyles.action),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right_rounded, size: 13, color: AppColors.orange),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ];
   }
 }
 
