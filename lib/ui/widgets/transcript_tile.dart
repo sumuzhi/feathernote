@@ -130,7 +130,11 @@ class TranscriptTile extends StatelessWidget {
                       child: GestureDetector(
                         onTap: canPlay ? onPlay : null,
                         behavior: HitTestBehavior.opaque,
+                        // maxLines=1 + 省略：发言人名超长时收缩省略，
+                        // 保证播放态整行（发言人/按钮/进度条/时间）不折行。
                         child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           text: TextSpan(
                             style: AppTextStyles.meta.copyWith(
                               fontWeight: FontWeight.w600,
