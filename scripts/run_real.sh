@@ -142,7 +142,7 @@ prune_flutter_snapshots() {
       freed=1
     done
     if [[ "$freed" -eq 1 ]]; then
-      echo "🧹 已清理 $dir 过期快照（保留最新 $keep）"
+      echo "🧹 已清理 $dir 过期快照"
     fi
   done
 }
