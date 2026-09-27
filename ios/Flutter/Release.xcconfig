@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+// Release 构建用品牌橙渐变图标。
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-ios

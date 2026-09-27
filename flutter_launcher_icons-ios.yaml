@@ -1,0 +1,9 @@
+# iOS 启动图标（Release / 默认 AppIcon）：品牌橙渐变底 + 白色羽翼。
+# 用法：dart run flutter_launcher_icons -f flutter_launcher_icons-ios.yaml
+# Debug 的深棕底变体（AppIcon-Debug）由 tool/ios-icons/sync_debug.py 从
+# tool/ios-icons/icon-debug-1024.png 同步生成——改图标后两个都要跑。
+flutter_launcher_icons:
+  image_path: "assets/brand/icon-combined-1024.png"
+  android: false
+  ios: true
+  remove_alpha_ios: true

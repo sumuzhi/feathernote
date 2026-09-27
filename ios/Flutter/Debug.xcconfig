@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+// Debug 构建用深棕底图标（与 Android Debug flavor 一致）。
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-ios-debug
