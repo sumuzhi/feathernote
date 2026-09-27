@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 
 import 'export_destination.dart';
 
@@ -67,8 +68,9 @@ extension ExportFormatX on ExportFormat {
 /// 按格式导出纪要（Markdown 源），返回**给用户展示的保存位置**。
 ///
 /// - [ExportDestination.appDownload]（默认）：Android 上经 MediaStore 写入
-///   公共 `Download/SmartMinutes/`（10+ 零权限）；其他平台写应用文档目录。
-/// - [ExportDestination.askEachTime]：弹系统「另存为」，由用户选位置与文件名。
+///   公共 `Download/SmartMinutes/`（10+ 零权限）；iOS 写应用文档目录 `exports/`
+///   后**弹系统分享面板**（share_plus），面板关闭后返回本地路径；其他平台只写应用文档目录。
+/// - [ExportDestination.askEachTime]：弹系统「另存为」，由用户选位置与文件名（Android）。
 Future<String> exportMeeting({
   required String fileName,
   required String markdown,
@@ -109,7 +111,21 @@ Future<String> exportMeeting({
     }
     return 'Download/SmartMinutes/$safeName$fullExt';
   }
-  return _writeLocalBytes(bytes: bytes, fileName: safeName, extension: fullExt);
+
+  // iOS：无「公共下载目录」概念，按产品决策走**系统分享面板**（UIActivityViewController，
+  // AirDrop / 文件 / 第三方 App 均可接收）。文件先落应用文档目录 exports/，
+  // 面板关闭（无论是否真的分享）后返回本地路径，调用方照常提示位置。
+  final String localPath = await _writeLocalBytes(
+    bytes: bytes,
+    fileName: safeName,
+    extension: fullExt,
+  );
+  if (Platform.isIOS) {
+    await SharePlus.instance.share(
+      ShareParams(files: <XFile>[XFile(localPath)]),
+    );
+  }
+  return localPath;
 }
 
 /// 用户在系统「另存为」里取消导出。
