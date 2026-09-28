@@ -176,8 +176,9 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.textContaining('终稿失败'), findsOneWidget);
-    expect(find.textContaining('网络超时'), findsOneWidget);
+    expect(find.textContaining('终稿转写失败'), findsOneWidget);
+    expect(find.textContaining('响应超时'), findsOneWidget,
+        reason: '原始原因「网络超时」必须映射为用户可读文案');
     expect(tester.takeException(), isNull);
   });
 
@@ -256,7 +257,7 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.textContaining('终稿失败'), findsOneWidget);
+    expect(find.textContaining('终稿转写失败'), findsOneWidget);
     expect(
       backend.generateCalls,
       greaterThanOrEqualTo(1),

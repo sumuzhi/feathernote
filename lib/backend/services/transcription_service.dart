@@ -649,6 +649,50 @@ class TranscriptionService {
     await poller.start(meetingId, wavPath: wavPath, diarization: diarization);
   }
 
+  /// **重试终稿**（终稿失败后由 UI「重试」按钮触发）。
+  ///
+  /// 前置条件：`finalizeStatus == failed` 且音频归档（`audioKey`）仍在。
+  /// 复用归档的 WAV 重新走「上传 → 提交 → 轮询」链路；成功受理后状态回到
+  /// `pending`（由 [FinalizePoller.start] 落盘并广播），后续失败照常落 failed。
+  ///
+  /// 抛错语义：可重试性检查 / 归档路径解析失败会**同步抛出** [AppError]，
+  /// 由调用方（UI）提示；链路内的异步失败由 poller 落盘 + 广播，不走这里。
+  Future<void> retryFinalize(String meetingId) async {
+    final Meeting? meeting = await persistence.loadMeeting(meetingId);
+    if (meeting == null) {
+      throw const AppError(ErrorCode.internal, '会议不存在，无法重试');
+    }
+    if (meeting.finalizeStatus != FinalizeStatus.failed) {
+      throw const AppError(ErrorCode.internal, '当前状态不可重试终稿');
+    }
+    final String? audioKey = meeting.audioKey;
+    if (audioKey == null) {
+      throw const AppError(ErrorCode.internal, '录音归档缺失（audioKey=null），无法重试');
+    }
+    final String? wavPath = await _resolveArchivePath(audioKey);
+    if (wavPath == null) {
+      throw const AppError(ErrorCode.internal, '录音文件已丢失，无法重试');
+    }
+    // 清掉旧错误并回到 pending，让 UI 立即切回「处理中」观感；
+    // 后续真实结果由 poller 落盘覆盖。
+    final Meeting? current = await persistence.loadMeeting(meetingId);
+    if (current != null) {
+      await persistence.saveMeeting(
+        current.copyWith(
+          finalizeStatus: FinalizeStatus.pending,
+          clearFinalizeError: true,
+        ),
+      );
+    }
+    try {
+      await startFinalize(meetingId, wavPath: wavPath);
+    } catch (error) {
+      logWarn('transcription', '重试终稿失败 meeting=$meetingId：$error');
+      await _markFinalizeFailed(meetingId, error.toString());
+      rethrow;
+    }
+  }
+
   /// 终稿完成回调（由 [FinalizePoller] 调用）：**先落库再广播**。
   Future<void> handleFinalizeComplete(
     String meetingId,

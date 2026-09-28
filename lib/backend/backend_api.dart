@@ -180,6 +180,9 @@ abstract class BackendApi {
   /// 手动触发终稿转写。
   Future<void> startFinalize(String meetingId, {required String wavPath});
 
+  /// 重试失败的终稿（复用归档 WAV；仅 `finalizeStatus == failed` 时可调）。
+  Future<void> retryFinalize(String meetingId);
+
   // ── 纪要（对应 /api/meetings/:id/minutes[/stream]）──
 
   /// 非流式生成纪要。
@@ -418,6 +421,10 @@ class BackendApiImpl implements BackendApi {
   @override
   Future<void> startFinalize(String meetingId, {required String wavPath}) =>
       transcriptionService.startFinalize(meetingId, wavPath: wavPath);
+
+  @override
+  Future<void> retryFinalize(String meetingId) =>
+      transcriptionService.retryFinalize(meetingId);
 
   @override
   Future<String> generateMinutes(String meetingId) => minutesService.generate(meetingId);

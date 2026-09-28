@@ -30,6 +30,8 @@ class MinutesScreen extends StatelessWidget {
     required this.onFavorite,
     this.favorited = false,
     this.notice,
+    this.noticeAction,
+    this.onNoticeAction,
   });
 
   /// 顶栏副标题（「生成于 12:47」）。
@@ -64,6 +66,12 @@ class MinutesScreen extends StatelessWidget {
 
   /// 顶部提示（如「终稿处理中 · 完成后自动刷新纪要」）。
   final String? notice;
+
+  /// 提示条动作文案（如「重试」；为 null 时提示条展示转圈）。
+  final String? noticeAction;
+
+  /// 提示条动作回调（为 null 时提示条展示转圈）。
+  final VoidCallback? onNoticeAction;
 
   @override
   Widget build(BuildContext context) {
@@ -116,14 +124,34 @@ class MinutesScreen extends StatelessWidget {
               ),
               child: Row(
                 children: <Widget>[
-                  const SizedBox(width: 20, height: 20, child: AppSpinner(size: 12)),
-                  const SizedBox(width: 10),
+                  // 处理中（无动作）才转圈；失败（带动作）展示重试按钮。
+                  if (onNoticeAction == null) ...<Widget>[
+                    const SizedBox(width: 20, height: 20, child: AppSpinner(size: 12)),
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(
                     child: Text(
                       notice!,
                       style: AppTextStyles.metaSmall.copyWith(color: AppColors.orange),
                     ),
                   ),
+                  if (onNoticeAction != null && noticeAction != null)
+                    TextButton(
+                      onPressed: onNoticeAction,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.orange,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        noticeAction!,
+                        style: AppTextStyles.metaSmall.copyWith(
+                          color: AppColors.orange,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

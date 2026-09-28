@@ -16,6 +16,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../backend/services/transcription_service.dart';
 import '../../core/error/app_error.dart';
+import '../../core/error/finalize_error_text.dart';
 import '../../core/log/log.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
@@ -52,6 +53,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   StreamSubscription<String>? _generationSubscription;
   StreamSubscription<TranscriptEvent>? _eventSubscription;
   String? _finalizeError;
+  bool _retryingFinalize = false;
 
   @override
   void initState() {
@@ -292,6 +294,12 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
           '${formatDayTime(meeting.createdAt)}',
       badgeText: badgeText,
       notice: _noticeFor(meeting),
+      noticeAction: meeting.finalizeStatus == FinalizeStatus.failed
+          ? '重试转写'
+          : null,
+      onNoticeAction: meeting.finalizeStatus == FinalizeStatus.failed
+          ? _retryFinalize
+          : null,
       minutes: bundle.view,
       // 关闭 = 回到来源页（压栈 pop）；无栈（深链）时兜底回历史。
       onClose: () => context.canPop() ? context.pop() : context.go('/history'),
@@ -348,17 +356,41 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   }
 
   /// 顶部提示条文案：**与行为一致**（终稿 pending 会自动刷新 → 明说；
-  /// failed 展示可读原因，不骗用户）。
+  /// failed 展示**用户可读**原因——原始错误（error.toString()）只在库里和日志里，
+  /// 展示层经 [friendlyFinalizeError] 翻译，不把英文异常码怼到用户脸上）。
   String? _noticeFor(Meeting meeting) {
     switch (meeting.finalizeStatus) {
       case FinalizeStatus.pending:
         return '终稿处理中 · 完成后自动刷新纪要';
       case FinalizeStatus.failed:
-        final String reason = meeting.finalizeError ?? _finalizeError ?? '未知原因';
-        return '终稿失败：$reason（逐字稿保留实时稿）';
+        final String reason = friendlyFinalizeError(
+          meeting.finalizeError ?? _finalizeError,
+        );
+        return '终稿转写失败：$reason';
       case FinalizeStatus.done:
       case FinalizeStatus.none:
         return null;
+    }
+  }
+
+  /// 终稿失败后的「重试转写」：复用归档 WAV 重新走 filetrans 链路。
+  /// 成功受理 → 状态回 pending（横幅自动切回处理中）；失败 → toast 可读原因。
+  Future<void> _retryFinalize() async {
+    if (_retryingFinalize) return;
+    _retryingFinalize = true;
+    try {
+      final api = await ref.read(backendProvider.future);
+      await api.retryFinalize(widget.meetingId);
+      if (!mounted) return;
+      await _refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ref
+          .read(toastProvider.notifier)
+          .show('重试失败：${friendlyFinalizeError(error.toString())}',
+              tone: ToastTone.warning);
+    } finally {
+      _retryingFinalize = false;
     }
   }
 
