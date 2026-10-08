@@ -76,8 +76,16 @@ class FinalizePoller {
   /// 进度回调（`pending` / `done` / `failed`）。
   final void Function(String meetingId, String status, String? taskId)? onProgress;
 
+  /// filetrans 提交成功回调（导入链路用于落库 `import_task_id`，§4.4 ②恢复依据）。
+  ///
+  /// 可变字段：[ImportService] 构造时注入（di 不感知，零装配改动）。
+  void Function(String meetingId, String taskId)? onTaskSubmitted;
+
   final Map<String, FinalizeTask> _tasks = <String, FinalizeTask>{};
   final Map<String, Future<String>> _inflight = <String, Future<String>>{};
+
+  /// 已放弃（导入取消）的会议集合：[_run] 在各检查点看到后静默停止推进。
+  final Set<String> _abandoned = <String>{};
 
   /// 任务态快照。
   FinalizeTask? taskOf(String meetingId) => _tasks[meetingId];
@@ -91,9 +99,28 @@ class FinalizePoller {
   /// 弱网或大文件时 UI 的「结束并生成」会一直转圈（`uploadTimeoutMs` 默认 120s）。
   /// 因此这里在 pending 落盘后立即 complete；只有「会议不存在 / pending 落盘失败」
   /// 这类**同步可判定**的错误才通过返回的 Future 抛出。
-  Future<String> start(String meetingId, {required String wavPath, bool diarization = true}) {
+  Future<String> start(String meetingId, {required String wavPath, bool diarization = true}) =>
+      _startInternal(meetingId, wavPath, diarization, source: 'wav');
+
+  /// 启动终稿链路（`oss://` 直通版，导入链路 step3 专用，设计文档 §3.2）。
+  ///
+  /// 与 [start] 的唯一区别：调用方已完成流式上传并持有 `oss://` URL，
+  /// 引擎侧 `submitFiletrans` 对 `oss://` 直通不再重复上传；
+  /// 提交 → 轮询 → 落盘 → 广播语义与 [start] 完全一致（受理契约不变）。
+  Future<String> startWithOssUrl(String meetingId, {required String ossUrl, bool diarization = true}) =>
+      _startInternal(meetingId, ossUrl, diarization, source: 'oss');
+
+  /// [start] / [startWithOssUrl] 的公共受理段。
+  Future<String> _startInternal(
+    String meetingId,
+    String fileOrUrl,
+    bool diarization, {
+    required String source,
+  }) {
     final Future<String>? existing = _inflight[meetingId];
     if (existing != null) return existing;
+    // 重试场景：清除上一次的放弃标志。
+    _abandoned.remove(meetingId);
 
     final Completer<String> accepted = Completer<String>();
     final Future<String> submitted = accepted.future;
@@ -115,13 +142,13 @@ class FinalizePoller {
           logInfo(
             'finalize',
             '终稿已受理 meeting=$meetingId（pending 已落盘，后台继续）',
-            <String, Object?>{'wav': wavPath},
+            <String, Object?>{'input': fileOrUrl, 'source': source},
           );
           onProgress?.call(meetingId, 'pending', null);
           // 2) 契约点：pending 已落盘 → 立刻交还控制权（taskId 由进度回调补全）。
           if (!accepted.isCompleted) accepted.complete('');
-          // 3) 上传 / 提交 / 轮询后台化。
-          await _run(meetingId, wavPath, diarization);
+          // 3) 上传（若为本地路径）/ 提交 / 轮询后台化。
+          await _run(meetingId, fileOrUrl, diarization);
         } catch (error) {
           if (!accepted.isCompleted) {
             accepted.completeError(error);
@@ -138,46 +165,118 @@ class FinalizePoller {
     return submitted;
   }
 
+  /// 放弃在途终稿（导入取消专用，设计文档 §4.3）。
+  ///
+  /// 语义：**本地停止推进 + 落 `finalize_status='failed'`**。无百炼取消 API，
+  /// 已提交的 filetrans 异步任务不撤销，服务端任务自然跑完即作废（临时 OSS 24h 过期）。
+  /// 若 [_run] 正在等待轮询，会在下一个检查点看到放弃标志后静默返回。
+  /// 只发 [onProgress] 不发 [onFailed]——失败处理由导入编排层（ImportService）统一负责。
+  Future<void> abandon(String meetingId) async {
+    _abandoned.add(meetingId);
+    unawaited(_inflight.remove(meetingId));
+    _tasks.remove(meetingId);
+    await _persistFailed(meetingId, '用户取消');
+    onProgress?.call(meetingId, 'failed', null);
+    logInfo('finalize', '终稿已放弃 meeting=$meetingId（本地停止推进，服务端任务自然作废）');
+  }
+
   /// 后台执行段：上传 → 提交 → 轮询 → 落盘 / 广播。不参与 [start] 的返回契约。
   Future<void> _run(String meetingId, String wavPath, bool diarization) async {
     try {
+      if (_abandoned.contains(meetingId)) return;
       final String taskId = await _withRetry<String>(
         () => engine.submitFiletrans(wavPathOrUrl: wavPath, diarization: diarization),
         cfg.filetransMaxRetry,
         meetingId,
         '提交',
       );
+      if (_abandoned.contains(meetingId)) return;
       _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'pending');
       logInfo('finalize', 'filetrans 已提交 meeting=$meetingId task=$taskId');
       onProgress?.call(meetingId, 'pending', taskId);
+      onTaskSubmitted?.call(meetingId, taskId);
 
-      final FiletransResult result = await _withRetry<FiletransResult>(
-        () => engine.waitFiletrans(taskId, interval: Duration(milliseconds: cfg.filetransPollIntervalMs)),
-        cfg.filetransMaxRetry,
-        meetingId,
-        '轮询',
-      );
-      if (!result.isSucceeded) {
-        throw StateError(result.error ?? 'filetrans 未成功');
-      }
-      // 2) 先落盘（覆盖 transcript），再广播。
-      await _persistDone(meetingId, result.segments);
-      _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'done');
-      logInfo('finalize', '终稿已落盘 meeting=$meetingId 句数=${result.segments.length}');
-      onProgress?.call(meetingId, 'done', taskId);
-      if (onComplete != null) await onComplete!(meetingId, result.segments);
+      await _pollAndPersist(meetingId, taskId);
     } catch (error) {
-      final String message = error.toString();
-      logWarn('finalize', '终稿失败 meeting=$meetingId：$message');
-      _tasks[meetingId] = FinalizeTask(
-        taskId: _tasks[meetingId]?.taskId ?? '',
-        status: 'failed',
-        error: message,
-      );
-      await _persistFailed(meetingId, message);
-      onProgress?.call(meetingId, 'failed', null);
-      onFailed?.call(meetingId, error);
+      // 放弃后的迟到异常（如网络抖动）不覆盖「用户取消」失败态。
+      if (_abandoned.contains(meetingId)) {
+        logInfo('finalize', '终稿已放弃，忽略迟到异常 meeting=$meetingId：$error');
+        return;
+      }
+      final String? knownTaskId = _tasks[meetingId]?.taskId;
+      await _handleRunFailure(meetingId, knownTaskId ?? '', error);
     }
+  }
+
+  /// 恢复轮询（App 被杀后导入恢复专用，设计 §4.4 ②）。
+  ///
+  /// 与 [startWithOssUrl] 的区别：任务**已提交**（importTaskId 非空），
+  /// 跳过上传与提交，直接 `waitFiletrans(taskId)` → 落盘 → 广播（taskId 幂等）。
+  Future<String> resumeWithTaskId(String meetingId, {required String taskId}) {
+    final Future<String>? existing = _inflight[meetingId];
+    if (existing != null) return existing;
+    _abandoned.remove(meetingId);
+
+    final Completer<String> accepted = Completer<String>();
+    final Future<String> submitted = accepted.future;
+    _inflight[meetingId] = submitted;
+
+    unawaited(
+      Future<void>(() async {
+        try {
+          _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'pending');
+          onProgress?.call(meetingId, 'pending', taskId);
+          if (!accepted.isCompleted) accepted.complete('');
+          await _pollAndPersist(meetingId, taskId);
+        } catch (error) {
+          if (!accepted.isCompleted) accepted.complete('');
+          if (_abandoned.contains(meetingId)) {
+            logInfo('finalize', '终稿已放弃，忽略迟到异常 meeting=$meetingId：$error');
+            return;
+          }
+          await _handleRunFailure(meetingId, taskId, error);
+        } finally {
+          if (_inflight[meetingId] == submitted) {
+            unawaited(_inflight.remove(meetingId));
+          }
+        }
+      }),
+    );
+    return submitted;
+  }
+
+  /// 轮询 → 落盘 → 广播（[start] 链路与 [resumeWithTaskId] 共用的后半段）。
+  Future<void> _pollAndPersist(String meetingId, String taskId) async {
+    final FiletransResult result = await _withRetry<FiletransResult>(
+      () => engine.waitFiletrans(taskId, interval: Duration(milliseconds: cfg.filetransPollIntervalMs)),
+      cfg.filetransMaxRetry,
+      meetingId,
+      '轮询',
+    );
+    // 放弃检查点：等待轮询期间被取消 → 静默返回（abandon 已落 failed）。
+    if (_abandoned.contains(meetingId)) {
+      logInfo('finalize', '轮询期间被放弃，跳过落盘 meeting=$meetingId');
+      return;
+    }
+    if (!result.isSucceeded) {
+      throw StateError(result.error ?? 'filetrans 未成功');
+    }
+    // 2) 先落盘（覆盖 transcript），再广播。
+    await _persistDone(meetingId, result.segments);
+    _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'done');
+    logInfo('finalize', '终稿已落盘 meeting=$meetingId 句数=${result.segments.length}');
+    onProgress?.call(meetingId, 'done', taskId);
+    if (onComplete != null) await onComplete!(meetingId, result.segments);
+  }
+
+  /// 统一失败处理：置内存态 + 落 failed + 回调（[start] / [resumeWithTaskId] 共用）。
+  Future<void> _handleRunFailure(String meetingId, String taskId, Object error) async {
+    final String message = error.toString();
+    logWarn('finalize', '终稿失败 meeting=$meetingId：$message');
+    _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'failed', error: message);
+    await _persistFailed(meetingId, message);
+    onProgress?.call(meetingId, 'failed', null);
+    onFailed?.call(meetingId, error);
   }
 
   /// 带退避重试的执行包装（仅对网络 / 5xx / 限流重试）。

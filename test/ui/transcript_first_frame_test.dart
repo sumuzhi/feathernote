@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_minutes_flutter/backend/backend_api.dart';
+import 'package:smart_minutes_flutter/backend/services/import_service.dart';
 import 'package:smart_minutes_flutter/domain/enums.dart';
 import 'package:smart_minutes_flutter/domain/meeting.dart';
 import 'package:smart_minutes_flutter/domain/segment.dart';
@@ -53,6 +54,22 @@ Meeting _meeting() => Meeting(
     );
 
 class _FakeBackend implements BackendApi {
+
+  // ── 导入音视频（BackendApi 增量 stub：导入流程不在本 UI 测试范围）──
+
+  @override
+  Future<Meeting> startImport(ImportRequest req) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> cancelImport(String meetingId) async {}
+
+  @override
+  Future<void> retryImport(String meetingId) async {}
+
+  @override
+  Stream<ImportProgressEvent> get importEvents =>
+      const Stream<ImportProgressEvent>.empty();
   _FakeBackend(this.meeting);
 
   final Meeting meeting;

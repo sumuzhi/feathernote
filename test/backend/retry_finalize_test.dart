@@ -81,6 +81,12 @@ class _Repo implements MeetingRepository {
 }
 
 class _Archive implements AudioArchive {
+
+  @override
+  Future<String> putFileAs(String key, String srcPath) async => key;
+
+  @override
+  Future<String> pathForKey(String key) async => key;
   /// 非 null 时 [localPath] 返回该已存在文件；null 时抛错（模拟归档丢失）。
   String? existingPath;
 

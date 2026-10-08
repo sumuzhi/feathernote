@@ -7,11 +7,14 @@ library;
 
 import '../core/config/app_config.dart';
 import '../core/log/log.dart';
+import '../platform/media_import_channel.dart';
 import 'backend_api.dart';
 import 'engine/bailian/bailian_engine.dart';
+import 'engine/bailian/filetrans.dart';
 import 'engine/engine.dart';
 import 'engine/mock/mock_engine.dart';
 import 'services/finalize_poller.dart';
+import 'services/import_service.dart';
 import 'services/minutes_service.dart';
 import 'services/session_store.dart';
 import 'services/transcription_service.dart';
@@ -112,6 +115,18 @@ Future<BackendBundle> createBackend({AppConfig? config}) async {
     cfg: cfg,
   );
 
+  // 导入链路：filetrans 客户端独立实例（无状态，仅复用 cfg/dio 配置语义）。
+  final BailianFiletrans filetrans = BailianFiletrans(cfg);
+  final ImportService importService = ImportService(
+    persistence: persistence,
+    filetrans: filetrans,
+    finalizePoller: finalizePoller,
+    minutesService: minutesService,
+    archive: archive,
+    mediaImport: MediaImportChannel(),
+    cfg: cfg,
+  );
+
   final BackendApiImpl api = BackendApiImpl(
     cfg: cfg,
     engine: engine,
@@ -121,6 +136,7 @@ Future<BackendBundle> createBackend({AppConfig? config}) async {
     minutesService: minutesService,
     finalizePoller: finalizePoller,
     archive: archive,
+    importService: importService,
   );
   await api.init();
 

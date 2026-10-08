@@ -80,6 +80,12 @@ class _Repo implements MeetingRepository {
 
 /// 捕获归档（记录归档时读到的 WAV 字节，断言其合法性）。
 class _CapturingArchive implements AudioArchive {
+
+  @override
+  Future<String> putFileAs(String key, String srcPath) async => key;
+
+  @override
+  Future<String> pathForKey(String key) async => key;
   Uint8List? captured;
 
   @override

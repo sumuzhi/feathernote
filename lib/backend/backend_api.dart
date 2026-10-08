@@ -6,6 +6,7 @@
 /// 3. 单测可注入 `FakeBackendApi` → UI 可脱离网络测试。
 library;
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/config/app_config.dart';
@@ -19,6 +20,7 @@ import '../domain/segment.dart';
 import '../domain/speaker.dart';
 import 'engine/engine.dart';
 import 'services/finalize_poller.dart';
+import 'services/import_service.dart';
 import 'services/minutes_service.dart';
 import 'services/session_store.dart';
 import 'services/transcription_service.dart';
@@ -183,6 +185,20 @@ abstract class BackendApi {
   /// 重试失败的终稿（复用归档 WAV；仅 `finalizeStatus == failed` 时可调）。
   Future<void> retryFinalize(String meetingId);
 
+  // ── 导入音视频（设计 §8.4；SSOT = docs/IMPORT-PIPELINE-DESIGN.md）──
+
+  /// 开始导入（预检通过后调用）：建 meeting（`import_pending`）→ 后台跑四步状态机。
+  Future<Meeting> startImport(ImportRequest req);
+
+  /// 取消导入（幂等）：本地停止推进，`import_status=failed('用户取消')`。
+  Future<void> cancelImport(String meetingId);
+
+  /// 重试失败的导入（仅 `import_status=failed`；从可续步骤重跑）。
+  Future<void> retryImport(String meetingId);
+
+  /// 导入进度事件流（四步状态机增量；UI 另以 `watchMeetings` 双保险）。
+  Stream<ImportProgressEvent> get importEvents;
+
   // ── 纪要（对应 /api/meetings/:id/minutes[/stream]）──
 
   /// 非流式生成纪要。
@@ -228,6 +244,7 @@ class BackendApiImpl implements BackendApi {
     required this.minutesService,
     required this.finalizePoller,
     required this.archive,
+    required this.importService,
   });
 
   /// 冻结配置。
@@ -254,8 +271,13 @@ class BackendApiImpl implements BackendApi {
   /// 音频归档。
   final AudioArchive archive;
 
+  /// 导入编排服务。
+  final ImportService importService;
+
   @override
   Future<void> init() async {
+    // 导入链路恢复（App 被杀 → 三分支恢复语义，设计 §4.4）。
+    await importService.recoverOnStartup();
     logInfo('backend', 'BackendApi 初始化完成 engine=${engine.name}');
   }
 
@@ -427,6 +449,18 @@ class BackendApiImpl implements BackendApi {
       transcriptionService.retryFinalize(meetingId);
 
   @override
+  Future<Meeting> startImport(ImportRequest req) => importService.startImport(req);
+
+  @override
+  Future<void> cancelImport(String meetingId) => importService.cancelImport(meetingId);
+
+  @override
+  Future<void> retryImport(String meetingId) => importService.retryImport(meetingId);
+
+  @override
+  Stream<ImportProgressEvent> get importEvents => importService.events;
+
+  @override
   Future<String> generateMinutes(String meetingId) => minutesService.generate(meetingId);
 
   @override
@@ -438,6 +472,13 @@ class BackendApiImpl implements BackendApi {
     final Meeting? meeting = await persistence.loadMeeting(meetingId);
     final String? key = meeting?.audioKey;
     if (key == null || key.isEmpty) return null;
+    // 导入会议的 audioKey 是完整文件名（含扩展名，如 <id>.m4a），走导入约定映射。
+    if (meeting?.source == MeetingSource.imported) {
+      final String path = await archive.pathForKey(key);
+      final File file = File(path);
+      if (!file.existsSync()) return null;
+      return file.readAsBytes();
+    }
     return archive.get(key);
   }
 
@@ -446,6 +487,9 @@ class BackendApiImpl implements BackendApi {
     final Meeting? meeting = await persistence.loadMeeting(meetingId);
     final String? key = meeting?.audioKey;
     if (key == null || key.isEmpty) return null;
+    if (meeting?.source == MeetingSource.imported) {
+      return archive.pathForKey(key);
+    }
     return archive.localPath(key);
   }
 

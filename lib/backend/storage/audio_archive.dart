@@ -30,6 +30,19 @@ abstract class AudioArchive {
     return put(meetingId, bytes);
   }
 
+  /// 按**完整 key**（含扩展名，如 `<meetingId>.m4a`）归档已落盘的本地媒体文件，返回 key。
+  ///
+  /// 与 [putFile] 的区别：key 不再是 `<meetingId>`（隐式映射 `<meetingId>.wav`），
+  /// 而是按原样落盘——导入链路用（音频直传归档原文件 / 视频归档分离出的 m4a，设计 §4.1）。
+  /// 归档后原路径不再保证存在（移动语义）；需要保留原文件时调用方自行复制。
+  Future<String> putFileAs(String key, String srcPath);
+
+  /// 解析**完整 key**（含扩展名）为本地路径；不存在不抛错（路径只做映射）。
+  ///
+  /// 与 [localPath] 的区别：[localPath] 的 key 隐式补 `.wav` 后缀（录音约定），
+  /// 本方法按原样映射（导入约定）。
+  Future<String> pathForKey(String key);
+
   /// 读取 WAV（不存在返回 null）。
   Future<Uint8List?> get(String key);
 
@@ -102,6 +115,39 @@ class LocalFileArchive implements AudioArchive {
   }
 
   @override
+  Future<String> putFileAs(String key, String srcPath) async {
+    final Directory dir = await _baseDir();
+    final File dest = File(p.join(dir.path, key));
+    final File src = File(srcPath);
+    int bytes = 0;
+    try {
+      bytes = src.lengthSync();
+    } catch (_) {
+      // 忽略取长失败（仅用于日志）。
+    }
+    // 优先「移动」：沙箱 tmp 与归档目录同在 App 沙箱内，通常同一文件系统 → 重命名 O(1)；
+    // 跨设备时退化为流式复制（copy 内部流式，不整份驻留）。导入链路的原文件副本
+    // 与产物（m4a）均可安全移入归档——重跑所需原件仍在（视频场景沙箱留有源视频副本）。
+    try {
+      src.renameSync(dest.path);
+    } on FileSystemException {
+      await src.copy(dest.path);
+    }
+    logInfo(
+      'archive',
+      '导入产物已归档',
+      <String, Object?>{'key': key, 'bytes': bytes, 'src': srcPath},
+    );
+    return key;
+  }
+
+  @override
+  Future<String> pathForKey(String key) async {
+    final Directory dir = await _baseDir();
+    return p.join(dir.path, key);
+  }
+
+  @override
   Future<Uint8List?> get(String key) async {
     final File file = File(await localPath(key));
     if (!await file.exists()) return null;
@@ -154,6 +200,12 @@ class CosArchive implements AudioArchive {
 
   @override
   Future<String> putFile(String meetingId, String srcPath) async => throw _notImplemented('putFile');
+
+  @override
+  Future<String> putFileAs(String key, String srcPath) async => throw _notImplemented('putFileAs');
+
+  @override
+  Future<String> pathForKey(String key) async => throw _notImplemented('pathForKey');
 
   @override
   Future<Uint8List?> get(String key) async => throw _notImplemented('get');

@@ -419,6 +419,12 @@ class _FakeRepo implements MeetingRepository {
 
 /// 内存归档（转写服务不触盘时用）。
 class _FakeArchive implements AudioArchive {
+
+  @override
+  Future<String> putFileAs(String key, String srcPath) async => key;
+
+  @override
+  Future<String> pathForKey(String key) async => key;
   final Map<String, Uint8List> _files = <String, Uint8List>{};
 
   @override

@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_minutes_flutter/backend/backend_api.dart';
+import 'package:smart_minutes_flutter/backend/services/import_service.dart';
 import 'package:smart_minutes_flutter/backend/services/transcription_service.dart';
 import 'package:smart_minutes_flutter/core/pcm/audio_frame.dart';
 import 'package:smart_minutes_flutter/core/platform/mic_source.dart';
@@ -74,6 +75,22 @@ class _FakeMic implements MicSource {
 
 /// 假后端：记录上送帧与绑定过的 sessionId。
 class _FakeBackend implements BackendApi {
+
+  // ── 导入音视频（BackendApi 增量 stub：导入流程不在本 UI 测试范围）──
+
+  @override
+  Future<Meeting> startImport(ImportRequest req) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> cancelImport(String meetingId) async {}
+
+  @override
+  Future<void> retryImport(String meetingId) async {}
+
+  @override
+  Stream<ImportProgressEvent> get importEvents =>
+      const Stream<ImportProgressEvent>.empty();
   final List<AudioFrame> frames = <AudioFrame>[];
   final List<String> sessionIds = <String>[];
   int stopCalls = 0;
