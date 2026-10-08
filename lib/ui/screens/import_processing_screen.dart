@@ -217,7 +217,13 @@ class _TopBar extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 title,
-                style: ImportDesign.ts(context, 17, FontWeight.w700, AppColors.ink),
+                style: ImportDesign.ts(
+                  context,
+                  17,
+                  FontWeight.w700,
+                  AppColors.ink,
+                  lineHeight: ImportDesign.lh17,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -297,14 +303,26 @@ class _FileCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   title,
-                  style: ImportDesign.ts(context, 14, FontWeight.w600, AppColors.ink),
+                  style: ImportDesign.ts(
+                    context,
+                    14,
+                    FontWeight.w600,
+                    AppColors.ink,
+                    lineHeight: ImportDesign.lh14File,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 SizedBox(height: s(context, 4)),
                 Text(
                   subtitle,
-                  style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+                  style: ImportDesign.ts(
+                    context,
+                    11,
+                    FontWeight.w400,
+                    AppColors.muted,
+                    lineHeight: ImportDesign.lh11,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -342,6 +360,7 @@ class _KindChip extends StatelessWidget {
           11,
           FontWeight.w500,
           isVideo ? ImportDesign.videoInk : ImportDesign.orangeText,
+          lineHeight: ImportDesign.lh11,
         ),
       ),
     );
@@ -401,7 +420,13 @@ class _OverallCard extends StatelessWidget {
               ),
               Text(
                 '${(percent.clamp(0.0, 1.0) * 100).round()}%',
-                style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.orange),
+                style: ImportDesign.ts(
+                  context,
+                  15,
+                  FontWeight.w600,
+                  AppColors.orange,
+                  lineHeight: ImportDesign.lh15Pct,
+                ),
               ),
             ],
           ),
@@ -413,14 +438,21 @@ class _OverallCard extends StatelessWidget {
           ),
           if (hint != null) ...<Widget>[
             SizedBox(height: s(context, 12)),
-            Text(
-              hint,
-              style: ImportDesign.ts(
-                context,
-                11,
-                FontWeight.w400,
-                hintColor,
-                lineHeight: 1.6,
+            // 设计稿里这行是单行（卡片总高 101 = 16+19+12+8+12+17.6+16）；
+            // 系统字体偏宽时用 FittedBox 轻缩，不换行，保证卡片高度不变。
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                hint,
+                style: ImportDesign.ts(
+                  context,
+                  11,
+                  FontWeight.w400,
+                  hintColor,
+                  lineHeight: ImportDesign.lh11Note,
+                ),
+                maxLines: 1,
               ),
             ),
           ],
@@ -527,7 +559,13 @@ class _StepRow extends StatelessWidget {
     } else if (step.skip) {
       trailing = Text(
         '无需分离',
-        style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+        style: ImportDesign.ts(
+          context,
+          11,
+          FontWeight.w400,
+          AppColors.muted,
+          lineHeight: ImportDesign.lh11,
+        ),
       );
     } else {
       // HTML 已完成步的尾标是耗时（如「00:12」），本项目的视图数据里没有
@@ -562,18 +600,23 @@ class _StepRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               SizedBox(height: colGap),
-              Text(
-                step.subtitle,
-                style: ImportDesign.ts(
-                  context,
-                  11,
-                  FontWeight.w400,
-                  step.done || step.running || step.failed
-                      ? AppColors.muted
-                      : const Color(0xFFB9A695),
+              // 设计稿的副文案都是单行；用 FittedBox 轻缩代替省略号，保住文案完整。
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  step.subtitle,
+                  style: ImportDesign.ts(
+                    context,
+                    11,
+                    FontWeight.w400,
+                    step.done || step.running || step.failed
+                        ? AppColors.muted
+                        : const Color(0xFFB9A695),
+                    lineHeight: ImportDesign.lh11,
+                  ),
+                  maxLines: 1,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
               if (withBar) ...<Widget>[
                 SizedBox(height: colGap),
@@ -718,16 +761,21 @@ class _NoteCard extends StatelessWidget {
           ),
           SizedBox(width: s(context, 8)),
           Expanded(
-            child: Text(
-              isVideo
-                  ? '视频仅解析音轨，画面内容不参与分析；原文件不会被修改'
-                  : '音频将直接解析音轨；原文件不会被修改',
-              style: ImportDesign.ts(
-                context,
-                11,
-                FontWeight.w400,
-                AppColors.muted,
-                lineHeight: 1.6,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                isVideo
+                    ? '视频仅解析音轨，画面内容不参与分析；原文件不会被修改'
+                    : '音频将直接解析音轨；原文件不会被修改',
+                style: ImportDesign.ts(
+                  context,
+                  11,
+                  FontWeight.w400,
+                  AppColors.muted,
+                  lineHeight: ImportDesign.lh11Note,
+                ),
+                maxLines: 1,
               ),
             ),
           ),
@@ -794,7 +842,13 @@ class _GhostButton extends StatelessWidget {
           alignment: Alignment.center,
           child: Text(
             label,
-            style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.muted),
+            style: ImportDesign.ts(
+              context,
+              15,
+              FontWeight.w600,
+              AppColors.muted,
+              lineHeight: ImportDesign.lh15,
+            ),
           ),
         ),
       ),
@@ -826,7 +880,13 @@ class _SolidButton extends StatelessWidget {
           alignment: Alignment.center,
           child: Text(
             label,
-            style: ImportDesign.ts(context, 15, FontWeight.w600, Colors.white),
+            style: ImportDesign.ts(
+              context,
+              15,
+              FontWeight.w600,
+              Colors.white,
+              lineHeight: ImportDesign.lh15,
+            ),
           ),
         ),
       ),

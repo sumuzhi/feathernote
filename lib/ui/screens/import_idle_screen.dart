@@ -138,7 +138,13 @@ class _TopBar extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 '导入音视频',
-                style: ImportDesign.ts(context, 17, FontWeight.w700, AppColors.ink),
+                style: ImportDesign.ts(
+                  context,
+                  17,
+                  FontWeight.w700,
+                  AppColors.ink,
+                  lineHeight: ImportDesign.lh17,
+                ),
               ),
             ),
           ),
@@ -169,7 +175,13 @@ class _HelpText extends StatelessWidget {
   Widget build(BuildContext context) {
     final Widget text = Text(
       '帮助',
-      style: ImportDesign.ts(context, 13, FontWeight.w500, AppColors.orange),
+      style: ImportDesign.ts(
+        context,
+        13,
+        FontWeight.w500,
+        AppColors.orange,
+        lineHeight: ImportDesign.lh13,
+      ),
     );
     if (onHelp == null) return text;
     return Semantics(
@@ -184,15 +196,27 @@ class _HelpText extends StatelessWidget {
   }
 }
 
-/// 说明文案（12 / w400 / #8B7565，line-height 19.2）。
+/// 说明文案（12 / w400 / #8B7565，line-height 19.2，设计稿单行）。
+///
+/// 用 [FittedBox] 而非换行：设计稿是一行，系统字体比设计字体略宽时轻微缩小
+/// 让文案保持一行（文字本身一字不改）。
 class _Intro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Text(
-      '支持音频与视频文件导入，视频会自动分离音轨后再转写与总结',
-      style: ImportDesign.ts(context, 12, FontWeight.w400, AppColors.muted),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '支持音频与视频文件导入，视频会自动分离音轨后再转写与总结',
+        style: ImportDesign.ts(
+          context,
+          12,
+          FontWeight.w400,
+          AppColors.muted,
+          lineHeight: ImportDesign.lh12,
+        ),
+        maxLines: 1,
+      ),
     );
   }
 }
@@ -216,10 +240,14 @@ class _DropZone extends StatelessWidget {
         onTap: picking ? null : onPickFile,
         child: Container(
           width: double.infinity,
-          height: s(context, 180),
+          // 设计稿 180 高（内容 148 + 内边距 32）；用 minHeight 而不是固定高，
+          // 字体度量略有出入时卡片长高 1~2px 而不是抛溢出条。
+          constraints: BoxConstraints(minHeight: s(context, 180)),
+          // HTML 的描边是「画在 padding 带内」的（不占布局），Flutter 的 border
+          // 会占布局，因此把 padding 各减掉 3，内容盒仍是 314×148。
           padding: EdgeInsets.symmetric(
-            horizontal: s(context, 18),
-            vertical: s(context, 16),
+            horizontal: s(context, 18 - 3),
+            vertical: s(context, 16 - 3),
           ),
           decoration: BoxDecoration(
             color: AppColors.card,
@@ -251,12 +279,24 @@ class _DropZone extends StatelessWidget {
               SizedBox(height: s(context, 6)),
               Text(
                 '拖拽文件到此处',
-                style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.ink),
+                style: ImportDesign.ts(
+                  context,
+                  15,
+                  FontWeight.w600,
+                  AppColors.ink,
+                  lineHeight: ImportDesign.lh15,
+                ),
               ),
               SizedBox(height: s(context, 6)),
               Text(
                 'MP4 / MOV / MP3 / WAV · 单个文件 ≤ 2GB',
-                style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+                style: ImportDesign.ts(
+                  context,
+                  11,
+                  FontWeight.w400,
+                  AppColors.muted,
+                  lineHeight: ImportDesign.lh11,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -303,7 +343,13 @@ class _PickButton extends StatelessWidget {
               SizedBox(width: s(context, 6)),
               Text(
                 picking ? '正在打开文件选择器…' : '选择文件',
-                style: ImportDesign.ts(context, 14, FontWeight.w600, Colors.white),
+                style: ImportDesign.ts(
+                  context,
+                  14,
+                  FontWeight.w600,
+                  Colors.white,
+                  lineHeight: ImportDesign.lh14,
+                ),
               ),
             ],
           ),
@@ -396,7 +442,7 @@ class _FormatCard extends StatelessWidget {
                 11,
                 FontWeight.w400,
                 AppColors.muted,
-                lineHeight: 1.5,
+                lineHeight: ImportDesign.lh11Lines,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -435,7 +481,13 @@ class _TrackChip extends StatelessWidget {
           SizedBox(width: s(context, 4)),
           Text(
             '自动分离音轨',
-            style: ImportDesign.ts(context, 10, FontWeight.w500, ImportDesign.orangeText),
+            style: ImportDesign.ts(
+              context,
+              10,
+              FontWeight.w500,
+              ImportDesign.orangeText,
+              lineHeight: ImportDesign.lh10,
+            ),
           ),
         ],
       ),
@@ -474,7 +526,7 @@ class _LimitNote extends StatelessWidget {
                 11,
                 FontWeight.w400,
                 AppColors.muted,
-                lineHeight: 1.6,
+                lineHeight: ImportDesign.lh11Note,
               ),
             ),
           ),
@@ -515,6 +567,8 @@ class _RecentCard extends StatelessWidget {
         onTap: item.onTap,
         child: Container(
           width: double.infinity,
+          // 设计稿 60 高（内容 38 + 内边距 22）。
+          constraints: BoxConstraints(minHeight: s(context, 60)),
           padding: EdgeInsets.symmetric(
             horizontal: s(context, 12),
             vertical: s(context, 11),
@@ -555,7 +609,13 @@ class _RecentCard extends StatelessWidget {
                     SizedBox(height: s(context, 3)),
                     Text(
                       item.meta,
-                      style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+                      style: ImportDesign.ts(
+                        context,
+                        11,
+                        FontWeight.w400,
+                        AppColors.muted,
+                        lineHeight: ImportDesign.lh11,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

@@ -74,13 +74,51 @@ class ImportDesign {
         ),
       ];
 
-  /// 按设计稿字号构造文本样式（行高按设计稿 line-height / font-size 换算）。
+  // ── 行高 ────────────────────────────────────────────────────────────────
+  // 设计稿每个文本节点的高度都是实测值（如 13px 字对应 19px 行盒），
+  // 用「节点高 / 字号」作为 line-height，卡片总高才能和 HTML 逐像素对上
+  // （例：屏 15 四步卡 = 18 + 38 + 14 + 49 + 14 + 38 + 14 + 38 + 18 = 241）。
+
+  /// 10px 字 → 14px 行盒（「自动分离音轨」角标）。
+  static const double lh10 = 1.4;
+
+  /// 11px 字 → 16px 行盒（meta / 副文案）。
+  static const double lh11 = 1.4545;
+
+  /// 11px 字 → 16.5px 行盒（格式列表两行）。
+  static const double lh11Lines = 1.5;
+
+  /// 11px 字 → 17.6px 行盒（说明条 / 预计提示，设计稿 line-height:17.6px）。
+  static const double lh11Note = 1.6;
+
+  /// 12px 字 → 19.2px 行盒（顶栏下方说明，设计稿 line-height:19.2px）。
+  static const double lh12 = 1.6;
+
+  /// 13px 字 → 19px 行盒（步骤标题 / 区块标题）。
+  static const double lh13 = 1.4615;
+
+  /// 14px 字 → 22px 行盒（「选择文件」按钮）。
+  static const double lh14 = 1.5714;
+
+  /// 14px 字 → 20px 行盒（文件信息卡标题）。
+  static const double lh14File = 1.4286;
+
+  /// 15px 字 → 22px 行盒（拖拽区主文案 / 底部按钮）。
+  static const double lh15 = 1.4667;
+
+  /// 15px 字 → 19px 行盒（整体进度百分比，设计稿节点高 19）。
+  static const double lh15Pct = 1.2667;
+
+  /// 17px 字 → 25px 行盒（页面标题）。
+  static const double lh17 = 1.4706;
+
+  /// 按设计稿字号构造文本样式。
   static TextStyle ts(
     BuildContext context,
     double designSize,
     FontWeight weight,
     Color color, {
-    double lineHeight = 1.6,
+    double lineHeight = lh13,
   }) {
     return TextStyle(
       fontFamily: AppTextStyles.fontFamily,
