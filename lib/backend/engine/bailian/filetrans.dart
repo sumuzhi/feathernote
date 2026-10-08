@@ -226,6 +226,10 @@ class BailianFiletrans {
     final Stopwatch watch = Stopwatch()..start();
     final Map<String, dynamic> pol = await getUploadPolicy(model: model);
     // 字段顺序严格（顺序错误 OSS 会 403），与 uploadBuffer 保持一致。
+    // 注意：dio 5 的 MultipartFile.fromFile 返回 Future<MultipartFile>，
+    // 必须 await —— 否则 FormData 会把 Future toString() 成文本当 file 部分发出
+    // （OSS 返回 200 但对象是「Instance of 'Future<MultipartFile>'」的文本，
+    // filetrans 侧报 "have no audio"，见 T4 e2e 定位记录）。
     final FormData form = FormData.fromMap(<String, dynamic>{
       'OSSAccessKeyId': '${pol['oss_access_key_id']}',
       'Signature': '${pol['signature']}',
@@ -234,7 +238,7 @@ class BailianFiletrans {
       'x-oss-forbid-overwrite': '${pol['x_oss_forbid_overwrite']}',
       'key': '${pol['upload_dir']}/$name',
       'success_action_status': '200',
-      'file': MultipartFile.fromFile(filePath, filename: name),
+      'file': await MultipartFile.fromFile(filePath, filename: name),
     });
     final Response<dynamic> resp = await _dio.post<dynamic>(
       '${pol['upload_host']}',
