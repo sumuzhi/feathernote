@@ -164,6 +164,9 @@ class ImportService {
   /// 在途任务（meetingId → running）。
   final Set<String> _running = <String>{};
 
+  /// 当前执行步（meetingId → step），失败事件用它定位失败卡。
+  final Map<String, String> _currentStep = <String, String>{};
+
   // ────────────────────────────────────────────────────────────── 对外入口
 
   /// 开始导入：第二道预检（probeMedia）→ 建 meeting（`import_pending`）→ 后台跑状态机。
@@ -365,12 +368,14 @@ class ImportService {
       }
       if (!isVideo && archivedPath != null) {
         // 音频产物已归档：直接重上传 → 转写。
+        _currentStep[meetingId] = stepUpload;
         final String ossUrl = await _uploadFile(meetingId, archivedPath, '$meetingId$ext', sizeBytes);
         await _stepTranscribe(meetingId, ossUrl);
         return;
       }
       if (isVideo && archivedPath != null) {
         // m4a 已归档：免分离，重上传 → 转写。
+        _currentStep[meetingId] = stepUpload;
         final String ossUrl = await _uploadFile(meetingId, archivedPath, '$meetingId.m4a', sizeBytes);
         await _stepTranscribe(meetingId, ossUrl);
         await _stepMinutes(meetingId);
@@ -379,6 +384,7 @@ class ImportService {
 
       // ── step1：复制到沙箱 + 上传原文件（§4.2 ①；上传进度可见）──
       _checkCancelled(meetingId);
+      _currentStep[meetingId] = stepUpload;
       final String sandboxCopy = await _ensureSandboxCopy(meetingId, srcPath, ext);
       await _uploadFile(meetingId, sandboxCopy, '$meetingId$ext', sizeBytes);
       final int totalBytes = sizeBytes > 0 ? sizeBytes : File(sandboxCopy).lengthSync();
@@ -395,6 +401,7 @@ class ImportService {
           throw const AppError(ErrorCode.engineError, '音轨归档丢失', engineCode: 'E_EXTRACT_FAILED');
         }
         final String m4aPath = await archive.pathForKey(key);
+        _currentStep[meetingId] = stepUpload;
         final String m4aOss = await _uploadFile(meetingId, m4aPath, '$meetingId.m4a', totalBytes);
         _emit(meetingId, stepExtract, 'done');
         await _stepTranscribe(meetingId, m4aOss);
@@ -415,12 +422,14 @@ class ImportService {
     } finally {
       _running.remove(meetingId);
       _uploadTokens.remove(meetingId);
+      _currentStep.remove(meetingId);
     }
   }
 
   /// step2：分离音轨（视频）。
   Future<void> _stepExtract(String meetingId, String srcPath, int sizeBytes) async {
     _checkCancelled(meetingId);
+    _currentStep[meetingId] = stepExtract;
     await _saveStatus(meetingId, ImportStatus.extracting);
     final int durationMs = await _durationOf(meetingId);
     _emit(
@@ -456,6 +465,7 @@ class ImportService {
   /// step3：转写（复用 FinalizePoller，oss:// 直通；等待终态落盘）。
   Future<void> _stepTranscribe(String meetingId, String ossUrl) async {
     _checkCancelled(meetingId);
+    _currentStep[meetingId] = stepTranscribe;
     await _saveStatus(meetingId, ImportStatus.transcribing);
     final int durationMs = await _durationOf(meetingId);
     _emit(meetingId, stepTranscribe, 'running', etaMinutes: _etaTranscribeMinutes(durationMs));
@@ -466,6 +476,7 @@ class ImportService {
   /// step4：纪要生成（复用 MinutesService.generateStream，幂等）。
   Future<void> _stepMinutes(String meetingId) async {
     _checkCancelled(meetingId);
+    _currentStep[meetingId] = stepMinutes;
     await _saveStatus(meetingId, ImportStatus.minutes);
     _emit(meetingId, stepMinutes, 'running', etaMinutes: _etaMinutesStep());
     await for (final String _ in minutesService.generateStream(meetingId)) {
@@ -490,6 +501,7 @@ class ImportService {
       await _handleRunError(meetingId, error);
     } finally {
       _running.remove(meetingId);
+      _currentStep.remove(meetingId);
     }
   }
 
@@ -504,6 +516,7 @@ class ImportService {
       await _handleRunError(meetingId, error);
     } finally {
       _running.remove(meetingId);
+      _currentStep.remove(meetingId);
     }
   }
 
@@ -537,7 +550,7 @@ class ImportService {
       _emit(meetingId, stepTranscribe, 'cancelled', detail: '用户取消');
       return;
     }
-    final String message = error is AppError ? error.message : error.toString();
+    final String message = _readable(error);
     final Meeting? meeting = await persistence.loadMeeting(meetingId);
     if (meeting != null) {
       await persistence.saveMeeting(
@@ -545,7 +558,28 @@ class ImportService {
       );
     }
     logWarn('import', '导入失败 meeting=$meetingId：$message');
-    _emit(meetingId, stepTranscribe, 'failed', detail: message);
+    // 失败事件发给**实际失败的那一步**（屏 15 据此把失败落在正确的卡上）。
+    _emit(meetingId, _currentStep[meetingId] ?? stepUpload, 'failed', detail: message);
+  }
+
+  /// 把底层异常翻译为可读文案（ DioException 裸抛会泄漏实现细节，§6.4 文案表）。
+  String _readable(Object error) {
+    if (error is AppError) return error.message;
+    if (error is DioException) {
+      final int? status = error.response?.statusCode;
+      if (error.type == DioExceptionType.cancel) return '用户取消';
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout) {
+        return '网络超时，请检查网络后重试';
+      }
+      if (status == 401 || status == 403) return '鉴权失败（$status），请检查 API Key 配置';
+      if (status == 429) return '请求过于频繁，请稍后重试';
+      if (status == 413) return '文件过大，服务端拒绝接收';
+      if (status != null && status >= 500) return '服务端异常（$status），请稍后重试';
+      return '网络异常，请检查网络后重试';
+    }
+    return error.toString();
   }
 
   // ────────────────────────────────────────────────────────────── 工具方法
