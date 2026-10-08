@@ -1,14 +1,20 @@
-/// 屏 14：导入音视频 · 选择文件 + 最近导入（HTML 设计稿屏 14）。
+/// 屏 14：上传 · 选择文件（HTML 设计稿屏 14，画布 390×844）。
+///
+/// 逐元素对照 `14 · 上传 · 选择文件/index.html`：
+/// 顶栏（返回箭头 / 「导入音视频」/「帮助」）→ 说明文案 → 拖拽区（上传图标 /
+/// 「拖拽文件到此处」/ 格式与体积说明 /「选择文件」按钮）→ 音频 + 视频格式卡
+/// （视频卡带「自动分离音轨」角标）→ 限制说明条 →「最近导入」+ 最近卡片。
 ///
 /// 视觉层只做渲染：数据与交互全部由 `lib/ui/pages/import_page.dart` 翻译。
+/// 顶部状态栏（9:41 / 信号 / 电量）是画布产物，不还原（见 `screen_frame.dart`）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/import_design.dart';
+import '../utils/design_scale.dart';
 import '../widgets/history_card.dart';
-import '../widgets/section_header.dart';
-import '../widgets/surface_card.dart';
 import 'screen_frame.dart';
 
 /// 屏 14 视觉。
@@ -19,11 +25,13 @@ class ImportIdleScreen extends StatelessWidget {
     required this.onPickFile,
     required this.recentItems,
     required this.onTabTap,
+    required this.onBack,
+    this.onHelp,
     this.selectedTab = 0,
     this.picking = false,
   });
 
-  /// 点击「选择文件」。
+  /// 点击「选择文件」（整块拖拽区也可点，移动端没有拖拽）。
   final VoidCallback onPickFile;
 
   /// 最近导入（最多 5 条）。
@@ -31,6 +39,12 @@ class ImportIdleScreen extends StatelessWidget {
 
   /// 底部 Tab 点击。
   final ValueChanged<int> onTabTap;
+
+  /// 顶栏返回。
+  final VoidCallback onBack;
+
+  /// 顶栏「帮助」；为 null 时按设计稿只作静态文案（HTML 未定义跳转）。
+  final VoidCallback? onHelp;
 
   /// 选中 Tab。
   final int selectedTab;
@@ -40,62 +54,154 @@ class ImportIdleScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasRecent = recentItems.isNotEmpty;
     return ScreenFrame(
       tabIndex: selectedTab,
       onTabTap: onTabTap,
-      bottomSpacer: hasRecent ? AppSpacing.tabBarSpacer : 120,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // HTML 的 TabBar 外壳 390×95（12 上 / 21 下内边距 + 62 胶囊）。
+      bottomSpacer: s(context, 95),
+      body: Padding(
+        // HTML 内容区 padding: 4px 20px 0。
+        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(height: s(context, 4)),
+            _TopBar(onBack: onBack, onHelp: onHelp),
+            SizedBox(height: s(context, 12)),
+            _Intro(),
+            SizedBox(height: s(context, 12)),
+            _DropZone(onPickFile: onPickFile, picking: picking),
+            SizedBox(height: s(context, 12)),
+            _FormatRow(),
+            SizedBox(height: s(context, 12)),
+            _LimitNote(),
+            if (recentItems.isNotEmpty) ...<Widget>[
+              SizedBox(height: s(context, 12)),
+              _RecentHeader(),
+              for (final HistoryItemView item in recentItems) ...<Widget>[
+                SizedBox(height: s(context, 12)),
+                _RecentCard(item: item),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 顶栏：返回箭头 + 「导入音视频」+「帮助」（350×44，HTML `#s14 .top-bar`）。
+///
+/// 左右两个热区按设计稿坐标绝对定位（Stack），命中区放大到 44×44，
+/// 视觉位置仍落在设计稿的 left/top 上。
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.onBack, this.onHelp});
+
+  final VoidCallback onBack;
+  final VoidCallback? onHelp;
+
+  @override
+  Widget build(BuildContext context) {
+    final double tap = s(context, 44);
+    return SizedBox(
+      height: s(context, 44),
+      width: double.infinity,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
-            child: _PageTitle(),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
-            child: _PickCard(onPickFile: onPickFile, picking: picking),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
-            child: Text(
-              '单个文件 ≤ 2GB · 时长 ≤ 12 小时 · 原文件不会被修改',
-              style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-            ),
-          ),
-          if (hasRecent) ...<Widget>[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(AppSpacing.page, 26, AppSpacing.page, 0),
-              child: SectionHeader(title: '最近导入'),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpacing.page, 4, AppSpacing.page, 0),
-              child: Column(
-                children: <Widget>[
-                  for (final HistoryItemView item in recentItems)
-                    HistoryCard(item: item),
-                ],
+          // Back：设计稿箭头 6.5×11，中心 (9.25, 22)。
+          Positioned(
+            left: s(context, 9.25) - tap / 2,
+            top: s(context, 22) - tap / 2,
+            width: tap,
+            height: tap,
+            child: Semantics(
+              button: true,
+              label: '返回',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onBack,
+                child: Icon(
+                  Icons.chevron_left_rounded,
+                  size: s(context, 20),
+                  color: AppColors.ink,
+                ),
               ),
             ),
-          ],
+          ),
+          // Title：设计稿 85×25，left 50 / top 9.5。
+          Positioned(
+            left: s(context, 50),
+            top: s(context, 9.5),
+            height: s(context, 25),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '导入音视频',
+                style: ImportDesign.ts(context, 17, FontWeight.w700, AppColors.ink),
+              ),
+            ),
+          ),
+          // Help：设计稿 52×19，右对齐，命中区向左扩到 67×44。
+          Positioned(
+            right: 0,
+            top: 0,
+            width: s(context, 67),
+            height: s(context, 44),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _HelpText(onHelp: onHelp),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-/// 页标题（const 节点里引用，抽出来保证标题样式可 const 化）。
-class _PageTitle extends StatelessWidget {
-  const _PageTitle();
+/// 「帮助」文案（13 / w500 / #F0783C）。
+class _HelpText extends StatelessWidget {
+  const _HelpText({this.onHelp});
+
+  final VoidCallback? onHelp;
 
   @override
-  Widget build(BuildContext context) =>
-      Text('导入音视频', style: AppTextStyles.pageTitle);
+  Widget build(BuildContext context) {
+    final Widget text = Text(
+      '帮助',
+      style: ImportDesign.ts(context, 13, FontWeight.w500, AppColors.orange),
+    );
+    if (onHelp == null) return text;
+    return Semantics(
+      button: true,
+      label: '帮助',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onHelp,
+        child: text,
+      ),
+    );
+  }
 }
 
-/// 「选择文件」大卡（HTML 设计稿屏 14 主卡）。
-class _PickCard extends StatelessWidget {
-  const _PickCard({required this.onPickFile, required this.picking});
+/// 说明文案（12 / w400 / #8B7565，line-height 19.2）。
+class _Intro extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '支持音频与视频文件导入，视频会自动分离音轨后再转写与总结',
+      style: ImportDesign.ts(context, 12, FontWeight.w400, AppColors.muted),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// 拖拽区（350×180，圆角 24，白底 + `#F2C9A3` 3px 描边 + 暖棕阴影）。
+///
+/// 移动端没有拖拽，整块卡片与「选择文件」按钮都走 [onPickFile]。
+class _DropZone extends StatelessWidget {
+  const _DropZone({required this.onPickFile, required this.picking});
 
   final VoidCallback onPickFile;
   final bool picking;
@@ -106,37 +212,98 @@ class _PickCard extends StatelessWidget {
       button: true,
       label: '选择音视频文件',
       child: GestureDetector(
-        onTap: picking ? null : onPickFile,
         behavior: HitTestBehavior.opaque,
-        child: SurfaceCard(
-          radius: AppRadius.card,
-          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        onTap: picking ? null : onPickFile,
+        child: Container(
+          width: double.infinity,
+          height: s(context, 180),
+          padding: EdgeInsets.symmetric(
+            horizontal: s(context, 18),
+            vertical: s(context, 16),
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(s(context, 24)),
+            border: Border.all(
+              color: ImportDesign.zoneBorder,
+              width: s(context, 3),
+            ),
+            boxShadow: ImportDesign.zoneShadow(context),
+          ),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              // 上传图标：52×52 圆底 #FFF0E3 + 向上箭头（含底线）。
               Container(
-                width: 64,
-                height: 64,
+                width: s(context, 52),
+                height: s(context, 52),
                 decoration: const BoxDecoration(
-                  color: Color(0xFFFFF1E6),
+                  color: ImportDesign.audioSoft,
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
-                child: const Icon(
-                  Icons.upload_file_rounded,
-                  size: 30,
+                child: Icon(
+                  Icons.upload_rounded,
+                  size: s(context, 28),
                   color: AppColors.orange,
                 ),
               ),
-              const SizedBox(height: 14),
+              SizedBox(height: s(context, 6)),
               Text(
-                picking ? '正在打开文件选择器…' : '选择视频 / 音频文件',
-                style: AppTextStyles.settingTitle.copyWith(fontSize: 17),
+                '拖拽文件到此处',
+                style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.ink),
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: s(context, 6)),
               Text(
-                '上传视频或音频，自动分离音轨并生成纪要',
-                style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-                textAlign: TextAlign.center,
+                'MP4 / MOV / MP3 / WAV · 单个文件 ≤ 2GB',
+                style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: s(context, 6)),
+              _PickButton(onTap: picking ? null : onPickFile, picking: picking),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「选择文件」按钮（118×40，圆角 14，`#F0783C` 实心 + 文件夹图标）。
+class _PickButton extends StatelessWidget {
+  const _PickButton({required this.onTap, required this.picking});
+
+  final VoidCallback? onTap;
+  final bool picking;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '选择文件',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: s(context, 40),
+          padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
+          decoration: BoxDecoration(
+            color: AppColors.orange,
+            borderRadius: BorderRadius.circular(s(context, 14)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.folder_rounded,
+                size: s(context, 16),
+                color: Colors.white,
+              ),
+              SizedBox(width: s(context, 6)),
+              Text(
+                picking ? '正在打开文件选择器…' : '选择文件',
+                style: ImportDesign.ts(context, 14, FontWeight.w600, Colors.white),
               ),
             ],
           ),
@@ -144,4 +311,279 @@ class _PickCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 格式说明双卡（音频 / 视频，等宽 169，圆角 18，白底 + 暖棕阴影）。
+class _FormatRow extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Expanded(
+          child: _FormatCard(
+            tileColor: ImportDesign.audioSoft,
+            iconColor: ImportDesign.orangeText,
+            icon: Icons.bar_chart_rounded,
+            name: '音频文件',
+            lines: <String>['MP3 / WAV / M4A / AAC', 'FLAC / OGG / AMR'],
+          ),
+        ),
+        SizedBox(width: s(context, 12)),
+        const Expanded(
+          child: _FormatCard(
+            tileColor: ImportDesign.videoSoft,
+            iconColor: ImportDesign.videoInk,
+            icon: Icons.video_file_rounded,
+            name: '视频文件',
+            lines: <String>['MP4 / MOV / MKV / AVI', 'WebM / FLV / TS'],
+            chip: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 单张格式卡（padding 14，gap 7）。
+class _FormatCard extends StatelessWidget {
+  const _FormatCard({
+    required this.tileColor,
+    required this.iconColor,
+    required this.icon,
+    required this.name,
+    required this.lines,
+    this.chip = false,
+  });
+
+  final Color tileColor;
+  final Color iconColor;
+  final IconData icon;
+  final String name;
+  final List<String> lines;
+  final bool chip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(s(context, 14)),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(s(context, 18)),
+        boxShadow: ImportDesign.cardShadow(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: s(context, 32),
+            height: s(context, 32),
+            decoration: BoxDecoration(color: tileColor, shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Icon(icon, size: s(context, 18), color: iconColor),
+          ),
+          SizedBox(height: s(context, 7)),
+          Text(
+            name,
+            style: ImportDesign.ts(context, 13, FontWeight.w600, AppColors.ink),
+          ),
+          SizedBox(height: s(context, 7)),
+          for (final String line in lines)
+            Text(
+              line,
+              style: ImportDesign.ts(
+                context,
+                11,
+                FontWeight.w400,
+                AppColors.muted,
+                lineHeight: 1.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          if (chip) ...<Widget>[
+            SizedBox(height: s(context, 7)),
+            _TrackChip(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 「自动分离音轨」角标（89×20，圆角 8，`#FFF0E3` 底 + `#C2591F` 字）。
+class _TrackChip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: s(context, 7),
+        vertical: s(context, 3),
+      ),
+      decoration: BoxDecoration(
+        color: ImportDesign.audioSoft,
+        borderRadius: BorderRadius.circular(s(context, 8)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            Icons.upload_rounded,
+            size: s(context, 11),
+            color: ImportDesign.orangeText,
+          ),
+          SizedBox(width: s(context, 4)),
+          Text(
+            '自动分离音轨',
+            style: ImportDesign.ts(context, 10, FontWeight.w500, ImportDesign.orangeText),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 限制说明条（350 宽，圆角 14，`#FFF0E3` 底，信息图标 + 两行灰字）。
+class _LimitNote extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: s(context, 14),
+        vertical: s(context, 10),
+      ),
+      decoration: BoxDecoration(
+        color: ImportDesign.audioSoft,
+        borderRadius: BorderRadius.circular(s(context, 14)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Icon(
+            Icons.info_outline_rounded,
+            size: s(context, 16),
+            color: ImportDesign.orangeText,
+          ),
+          SizedBox(width: s(context, 8)),
+          Expanded(
+            child: Text(
+              '单个文件 ≤ 2GB · 时长 ≤ 4 小时；视频仅解析音轨，画面内容不参与分析',
+              style: ImportDesign.ts(
+                context,
+                11,
+                FontWeight.w400,
+                AppColors.muted,
+                lineHeight: 1.6,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 「最近导入」标题（13 / w600 / #3A2A20）。
+class _RecentHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '最近导入',
+      style: ImportDesign.ts(context, 13, FontWeight.w600, AppColors.ink),
+    );
+  }
+}
+
+/// 最近导入卡片（350×60，圆角 14，白底 + 暖棕阴影）。
+///
+/// 图标底色按文件名后缀判断：视频 = 浅紫 + 视频图标，音频 = 浅橙 + 音频图标
+/// （HTML 里两条示例分别是 .mp4 与 .m4a，本项目视图层没有 kind 字段）。
+class _RecentCard extends StatelessWidget {
+  const _RecentCard({required this.item});
+
+  final HistoryItemView item;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool video = _isVideoName(item.title);
+    return Semantics(
+      button: item.onTap != null,
+      label: item.title,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: item.onTap,
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+            horizontal: s(context, 12),
+            vertical: s(context, 11),
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(s(context, 14)),
+            boxShadow: ImportDesign.cardShadow(context),
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: s(context, 32),
+                height: s(context, 32),
+                decoration: BoxDecoration(
+                  color: video ? ImportDesign.videoSoft : ImportDesign.audioSoft,
+                  borderRadius: BorderRadius.circular(s(context, 10)),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  video ? Icons.video_file_rounded : Icons.audio_file_rounded,
+                  size: s(context, 18),
+                  color: video ? ImportDesign.videoInk : ImportDesign.orangeText,
+                ),
+              ),
+              SizedBox(width: s(context, 10)),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      item.title,
+                      style: ImportDesign.ts(context, 13, FontWeight.w600, AppColors.ink),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: s(context, 3)),
+                    Text(
+                      item.meta,
+                      style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: s(context, 10)),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: s(context, 14),
+                color: ImportDesign.chevron,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 文件名是否视频（决定最近卡图标配色）。
+bool _isVideoName(String title) {
+  final String lower = title.toLowerCase();
+  const List<String> videoExt = <String>[
+    '.mp4', '.mov', '.m4v', '.mkv', '.avi', '.webm', '.flv', '.ts', '.3gp',
+  ];
+  for (final String ext in videoExt) {
+    if (lower.endsWith(ext)) return true;
+  }
+  return false;
 }

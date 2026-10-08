@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -155,6 +156,9 @@ class _ImportPageState extends ConsumerState<ImportPage> {
       picking: _picking || _starting,
       recentItems: recent,
       onTabTap: _onTabTap,
+      onBack: _goBack,
+      // HTML 的「帮助」是静态文案，未定义跳转目标，因此不挂点击。
+      onHelp: null,
     );
   }
 
@@ -166,6 +170,15 @@ class _ImportPageState extends ConsumerState<ImportPage> {
         context.go('/profile');
       default:
         break;
+    }
+  }
+
+  /// 顶栏返回（屏 14 是压栈页，无上一页时回首页）。
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
     }
   }
 }
@@ -255,6 +268,16 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
     final String metaKind = _kindOf(meeting);
     final bool isVideo = metaKind == 'video';
 
+    // 导入元信息（`{srcName, kind, sizeBytes, durationMs, ...}`）里的体积与时长，
+    // 用于「文件信息卡」的 meta 行（设计稿：`248 MB · 42 分钟 12 秒`）。
+    final ImportMeta meta = _parseImportMeta(meeting);
+    final String? sizeValue = _sizeLabel(meta.sizeBytes);
+    final int durationMs = meta.durationMs > 0 ? meta.durationMs : meeting.durationMs;
+    final String fileMeta = <String>[
+      ?sizeValue,
+      if (durationMs > 0) _durationLabel(durationMs),
+    ].join(' · ');
+
     // 事件快照（屏 15 增量驱动源）。
     final ImportProcessingState state = (snapshot?.meetingId == widget.meetingId)
         ? snapshot!
@@ -307,34 +330,54 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
       });
     }
 
+    // 步骤文案：设计稿画出来的状态（①完成 / ②进行中 / ③④等待）逐字照抄，
+    // 设计稿没画的状态沿用原有文案。
+    final String uploadStatus = stepStatus[ImportService.stepUpload] ?? 'idle';
+    final String extractStatus = stepStatus[ImportService.stepExtract] ?? 'idle';
+    final String transcribeStatus = stepStatus[ImportService.stepTranscribe] ?? 'idle';
+    final String minutesStatus = stepStatus[ImportService.stepMinutes] ?? 'idle';
+
     final List<ImportStepView> steps = <ImportStepView>[
       ImportStepView(
         index: 1,
         title: '上传文件',
-        subtitle: '上传到临时存储，24 小时后自动清除',
-        status: stepStatus[ImportService.stepUpload] ?? 'idle',
+        subtitle: switch (uploadStatus) {
+          'done' => sizeValue == null ? '已上传完成' : '$sizeValue · 已上传完成',
+          'failed' => '上传失败',
+          'cancelled' => '已取消',
+          _ => '上传到临时存储，24 小时后自动清除',
+        },
+        status: uploadStatus,
         percent: state.uploadPercent > 0 ? state.uploadPercent : null,
       ),
       ImportStepView(
         index: 2,
         title: isVideo ? '分离音轨' : '解析音频',
-        subtitle: isVideo ? '提取音频轨为 m4a，不解码零转码' : '读取音频元信息',
+        subtitle: isVideo
+            ? (extractStatus == 'running'
+                ? '正在从视频中提取音频轨道 · AAC 48kHz'
+                : '提取音频轨为 m4a，不解码零转码')
+            : '读取音频元信息',
         status: isVideo
-            ? (stepStatus[ImportService.stepExtract] ?? 'idle')
-            : (stepStatus[ImportService.stepExtract] == 'failed' ? 'failed' : 'skip'),
-        skip: !isVideo && stepStatus[ImportService.stepExtract] != 'failed',
+            ? extractStatus
+            : (extractStatus == 'failed' ? 'failed' : 'skip'),
+        skip: !isVideo && extractStatus != 'failed',
       ),
       ImportStepView(
         index: 3,
         title: '语音转写',
-        subtitle: '区分说话人 · 生成逐字稿',
-        status: stepStatus[ImportService.stepTranscribe] ?? 'idle',
+        subtitle: transcribeStatus == 'idle'
+            ? (isVideo ? '音轨分离完成后自动开始' : '音频解析完成后自动开始')
+            : '区分说话人 · 生成逐字稿',
+        status: transcribeStatus,
       ),
       ImportStepView(
         index: 4,
-        title: '纪要生成',
-        subtitle: '基于逐字稿生成结构化纪要',
-        status: stepStatus[ImportService.stepMinutes] ?? 'idle',
+        title: 'AI 生成纪要',
+        subtitle: minutesStatus == 'idle'
+            ? '转写完成后自动开始'
+            : '基于逐字稿生成结构化纪要',
+        status: minutesStatus,
       ),
     ];
 
@@ -346,7 +389,9 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
 
     return ImportProcessingScreen(
       title: meeting.title,
-      subtitle: isVideo ? '视频导入 · 仅解析音轨' : '音频导入',
+      subtitle: fileMeta.isEmpty
+          ? (isVideo ? '视频导入 · 仅解析音轨' : '音频导入')
+          : fileMeta,
       isVideo: isVideo,
       steps: steps,
       detail: failed ? (meeting.importError ?? state.detail) : state.detail,
@@ -429,6 +474,56 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
         break;
     }
   }
+}
+
+/// 导入元信息（`meetings.import_meta_json` 的视图投影）。
+class ImportMeta {
+  /// 构造元信息。
+  const ImportMeta({this.sizeBytes = 0, this.durationMs = 0});
+
+  /// 原文件体积（字节，0 = 未知）。
+  final int sizeBytes;
+
+  /// 媒体时长（毫秒，0 = 未知）。
+  final int durationMs;
+}
+
+/// 解析 `import_meta_json`（形状见 `Meeting.importMetaJson` 注释）。
+ImportMeta _parseImportMeta(Meeting meeting) {
+  final String? raw = meeting.importMetaJson;
+  if (raw == null || raw.isEmpty) return const ImportMeta();
+  try {
+    final Object? decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) return const ImportMeta();
+    final Object? size = decoded['sizeBytes'];
+    final Object? duration = decoded['durationMs'];
+    return ImportMeta(
+      sizeBytes: size is num ? size.toInt() : 0,
+      durationMs: duration is num ? duration.toInt() : 0,
+    );
+  } catch (_) {
+    // 元信息损坏不该影响屏 15 渲染，按「未知」处理。
+    return const ImportMeta();
+  }
+}
+
+/// 体积文案：`248 MB` / `1.2 GB`（未知返回 null）。
+String? _sizeLabel(int bytes) {
+  if (bytes <= 0) return null;
+  const int mb = 1024 * 1024;
+  if (bytes >= mb * 1024) return '${(bytes / mb / 1024).toStringAsFixed(1)} GB';
+  return '${(bytes / mb).round()} MB';
+}
+
+/// 时长文案：`42 分钟 12 秒`（对齐设计稿 meta 行格式）。
+String _durationLabel(int milliseconds) {
+  if (milliseconds <= 0) return '0 秒';
+  final int totalSeconds = (milliseconds / 1000).round();
+  final int minutes = totalSeconds ~/ 60;
+  final int seconds = totalSeconds % 60;
+  if (minutes == 0) return '$seconds 秒';
+  if (seconds == 0) return '$minutes 分钟';
+  return '$minutes 分钟 $seconds 秒';
 }
 
 /// 导入会议 → 历史卡片视图（「导入」badge + 处理中角标，设计 §8.1）。

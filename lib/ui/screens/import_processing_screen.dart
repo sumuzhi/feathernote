@@ -1,15 +1,27 @@
-/// 屏 15：导入处理中（HTML 设计稿屏 15）。
+/// 屏 15：上传 · 处理中（视频分离音轨）（HTML 设计稿屏 15，画布 390×844）。
 ///
-/// 四步卡：①上传 ②分离音轨（视频）/「无需分离」（音频）③语音转写 ④纪要；
-/// 角标「视频仅解析音轨，画面内容不参与分析」「原文件不会被修改」（纯静态文案）。
-/// 「后台处理」= 顶部按钮 = 返回（处理继续）；「取消处理」= 底部按钮（确认后取消）。
+/// 逐元素对照 `15 · 上传 · 处理中（视频分离音轨）/index.html`：
+/// 顶栏（返回 / 「处理中」/「后台处理」）→ 文件信息卡（图标 + 文件名 + meta +
+/// 「视频」角标）→ 整体进度卡（标题 + 百分比 + 进度条 + 预计提示）→ 四步卡
+/// （①上传 ②分离音轨 ③语音转写 ④AI 生成纪要）→ 说明条 → 底部双按钮。
+///
+/// 四步卡四种状态（HTML 只画了 done / running / idle，failed 为按同视觉语言
+/// 外推：浅红底 + 红色 ✕，见 [_StepIcon]）：
+/// - done：20×20 `#E9F3ED` 圆 + `#4E9A6A` 勾；
+/// - running：`#FDEEE2` 底环 + `#F0783C` 转圈弧（[CircularProgressIndicator]）；
+/// - idle：20×20 `#F1E7DC` 圆 + 6×6 `#C2A08C` 圆心；
+/// - failed：`#E5483C` @12% 底 + `#E5483C` ✕。
+///
+/// HTML 屏 15 没有底部 TabBar（内容区 782 = 844 − 62 撑满整屏），
+/// 因此本屏不渲染 TabBar；`onTabTap` / `selectedTab` 仅为保持调用方契约。
+/// 顶部状态栏（9:41 / 信号 / 电量）是画布产物，不还原（见 `screen_frame.dart`）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import '../widgets/app_button.dart';
-import '../widgets/surface_card.dart';
+import '../theme/import_design.dart';
+import '../utils/design_scale.dart';
 import 'screen_frame.dart';
 
 /// 单步卡视图数据。
@@ -36,13 +48,22 @@ class ImportStepView {
   /// 状态（`idle` / `running` / `done` / `failed` / `cancelled` / `skip`）。
   final String status;
 
-  /// 上传进度 0..1（仅步骤 ①）。
+  /// 上传进度 0..1（仅步骤 ①/②）。
   final double? percent;
 
   /// 是否「无需分离」占位。
   final bool skip;
 
-  /// 主状态文案。
+  /// 是否已完成。
+  bool get done => status == 'done';
+
+  /// 是否进行中。
+  bool get running => status == 'running';
+
+  /// 是否失败（含已取消）。
+  bool get failed => status == 'failed' || status == 'cancelled';
+
+  /// 主状态文案（屏幕阅读器 / 失败态尾标）。
   String get statusLabel => switch (status) {
         'running' => '处理中…',
         'done' => '完成',
@@ -68,7 +89,7 @@ class ImportProcessingScreen extends StatelessWidget {
     required this.onBack,
     required this.onCancel,
     required this.onViewMinutes,
-    required this.onTabTap,
+    this.onTabTap,
     this.selectedTab = 0,
   });
 
@@ -78,7 +99,7 @@ class ImportProcessingScreen extends StatelessWidget {
   /// 副标题（来源说明）。
   final String subtitle;
 
-  /// 是否视频（决定步骤 ② 文案与角标）。
+  /// 是否视频（决定文件卡角标与说明条文案）。
   final bool isVideo;
 
   /// 四步卡数据。
@@ -93,118 +114,135 @@ class ImportProcessingScreen extends StatelessWidget {
   /// 四步是否全部完成。
   final bool allDone;
 
-  /// 「后台处理」。
+  /// 「后台处理」（顶栏右上 = 橙色主按钮）。
   final VoidCallback onBack;
 
-  /// 「取消处理」。
+  /// 「取消处理」/「关闭」。
   final VoidCallback onCancel;
 
   /// 「查看纪要」（完成后）。
   final VoidCallback onViewMinutes;
 
-  /// 底部 Tab 点击。
-  final ValueChanged<int> onTabTap;
+  /// 底部 Tab 点击（HTML 屏 15 无 TabBar，保留入参以兼容调用方）。
+  final ValueChanged<int>? onTabTap;
 
-  /// 选中 Tab。
+  /// 选中 Tab（HTML 屏 15 无 TabBar，保留入参以兼容调用方）。
   final int selectedTab;
 
   @override
   Widget build(BuildContext context) {
-    final bool failed = steps.any((ImportStepView s) => s.status == 'failed' || s.status == 'cancelled');
+    final bool failed = steps.any((ImportStepView s) => s.failed);
+    final double percent = _overallPercent(steps);
     return ScreenFrame(
-      tabIndex: selectedTab,
-      onTabTap: onTabTap,
-      scrollable: true,
-      bottomSpacer: 120,
-      bottomCta: allDone
-          ? Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-              child: AppPillButton(label: '查看纪要', onTap: onViewMinutes),
-            )
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-              child: AppGhostPillButton(
-                label: failed ? '关闭' : '取消处理',
-                icon: Icons.close_rounded,
-                onTap: onCancel,
+      bottomSpacer: s(context, 24) + s(context, 48) + s(context, 16),
+      bottomCta: _ButtonRow(
+        allDone: allDone,
+        failed: failed,
+        onBack: onBack,
+        onCancel: onCancel,
+        onViewMinutes: onViewMinutes,
+      ),
+      body: Padding(
+        // HTML 内容区 padding: 4px 20px 24px。
+        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(height: s(context, 4)),
+            _TopBar(
+              title: allDone ? '导入完成' : (failed ? '导入失败' : '处理中'),
+              onBack: onBack,
+            ),
+            SizedBox(height: s(context, 16)),
+            _FileCard(title: title, subtitle: subtitle, isVideo: isVideo),
+            SizedBox(height: s(context, 16)),
+            _OverallCard(
+              percent: percent,
+              etaMinutes: etaMinutes,
+              failed: failed,
+              detail: detail,
+            ),
+            SizedBox(height: s(context, 16)),
+            _StepsCard(steps: steps),
+            SizedBox(height: s(context, 16)),
+            _NoteCard(isVideo: isVideo),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 顶栏：返回箭头 + 「处理中」+「后台处理」（350×44）。
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.title, required this.onBack});
+
+  final String title;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final double tap = s(context, 44);
+    return SizedBox(
+      height: s(context, 44),
+      width: double.infinity,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          // Back：设计稿箭头 6.5×11 `#C2A08C`，中心 (9.25, 22)。
+          Positioned(
+            left: s(context, 9.25) - tap / 2,
+            top: s(context, 22) - tap / 2,
+            width: tap,
+            height: tap,
+            child: Semantics(
+              button: true,
+              label: '返回',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onBack,
+                child: Icon(
+                  Icons.chevron_left_rounded,
+                  size: s(context, 20),
+                  color: ImportDesign.chevron,
+                ),
               ),
             ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 10, AppSpacing.page, 0),
-            child: Row(
-              children: <Widget>[
-                AppCircleButton(icon: Icons.chevron_left_rounded, onTap: onBack, tooltip: '后台处理'),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        allDone ? '导入完成' : '导入处理中',
-                        style: AppTextStyles.cardHead,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        allDone ? '纪要已生成，可前往查看' : '可返回首页或历史页，处理继续',
-                        style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
+          ),
+          Positioned(
+            left: s(context, 50),
+            top: s(context, 9.5),
+            height: s(context, 25),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                title,
+                style: ImportDesign.ts(context, 17, FontWeight.w700, AppColors.ink),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          // 「后台处理」：设计稿 51×25 右对齐，命中区向左扩到 67×44。
+          Positioned(
+            right: 0,
+            top: 0,
+            width: s(context, 67),
+            height: s(context, 44),
+            child: Semantics(
+              button: true,
+              label: '后台处理',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onBack,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '后台处理',
+                    style: ImportDesign.ts(context, 13, FontWeight.w500, AppColors.orange),
                   ),
                 ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 16, AppSpacing.page, 0),
-            child: SurfaceCard(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(title, style: AppTextStyles.itemTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
-                  Text(subtitle, style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted)),
-                  if (!allDone && etaMinutes > 0) ...<Widget>[
-                    const SizedBox(height: 10),
-                    Text(
-                      '预计还需约 $etaMinutes 分钟',
-                      style: AppTextStyles.metaSmall.copyWith(color: AppColors.orange),
-                    ),
-                  ],
-                  if (detail != null && detail!.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 10),
-                    Text(detail!, style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted)),
-                  ],
-                ],
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
-            child: Column(
-              children: <Widget>[
-                for (final ImportStepView step in steps)
-                  _StepCard(step: step, isVideo: isVideo),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (isVideo)
-                  const _NotePill(text: '视频仅解析音轨，画面内容不参与分析'),
-                const SizedBox(height: 6),
-                const _NotePill(text: '原文件不会被修改'),
-              ],
             ),
           ),
         ],
@@ -213,131 +251,601 @@ class ImportProcessingScreen extends StatelessWidget {
   }
 }
 
-/// 单步卡（①②③④）。
-class _StepCard extends StatelessWidget {
-  const _StepCard({required this.step, required this.isVideo});
+/// 文件信息卡（350 宽，圆角 18，padding 14，白底 + 暖棕阴影）。
+class _FileCard extends StatelessWidget {
+  const _FileCard({
+    required this.title,
+    required this.subtitle,
+    required this.isVideo,
+  });
 
-  final ImportStepView step;
+  final String title;
+  final String subtitle;
   final bool isVideo;
 
   @override
   Widget build(BuildContext context) {
-    final bool done = step.status == 'done';
-    final bool failed = step.status == 'failed' || step.status == 'cancelled';
-    final bool running = step.status == 'running';
-    final Color circleColor = done
-        ? AppColors.orange
-        : failed
-            ? AppColors.muted
-            : AppColors.card;
-    final Widget leading = step.skip
-        ? Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: AppColors.card,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            alignment: Alignment.center,
-            child: const Icon(Icons.horizontal_rule_rounded, size: 16, color: AppColors.muted),
-          )
-        : Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: circleColor,
-              borderRadius: BorderRadius.circular(15),
-              boxShadow: done ? AppShadow.circleButton : null,
-            ),
-            alignment: Alignment.center,
-            child: done
-                ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
-                : Text(
-                    '${step.index}',
-                    style: AppTextStyles.metaSmall.copyWith(
-                      color: failed ? Colors.white : AppColors.ink,
-                    ),
-                  ),
-          );
-    final Widget trailing = step.skip
-        ? Text('无需分离', style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted))
-        : running && step.percent != null
-            ? Text(
-                '${(step.percent!.clamp(0.0, 1.0) * 100).toStringAsFixed(0)}%',
-                style: AppTextStyles.metaSmall.copyWith(color: AppColors.orange),
-              )
-            : Text(
-                step.statusLabel,
-                style: AppTextStyles.metaSmall.copyWith(
-                  color: failed ? AppColors.muted : (done ? AppColors.orange : AppColors.muted),
-                ),
-              );
-
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      width: double.infinity,
+      padding: EdgeInsets.all(s(context, 14)),
       decoration: BoxDecoration(
         color: AppColors.card,
-        borderRadius: BorderRadius.circular(AppRadius.card2),
-        boxShadow: AppShadow.card,
+        borderRadius: BorderRadius.circular(s(context, 18)),
+        boxShadow: ImportDesign.cardShadow(context),
       ),
       child: Row(
         children: <Widget>[
-          leading,
-          const SizedBox(width: 12),
+          Container(
+            width: s(context, 44),
+            height: s(context, 44),
+            decoration: BoxDecoration(
+              color: isVideo ? ImportDesign.videoSoft : ImportDesign.audioSoft,
+              borderRadius: BorderRadius.circular(s(context, 13)),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              isVideo ? Icons.video_file_rounded : Icons.audio_file_rounded,
+              size: s(context, 22),
+              color: isVideo ? ImportDesign.videoInk : ImportDesign.orangeText,
+            ),
+          ),
+          SizedBox(width: s(context, 12)),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(step.title, style: AppTextStyles.settingTitle),
-                const SizedBox(height: 2),
-                if (running && step.percent != null) ...<Widget>[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: step.percent!.clamp(0.0, 1.0),
-                      minHeight: 4,
-                      backgroundColor: AppColors.muted.withValues(alpha: 0.2),
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.orange),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                ],
                 Text(
-                  step.subtitle,
-                  style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+                  title,
+                  style: ImportDesign.ts(context, 14, FontWeight.w600, AppColors.ink),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: s(context, 4)),
+                Text(
+                  subtitle,
+                  style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          trailing,
+          SizedBox(width: s(context, 12)),
+          _KindChip(isVideo: isVideo),
         ],
       ),
     );
   }
 }
 
-/// 静态角标（「视频仅解析音轨…」「原文件不会被修改」）。
-class _NotePill extends StatelessWidget {
-  const _NotePill({required this.text});
+/// 「视频」/「音频」角标（38×24，圆角 9）。
+class _KindChip extends StatelessWidget {
+  const _KindChip({required this.isVideo});
 
-  final String text;
+  final bool isVideo;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      width: s(context, 38),
+      height: s(context, 24),
       decoration: BoxDecoration(
-        color: AppColors.muted.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
+        color: isVideo ? ImportDesign.videoSoft : ImportDesign.audioSoft,
+        borderRadius: BorderRadius.circular(s(context, 9)),
       ),
+      alignment: Alignment.center,
       child: Text(
-        text,
-        style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+        isVideo ? '视频' : '音频',
+        style: ImportDesign.ts(
+          context,
+          11,
+          FontWeight.w500,
+          isVideo ? ImportDesign.videoInk : ImportDesign.orangeText,
+        ),
       ),
     );
   }
+}
+
+/// 整体进度卡（350 宽，圆角 20，padding 18/16，gap 12）。
+class _OverallCard extends StatelessWidget {
+  const _OverallCard({
+    required this.percent,
+    required this.etaMinutes,
+    required this.failed,
+    this.detail,
+  });
+
+  final double percent;
+  final int etaMinutes;
+  final bool failed;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? hint;
+    final Color hintColor;
+    if (failed && detail != null && detail!.isNotEmpty) {
+      // 失败：把失败原因放在预计位（HTML 没有失败态，按说明条同款 11 号灰字外推，
+      // 仅换成红色以示区别）。
+      hint = detail;
+      hintColor = AppColors.red;
+    } else if (etaMinutes > 0) {
+      hint = '预计还需约 $etaMinutes 分钟 · 可点右上角「后台处理」继续其他操作';
+      hintColor = AppColors.muted;
+    } else {
+      hint = null;
+      hintColor = AppColors.muted;
+    }
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: s(context, 18),
+        vertical: s(context, 16),
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(s(context, 20)),
+        boxShadow: ImportDesign.cardShadow(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Text(
+                '整体进度',
+                style: ImportDesign.ts(context, 13, FontWeight.w600, AppColors.ink),
+              ),
+              Text(
+                '${(percent.clamp(0.0, 1.0) * 100).round()}%',
+                style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.orange),
+              ),
+            ],
+          ),
+          SizedBox(height: s(context, 12)),
+          _ProgressBar(
+            height: s(context, 8),
+            radius: s(context, 4),
+            percent: percent,
+          ),
+          if (hint != null) ...<Widget>[
+            SizedBox(height: s(context, 12)),
+            Text(
+              hint,
+              style: ImportDesign.ts(
+                context,
+                11,
+                FontWeight.w400,
+                hintColor,
+                lineHeight: 1.6,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 进度条（底轨 ` #F1E7DC`，填充 `#F0783C`，宽度按百分比占满可用宽）。
+class _ProgressBar extends StatelessWidget {
+  const _ProgressBar({
+    required this.height,
+    required this.radius,
+    required this.percent,
+  });
+
+  final double height;
+  final double radius;
+  final double percent;
+
+  @override
+  Widget build(BuildContext context) {
+    final double value = percent.clamp(0.0, 1.0);
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double width = constraints.maxWidth;
+        return Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: ImportDesign.track,
+            borderRadius: BorderRadius.circular(radius),
+          ),
+          child: value <= 0
+              ? null
+              : Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    width: width * value,
+                    height: height,
+                    decoration: BoxDecoration(
+                      color: AppColors.orange,
+                      borderRadius: BorderRadius.circular(radius),
+                    ),
+                  ),
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// 四步卡（350 宽，圆角 20，padding 18，步间 gap 14）。
+///
+/// HTML 的 StepsCard 里**没有**小标题行，第一行就是步骤 ①。
+class _StepsCard extends StatelessWidget {
+  const _StepsCard({required this.steps});
+
+  final List<ImportStepView> steps;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(s(context, 18)),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(s(context, 20)),
+        boxShadow: ImportDesign.cardShadow(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          for (int i = 0; i < steps.length; i++) ...<Widget>[
+            if (i > 0) SizedBox(height: s(context, 14)),
+            _StepRow(step: steps[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 单步行（314 宽，row gap 12，align center）。
+class _StepRow extends StatelessWidget {
+  const _StepRow({required this.step});
+
+  final ImportStepView step;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget? trailing;
+    if (step.running && step.percent != null) {
+      trailing = Text(
+        '${(step.percent!.clamp(0.0, 1.0) * 100).round()}%',
+        style: ImportDesign.ts(context, 12, FontWeight.w600, AppColors.orange),
+      );
+    } else if (step.failed) {
+      trailing = Text(
+        step.statusLabel,
+        style: ImportDesign.ts(context, 12, FontWeight.w600, AppColors.red),
+      );
+    } else if (step.skip) {
+      trailing = Text(
+        '无需分离',
+        style: ImportDesign.ts(context, 11, FontWeight.w400, AppColors.muted),
+      );
+    } else {
+      // HTML 已完成步的尾标是耗时（如「00:12」），本项目的视图数据里没有
+      // 单步耗时，故留空，不臆造数值。
+      trailing = null;
+    }
+    // HTML：进行中的步 Col 内间距 5，其余 3；进度条在**副文案下方**（stretch 到
+    // Col 宽度，比整体进度条窄）。
+    final bool withBar = step.running && step.percent != null;
+    final double colGap = withBar ? s(context, 5) : s(context, 3);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        _StepIcon(step: step),
+        SizedBox(width: s(context, 12)),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                step.title,
+                style: ImportDesign.ts(
+                  context,
+                  13,
+                  FontWeight.w600,
+                  step.done || step.running || step.failed
+                      ? AppColors.ink
+                      : AppColors.muted,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: colGap),
+              Text(
+                step.subtitle,
+                style: ImportDesign.ts(
+                  context,
+                  11,
+                  FontWeight.w400,
+                  step.done || step.running || step.failed
+                      ? AppColors.muted
+                      : const Color(0xFFB9A695),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (withBar) ...<Widget>[
+                SizedBox(height: colGap),
+                _ProgressBar(
+                  height: s(context, 4),
+                  radius: s(context, 2),
+                  percent: step.percent!,
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...<Widget>[
+          SizedBox(width: s(context, 12)),
+          trailing,
+        ],
+      ],
+    );
+  }
+}
+
+/// 步骤状态图标（24×24 命中盒，内部 20×20 圆 / 转圈）。
+class _StepIcon extends StatelessWidget {
+  const _StepIcon({required this.step});
+
+  final ImportStepView step;
+
+  @override
+  Widget build(BuildContext context) {
+    final double box = s(context, 24);
+    final double circle = s(context, 20);
+    if (step.running) {
+      // 进行中：`#FDEEE2` 底环 + `#F0783C` 转圈弧（stroke 2.6）。
+      return SizedBox(
+        width: box,
+        height: box,
+        child: CircularProgressIndicator(
+          strokeWidth: s(context, 2.6),
+          backgroundColor: ImportDesign.stepRingBg,
+          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.orange),
+        ),
+      );
+    }
+    if (step.done) {
+      return SizedBox(
+        width: box,
+        height: box,
+        child: Center(
+          child: Container(
+            width: circle,
+            height: circle,
+            decoration: const BoxDecoration(
+              color: ImportDesign.stepDoneBg,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.check_rounded,
+              size: s(context, 14),
+              color: ImportDesign.stepDoneInk,
+            ),
+          ),
+        ),
+      );
+    }
+    if (step.failed) {
+      // 外推：HTML 只画了 done / running / idle 三种，失败态沿用「浅底 + 主色
+      // 字形」的语言，取项目里的录音红 `#E5483C`。
+      return SizedBox(
+        width: box,
+        height: box,
+        child: Center(
+          child: Container(
+            width: circle,
+            height: circle,
+            decoration: BoxDecoration(
+              color: AppColors.red.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.close_rounded,
+              size: s(context, 14),
+              color: AppColors.red,
+            ),
+          ),
+        ),
+      );
+    }
+    // idle / skip：20×20 `#F1E7DC` 圆 + 6×6 `#C2A08C` 圆心。
+    return SizedBox(
+      width: box,
+      height: box,
+      child: Center(
+        child: Container(
+          width: circle,
+          height: circle,
+          decoration: const BoxDecoration(
+            color: ImportDesign.stepIdleBg,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Container(
+            width: s(context, 6),
+            height: s(context, 6),
+            decoration: const BoxDecoration(
+              color: ImportDesign.stepIdleDot,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 说明条（350 宽，圆角 14，`#FFF0E3` 底，信息图标 + 单行灰字）。
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({required this.isVideo});
+
+  final bool isVideo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: s(context, 14),
+        vertical: s(context, 11),
+      ),
+      decoration: BoxDecoration(
+        color: ImportDesign.audioSoft,
+        borderRadius: BorderRadius.circular(s(context, 14)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Icon(
+            Icons.info_outline_rounded,
+            size: s(context, 16),
+            color: ImportDesign.orangeText,
+          ),
+          SizedBox(width: s(context, 8)),
+          Expanded(
+            child: Text(
+              isVideo
+                  ? '视频仅解析音轨，画面内容不参与分析；原文件不会被修改'
+                  : '音频将直接解析音轨；原文件不会被修改',
+              style: ImportDesign.ts(
+                context,
+                11,
+                FontWeight.w400,
+                AppColors.muted,
+                lineHeight: 1.6,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 底部双按钮（350 宽，gap 12，各 169×48，圆角 16）。
+class _ButtonRow extends StatelessWidget {
+  const _ButtonRow({
+    required this.allDone,
+    required this.failed,
+    required this.onBack,
+    required this.onCancel,
+    required this.onViewMinutes,
+  });
+
+  final bool allDone;
+  final bool failed;
+  final VoidCallback onBack;
+  final VoidCallback onCancel;
+  final VoidCallback onViewMinutes;
+
+  @override
+  Widget build(BuildContext context) {
+    final String ghostLabel = allDone ? '后台处理' : (failed ? '关闭' : '取消处理');
+    final VoidCallback ghostTap = allDone ? onBack : onCancel;
+    final String mainLabel = allDone ? '查看纪要' : '后台处理';
+    final VoidCallback mainTap = allDone ? onViewMinutes : onBack;
+    return Row(
+      children: <Widget>[
+        Expanded(child: _GhostButton(label: ghostLabel, onTap: ghostTap)),
+        SizedBox(width: s(context, 12)),
+        Expanded(child: _SolidButton(label: mainLabel, onTap: mainTap)),
+      ],
+    );
+  }
+}
+
+/// 白色描边次按钮（48 高，圆角 16，`#F2E4D6` 2px 描边）。
+class _GhostButton extends StatelessWidget {
+  const _GhostButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: s(context, 48),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(s(context, 16)),
+            border: Border.all(color: const Color(0xFFF2E4D6), width: s(context, 2)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: ImportDesign.ts(context, 15, FontWeight.w600, AppColors.muted),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 橙色主按钮（48 高，圆角 16）。
+class _SolidButton extends StatelessWidget {
+  const _SolidButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: s(context, 48),
+          decoration: BoxDecoration(
+            color: AppColors.orange,
+            borderRadius: BorderRadius.circular(s(context, 16)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: ImportDesign.ts(context, 15, FontWeight.w600, Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 整体进度：进行中步有百分比时直接取它（与 HTML 的 48% 一致），
+/// 否则按已完成步数占比。
+double _overallPercent(List<ImportStepView> steps) {
+  if (steps.isEmpty) return 0.0;
+  for (final ImportStepView step in steps) {
+    if (step.running && step.percent != null) {
+      return step.percent!.clamp(0.0, 1.0);
+    }
+  }
+  int done = 0;
+  for (final ImportStepView step in steps) {
+    if (step.done || step.skip) done++;
+  }
+  return (done / steps.length).clamp(0.0, 1.0);
 }
