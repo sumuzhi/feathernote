@@ -209,6 +209,51 @@ class $MeetingsTable extends Meetings
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _importStatusMeta = const VerificationMeta(
+    'importStatus',
+  );
+  @override
+  late final GeneratedColumn<String> importStatus = GeneratedColumn<String>(
+    'import_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('none'),
+  );
+  static const VerificationMeta _importErrorMeta = const VerificationMeta(
+    'importError',
+  );
+  @override
+  late final GeneratedColumn<String> importError = GeneratedColumn<String>(
+    'import_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _importTaskIdMeta = const VerificationMeta(
+    'importTaskId',
+  );
+  @override
+  late final GeneratedColumn<String> importTaskId = GeneratedColumn<String>(
+    'import_task_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _importMetaJsonMeta = const VerificationMeta(
+    'importMetaJson',
+  );
+  @override
+  late final GeneratedColumn<String> importMetaJson = GeneratedColumn<String>(
+    'import_meta_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -229,6 +274,10 @@ class $MeetingsTable extends Meetings
     audioKey,
     audioError,
     audioBytes,
+    importStatus,
+    importError,
+    importTaskId,
+    importMetaJson,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -374,6 +423,42 @@ class $MeetingsTable extends Meetings
         audioBytes.isAcceptableOrUnknown(data['audio_bytes']!, _audioBytesMeta),
       );
     }
+    if (data.containsKey('import_status')) {
+      context.handle(
+        _importStatusMeta,
+        importStatus.isAcceptableOrUnknown(
+          data['import_status']!,
+          _importStatusMeta,
+        ),
+      );
+    }
+    if (data.containsKey('import_error')) {
+      context.handle(
+        _importErrorMeta,
+        importError.isAcceptableOrUnknown(
+          data['import_error']!,
+          _importErrorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('import_task_id')) {
+      context.handle(
+        _importTaskIdMeta,
+        importTaskId.isAcceptableOrUnknown(
+          data['import_task_id']!,
+          _importTaskIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('import_meta_json')) {
+      context.handle(
+        _importMetaJsonMeta,
+        importMetaJson.isAcceptableOrUnknown(
+          data['import_meta_json']!,
+          _importMetaJsonMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -455,6 +540,22 @@ class $MeetingsTable extends Meetings
         DriftSqlType.int,
         data['${effectivePrefix}audio_bytes'],
       )!,
+      importStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_status'],
+      )!,
+      importError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_error'],
+      ),
+      importTaskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_task_id'],
+      ),
+      importMetaJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_meta_json'],
+      ),
     );
   }
 
@@ -518,6 +619,19 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
 
   /// 音频字节数。
   final int audioBytes;
+
+  /// 导入处理状态（`none` / `import_pending` / `extracting` / `transcribing` /
+  /// `minutes` / `done` / `failed`）。
+  final String importStatus;
+
+  /// 导入失败 / 取消原因。
+  final String? importError;
+
+  /// filetrans 任务 ID（恢复轮询用）。
+  final String? importTaskId;
+
+  /// 导入元信息 JSON（srcName / srcPath / kind / sizeBytes / durationMs / extractedPath）。
+  final String? importMetaJson;
   const MeetingRow({
     required this.id,
     required this.title,
@@ -537,6 +651,10 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     this.audioKey,
     this.audioError,
     required this.audioBytes,
+    required this.importStatus,
+    this.importError,
+    this.importTaskId,
+    this.importMetaJson,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -569,6 +687,16 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       map['audio_error'] = Variable<String>(audioError);
     }
     map['audio_bytes'] = Variable<int>(audioBytes);
+    map['import_status'] = Variable<String>(importStatus);
+    if (!nullToAbsent || importError != null) {
+      map['import_error'] = Variable<String>(importError);
+    }
+    if (!nullToAbsent || importTaskId != null) {
+      map['import_task_id'] = Variable<String>(importTaskId);
+    }
+    if (!nullToAbsent || importMetaJson != null) {
+      map['import_meta_json'] = Variable<String>(importMetaJson);
+    }
     return map;
   }
 
@@ -602,6 +730,16 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
           ? const Value.absent()
           : Value(audioError),
       audioBytes: Value(audioBytes),
+      importStatus: Value(importStatus),
+      importError: importError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importError),
+      importTaskId: importTaskId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importTaskId),
+      importMetaJson: importMetaJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importMetaJson),
     );
   }
 
@@ -629,6 +767,10 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       audioKey: serializer.fromJson<String?>(json['audioKey']),
       audioError: serializer.fromJson<String?>(json['audioError']),
       audioBytes: serializer.fromJson<int>(json['audioBytes']),
+      importStatus: serializer.fromJson<String>(json['importStatus']),
+      importError: serializer.fromJson<String?>(json['importError']),
+      importTaskId: serializer.fromJson<String?>(json['importTaskId']),
+      importMetaJson: serializer.fromJson<String?>(json['importMetaJson']),
     );
   }
   @override
@@ -653,6 +795,10 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       'audioKey': serializer.toJson<String?>(audioKey),
       'audioError': serializer.toJson<String?>(audioError),
       'audioBytes': serializer.toJson<int>(audioBytes),
+      'importStatus': serializer.toJson<String>(importStatus),
+      'importError': serializer.toJson<String?>(importError),
+      'importTaskId': serializer.toJson<String?>(importTaskId),
+      'importMetaJson': serializer.toJson<String?>(importMetaJson),
     };
   }
 
@@ -675,6 +821,10 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     Value<String?> audioKey = const Value.absent(),
     Value<String?> audioError = const Value.absent(),
     int? audioBytes,
+    String? importStatus,
+    Value<String?> importError = const Value.absent(),
+    Value<String?> importTaskId = const Value.absent(),
+    Value<String?> importMetaJson = const Value.absent(),
   }) => MeetingRow(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -696,6 +846,12 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     audioKey: audioKey.present ? audioKey.value : this.audioKey,
     audioError: audioError.present ? audioError.value : this.audioError,
     audioBytes: audioBytes ?? this.audioBytes,
+    importStatus: importStatus ?? this.importStatus,
+    importError: importError.present ? importError.value : this.importError,
+    importTaskId: importTaskId.present ? importTaskId.value : this.importTaskId,
+    importMetaJson: importMetaJson.present
+        ? importMetaJson.value
+        : this.importMetaJson,
   );
   MeetingRow copyWithCompanion(MeetingsCompanion data) {
     return MeetingRow(
@@ -739,6 +895,18 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       audioBytes: data.audioBytes.present
           ? data.audioBytes.value
           : this.audioBytes,
+      importStatus: data.importStatus.present
+          ? data.importStatus.value
+          : this.importStatus,
+      importError: data.importError.present
+          ? data.importError.value
+          : this.importError,
+      importTaskId: data.importTaskId.present
+          ? data.importTaskId.value
+          : this.importTaskId,
+      importMetaJson: data.importMetaJson.present
+          ? data.importMetaJson.value
+          : this.importMetaJson,
     );
   }
 
@@ -762,13 +930,17 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
           ..write('audioStatus: $audioStatus, ')
           ..write('audioKey: $audioKey, ')
           ..write('audioError: $audioError, ')
-          ..write('audioBytes: $audioBytes')
+          ..write('audioBytes: $audioBytes, ')
+          ..write('importStatus: $importStatus, ')
+          ..write('importError: $importError, ')
+          ..write('importTaskId: $importTaskId, ')
+          ..write('importMetaJson: $importMetaJson')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     title,
     createdAt,
@@ -787,7 +959,11 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     audioKey,
     audioError,
     audioBytes,
-  );
+    importStatus,
+    importError,
+    importTaskId,
+    importMetaJson,
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -809,7 +985,11 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
           other.audioStatus == this.audioStatus &&
           other.audioKey == this.audioKey &&
           other.audioError == this.audioError &&
-          other.audioBytes == this.audioBytes);
+          other.audioBytes == this.audioBytes &&
+          other.importStatus == this.importStatus &&
+          other.importError == this.importError &&
+          other.importTaskId == this.importTaskId &&
+          other.importMetaJson == this.importMetaJson);
 }
 
 class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
@@ -831,6 +1011,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
   final Value<String?> audioKey;
   final Value<String?> audioError;
   final Value<int> audioBytes;
+  final Value<String> importStatus;
+  final Value<String?> importError;
+  final Value<String?> importTaskId;
+  final Value<String?> importMetaJson;
   final Value<int> rowid;
   const MeetingsCompanion({
     this.id = const Value.absent(),
@@ -851,6 +1035,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     this.audioKey = const Value.absent(),
     this.audioError = const Value.absent(),
     this.audioBytes = const Value.absent(),
+    this.importStatus = const Value.absent(),
+    this.importError = const Value.absent(),
+    this.importTaskId = const Value.absent(),
+    this.importMetaJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MeetingsCompanion.insert({
@@ -872,6 +1060,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     this.audioKey = const Value.absent(),
     this.audioError = const Value.absent(),
     this.audioBytes = const Value.absent(),
+    this.importStatus = const Value.absent(),
+    this.importError = const Value.absent(),
+    this.importTaskId = const Value.absent(),
+    this.importMetaJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -895,6 +1087,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     Expression<String>? audioKey,
     Expression<String>? audioError,
     Expression<int>? audioBytes,
+    Expression<String>? importStatus,
+    Expression<String>? importError,
+    Expression<String>? importTaskId,
+    Expression<String>? importMetaJson,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -916,6 +1112,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
       if (audioKey != null) 'audio_key': audioKey,
       if (audioError != null) 'audio_error': audioError,
       if (audioBytes != null) 'audio_bytes': audioBytes,
+      if (importStatus != null) 'import_status': importStatus,
+      if (importError != null) 'import_error': importError,
+      if (importTaskId != null) 'import_task_id': importTaskId,
+      if (importMetaJson != null) 'import_meta_json': importMetaJson,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -939,6 +1139,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     Value<String?>? audioKey,
     Value<String?>? audioError,
     Value<int>? audioBytes,
+    Value<String>? importStatus,
+    Value<String?>? importError,
+    Value<String?>? importTaskId,
+    Value<String?>? importMetaJson,
     Value<int>? rowid,
   }) {
     return MeetingsCompanion(
@@ -960,6 +1164,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
       audioKey: audioKey ?? this.audioKey,
       audioError: audioError ?? this.audioError,
       audioBytes: audioBytes ?? this.audioBytes,
+      importStatus: importStatus ?? this.importStatus,
+      importError: importError ?? this.importError,
+      importTaskId: importTaskId ?? this.importTaskId,
+      importMetaJson: importMetaJson ?? this.importMetaJson,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1021,6 +1229,18 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     if (audioBytes.present) {
       map['audio_bytes'] = Variable<int>(audioBytes.value);
     }
+    if (importStatus.present) {
+      map['import_status'] = Variable<String>(importStatus.value);
+    }
+    if (importError.present) {
+      map['import_error'] = Variable<String>(importError.value);
+    }
+    if (importTaskId.present) {
+      map['import_task_id'] = Variable<String>(importTaskId.value);
+    }
+    if (importMetaJson.present) {
+      map['import_meta_json'] = Variable<String>(importMetaJson.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1048,6 +1268,10 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
           ..write('audioKey: $audioKey, ')
           ..write('audioError: $audioError, ')
           ..write('audioBytes: $audioBytes, ')
+          ..write('importStatus: $importStatus, ')
+          ..write('importError: $importError, ')
+          ..write('importTaskId: $importTaskId, ')
+          ..write('importMetaJson: $importMetaJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2459,6 +2683,10 @@ typedef $$MeetingsTableCreateCompanionBuilder = MeetingsCompanion Function({
   Value<String?> audioKey,
   Value<String?> audioError,
   Value<int> audioBytes,
+  Value<String> importStatus,
+  Value<String?> importError,
+  Value<String?> importTaskId,
+  Value<String?> importMetaJson,
   Value<int> rowid,
 });
 typedef $$MeetingsTableUpdateCompanionBuilder = MeetingsCompanion Function({
@@ -2480,6 +2708,10 @@ typedef $$MeetingsTableUpdateCompanionBuilder = MeetingsCompanion Function({
   Value<String?> audioKey,
   Value<String?> audioError,
   Value<int> audioBytes,
+  Value<String> importStatus,
+  Value<String?> importError,
+  Value<String?> importTaskId,
+  Value<String?> importMetaJson,
   Value<int> rowid,
 });
 
@@ -2644,6 +2876,26 @@ class $$MeetingsTableFilterComposer
 
   ColumnFilters<int> get audioBytes => $composableBuilder(
     column: $table.audioBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importStatus => $composableBuilder(
+    column: $table.importStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importError => $composableBuilder(
+    column: $table.importError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importTaskId => $composableBuilder(
+    column: $table.importTaskId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importMetaJson => $composableBuilder(
+    column: $table.importMetaJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2821,6 +3073,26 @@ class $$MeetingsTableOrderingComposer
     column: $table.audioBytes,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get importStatus => $composableBuilder(
+    column: $table.importStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importError => $composableBuilder(
+    column: $table.importError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importTaskId => $composableBuilder(
+    column: $table.importTaskId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importMetaJson => $composableBuilder(
+    column: $table.importMetaJson,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MeetingsTableAnnotationComposer
@@ -2905,6 +3177,26 @@ class $$MeetingsTableAnnotationComposer
 
   GeneratedColumn<int> get audioBytes => $composableBuilder(
     column: $table.audioBytes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importStatus => $composableBuilder(
+    column: $table.importStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importError => $composableBuilder(
+    column: $table.importError,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importTaskId => $composableBuilder(
+    column: $table.importTaskId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importMetaJson => $composableBuilder(
+    column: $table.importMetaJson,
     builder: (column) => column,
   );
 
@@ -3035,6 +3327,10 @@ class $$MeetingsTableTableManager
                 Value<String?> audioKey = const Value.absent(),
                 Value<String?> audioError = const Value.absent(),
                 Value<int> audioBytes = const Value.absent(),
+                Value<String> importStatus = const Value.absent(),
+                Value<String?> importError = const Value.absent(),
+                Value<String?> importTaskId = const Value.absent(),
+                Value<String?> importMetaJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MeetingsCompanion(
                 id: id,
@@ -3055,6 +3351,10 @@ class $$MeetingsTableTableManager
                 audioKey: audioKey,
                 audioError: audioError,
                 audioBytes: audioBytes,
+                importStatus: importStatus,
+                importError: importError,
+                importTaskId: importTaskId,
+                importMetaJson: importMetaJson,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3077,6 +3377,10 @@ class $$MeetingsTableTableManager
                 Value<String?> audioKey = const Value.absent(),
                 Value<String?> audioError = const Value.absent(),
                 Value<int> audioBytes = const Value.absent(),
+                Value<String> importStatus = const Value.absent(),
+                Value<String?> importError = const Value.absent(),
+                Value<String?> importTaskId = const Value.absent(),
+                Value<String?> importMetaJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MeetingsCompanion.insert(
                 id: id,
@@ -3097,6 +3401,10 @@ class $$MeetingsTableTableManager
                 audioKey: audioKey,
                 audioError: audioError,
                 audioBytes: audioBytes,
+                importStatus: importStatus,
+                importError: importError,
+                importTaskId: importTaskId,
+                importMetaJson: importMetaJson,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

@@ -51,8 +51,21 @@ class AppDatabase extends _$AppDatabase {
       logInfo('storage', 'SQLite schema 初始化完成 version=$kSchemaVersion');
     },
     onUpgrade: (Migrator m, int from, int to) async {
-      // v1 为首个版本，暂无增量迁移；后续版本在此追加 `if (from < N) ...`。
-      logWarn('storage', 'schema 迁移 from=$from to=$to（v1 无增量 DDL）');
+      // v1 → v2：meetings 重建（CHECK 约束不能改，标准「建新表→拷贝→换名」）。
+      // drift 的 onUpgrade 不在事务中执行，PRAGMA foreign_keys=OFF 生效；
+      // 子表（segments/speakers/filetrans_raw）由迁移测试断言存活（硬性门禁）。
+      if (from < 2) {
+        for (final String statement in kUpgradeV2Statements) {
+          await customStatement(statement);
+        }
+        await customStatement(
+          "UPDATE schema_meta SET value = '2' WHERE key = '$kSchemaMetaVersionKey'",
+        );
+        logInfo('storage', 'schema 迁移完成 v1 → v2（meetings 重建 + import_* 4 列）');
+      }
+      if (from > to) {
+        logWarn('storage', 'schema 版本回退 from=$from to=$to（拒绝降级，跳过迁移）');
+      }
     },
     beforeOpen: (OpeningDetails details) async {
       await customStatement(kForeignKeysOn);

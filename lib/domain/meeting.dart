@@ -30,6 +30,10 @@ class Meeting {
     this.finalizeError,
     this.audioKey,
     this.audioError,
+    this.importStatus = ImportStatus.none,
+    this.importError,
+    this.importTaskId,
+    this.importMetaJson,
   });
 
   /// 会议 ID。
@@ -86,6 +90,22 @@ class Meeting {
   /// 音频字节数。
   final int audioBytes;
 
+  /// 导入处理状态（录音会议恒为 [ImportStatus.none]）。
+  final ImportStatus importStatus;
+
+  /// 导入失败 / 取消原因（「步骤名 + 原因」）。
+  final String? importError;
+
+  /// filetrans 任务 ID（App 被杀后恢复轮询用；未提交前为 null）。
+  final String? importTaskId;
+
+  /// 导入元信息 JSON：
+  /// `{srcName, srcPath, kind: 'audio'|'video', sizeBytes, durationMs, extractedPath?}`。
+  ///
+  /// 用 JSON 而非多列的理由：只服务于「导入详情展示 + 恢复判断」，
+  /// 不参与查询 / 排序，避免 meetings 列数膨胀（设计 §5.1）。
+  final String? importMetaJson;
+
   /// 逐字稿片段（按 `startTime` 升序）。
   final List<TranscriptSegment> segments;
 
@@ -113,6 +133,11 @@ class Meeting {
     String? audioKey,
     String? audioError,
     int? audioBytes,
+    ImportStatus? importStatus,
+    String? importError,
+    String? importTaskId,
+    String? importMetaJson,
+    bool clearImportError = false,
     List<TranscriptSegment>? segments,
     List<Speaker>? speakers,
   }) {
@@ -135,6 +160,10 @@ class Meeting {
       audioKey: audioKey ?? this.audioKey,
       audioError: audioError ?? this.audioError,
       audioBytes: audioBytes ?? this.audioBytes,
+      importStatus: importStatus ?? this.importStatus,
+      importError: clearImportError ? null : (importError ?? this.importError),
+      importTaskId: importTaskId ?? this.importTaskId,
+      importMetaJson: importMetaJson ?? this.importMetaJson,
       segments: segments ?? this.segments,
       speakers: speakers ?? this.speakers,
     );
@@ -151,7 +180,9 @@ class Meeting {
     durationMs: durationMs,
     speakerCount: speakerCount,
     status: status,
+    source: source,
     finalizeStatus: finalizeStatus,
+    importStatus: importStatus,
     hasMinutes: hasMinutes,
     minutesPartial: minutesPartial,
     minutesExcerpt: minutesExcerpt(minutesMd),
@@ -174,6 +205,8 @@ class MeetingSummary {
     required this.finalizeStatus,
     required this.hasMinutes,
     required this.minutesPartial,
+    this.source = MeetingSource.microphone,
+    this.importStatus = ImportStatus.none,
     this.minutesExcerpt = '',
   });
 
@@ -197,6 +230,12 @@ class MeetingSummary {
 
   /// 终稿状态。
   final FinalizeStatus finalizeStatus;
+
+  /// 会议来源（历史卡片「导入」badge 判定）。
+  final MeetingSource source;
+
+  /// 导入处理状态（「导入处理中」角标判定）。
+  final ImportStatus importStatus;
 
   /// 是否已有完整纪要。
   final bool hasMinutes;

@@ -113,6 +113,9 @@ class AppConfig {
     required this.uploadTimeoutMs,
     required this.uploadMaxRetry,
     required this.uploadMaxMb,
+    this.importMaxMb = 2048,
+    this.importMaxDurationHours = 12,
+    this.importDiarizationSoftLimitHours = 2,
     required this.httpTimeoutMs,
     required this.llmModel,
     required this.llmEnableThinking,
@@ -212,6 +215,20 @@ class AppConfig {
   /// 单文件大小上限（MB）。
   final int uploadMaxMb;
 
+  // ── 导入音视频（IMPORT-PIPELINE-DESIGN §7；独立于录音 WAV 的 uploadMaxMb）──
+
+  /// 导入单文件大小上限（MB，默认 2048 = 2GB，跟随百炼 filetrans 官方上限）。
+  ///
+  /// 刻意**不复用** [uploadMaxMb]（200MB）：那是录音 WAV 的既有上限，
+  /// 导入场景按官方 2GB 独立放宽，互不影响。
+  final int importMaxMb;
+
+  /// 导入音频时长硬上限（小时，默认 12，官方 filetrans 限制）。
+  final int importMaxDurationHours;
+
+  /// 说话人分离建议时长上限（小时，默认 2；超出仅软提示，不阻断）。
+  final int importDiarizationSoftLimitHours;
+
   // ── HTTP 通用 ──
 
   /// 全局 HTTP 超时（毫秒）。
@@ -309,6 +326,9 @@ class AppConfig {
       uploadTimeoutMs: _readInt('UPLOAD_TIMEOUT_MS', 120000),
       uploadMaxRetry: _readInt('UPLOAD_MAX_RETRY', 3),
       uploadMaxMb: _readInt('UPLOAD_MAX_MB', 200),
+      importMaxMb: _readInt('IMPORT_MAX_MB', 2048),
+      importMaxDurationHours: _readInt('IMPORT_MAX_DURATION_HOURS', 12),
+      importDiarizationSoftLimitHours: _readInt('IMPORT_DIARIZATION_SOFT_LIMIT_HOURS', 2),
       httpTimeoutMs: _readInt('HTTP_TIMEOUT_MS', 30000),
       llmModel: _readString('BAILIAN_LLM_MODEL', 'qwen3.7-plus'),
       llmEnableThinking: _readBool('BAILIAN_LLM_ENABLE_THINKING', false),

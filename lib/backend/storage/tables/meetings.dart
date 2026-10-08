@@ -67,6 +67,19 @@ class Meetings extends Table {
   /// 音频字节数。
   IntColumn get audioBytes => integer().withDefault(const Constant(0))();
 
+  /// 导入处理状态（`none` / `import_pending` / `extracting` / `transcribing` /
+  /// `minutes` / `done` / `failed`）。
+  TextColumn get importStatus => text().withDefault(const Constant('none'))();
+
+  /// 导入失败 / 取消原因。
+  TextColumn get importError => text().nullable()();
+
+  /// filetrans 任务 ID（恢复轮询用）。
+  TextColumn get importTaskId => text().nullable()();
+
+  /// 导入元信息 JSON（srcName / srcPath / kind / sizeBytes / durationMs / extractedPath）。
+  TextColumn get importMetaJson => text().nullable()();
+
   @override
   Set<Column<Object>>? get primaryKey => <Column<Object>>{id};
 

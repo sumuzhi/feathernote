@@ -237,6 +237,10 @@ class DriftMeetingRepository implements MeetingRepository {
       audioKey: Value<String?>(meeting.audioKey),
       audioError: Value<String?>(meeting.audioError),
       audioBytes: Value<int>(meeting.audioBytes),
+      importStatus: Value<String>(meeting.importStatus.value),
+      importError: Value<String?>(meeting.importError),
+      importTaskId: Value<String?>(meeting.importTaskId),
+      importMetaJson: Value<String?>(meeting.importMetaJson),
     );
   }
 
@@ -302,6 +306,10 @@ class DriftMeetingRepository implements MeetingRepository {
       audioKey: row.audioKey,
       audioError: row.audioError,
       audioBytes: row.audioBytes,
+      importStatus: ImportStatus.fromValue(row.importStatus),
+      importError: row.importError,
+      importTaskId: row.importTaskId,
+      importMetaJson: row.importMetaJson,
       segments: segments.map(segmentFromRow).toList(growable: false),
       speakers: speakers.map(speakerFromRow).toList(growable: false),
     );
@@ -339,7 +347,9 @@ class DriftMeetingRepository implements MeetingRepository {
     durationMs: row.durationMs,
     speakerCount: row.speakerCount,
     status: MeetingStatus.fromValue(row.status),
+    source: MeetingSource.fromValue(row.source),
     finalizeStatus: FinalizeStatus.fromValue(row.finalizeStatus),
+    importStatus: ImportStatus.fromValue(row.importStatus),
     hasMinutes: row.minutesMd != null && row.minutesMd!.trim().isNotEmpty && row.minutesPartial == 0,
     minutesPartial: row.minutesPartial != 0,
     minutesExcerpt: minutesExcerpt(row.minutesMd),
