@@ -15,6 +15,7 @@ class ScreenFrame extends StatelessWidget {
   const ScreenFrame({
     super.key,
     required this.body,
+    this.header,
     this.scrollable = true,
     this.tabIndex,
     this.onTabTap,
@@ -27,6 +28,13 @@ class ScreenFrame extends StatelessWidget {
 
   /// 主体内容。
   final Widget body;
+
+  /// 固定头部（不随内容滚动）。
+  ///
+  /// 放在 `SingleChildScrollView` **之外**、[SafeArea] 之内：导入两屏（屏 14 /
+  /// 屏 15）的长列表滚到下面时，左上角的返回按钮必须还点得到，所以顶栏不参与
+  /// 滚动。默认 null = 该屏没有固定头部（其余屏行为不变）。
+  final Widget? header;
 
   /// 主体是否可滚动（录音页 / 空态页为 false）。
   final bool scrollable;
@@ -79,7 +87,14 @@ class ScreenFrame extends StatelessWidget {
               bottom: false,
               left: false,
               right: false,
-              child: Column(children: <Widget>[Expanded(child: content)]),
+              child: Column(
+                children: <Widget>[
+                  // 固定头部：在滚动容器之外，不随内容滚动（导入两屏用它保证
+                  // 返回按钮常驻）。
+                  ?header,
+                  Expanded(child: content),
+                ],
+              ),
             ),
             if (topOverlay != null)
               Positioned(

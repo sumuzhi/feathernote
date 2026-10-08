@@ -61,15 +61,26 @@ class ImportIdleScreen extends StatelessWidget {
       // 内容区按设计稿 782（= 844 − 62）撑满整屏，底部只留 24 的内容内边距
       // （+ 系统 home indicator 安全区），不再给 TabBar 预留 95。
       bottomSpacer: s(context, 24) + MediaQuery.viewPaddingOf(context).bottom,
-      body: Padding(
-        // HTML 内容区 padding: 4px 20px 0。
+      // 固定头部：顶栏 + 其上 4、其下 12 的间距一起挪出滚动区，顶栏与内容的
+      // 视觉间距仍是 12（与改前一致）。
+      header: Padding(
         padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             SizedBox(height: s(context, 4)),
             _TopBar(onBack: onBack, onHelp: onHelp),
             SizedBox(height: s(context, 12)),
+          ],
+        ),
+      ),
+      body: Padding(
+        // HTML 内容区 padding: 4px 20px 0（顶部 4 已随 header 一起给到顶栏）。
+        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
             _Intro(),
             SizedBox(height: s(context, 12)),
             _DropZone(onPickFile: onPickFile, picking: picking),

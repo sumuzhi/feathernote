@@ -216,6 +216,99 @@ void main() {
     expect(tester.getTopLeft(find.text('取消处理')).dy, closeTo(785, 1));
   });
 
+  testWidgets('屏14 长列表滚到底：顶栏与返回箭头常驻', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      ImportIdleScreen(
+        onPickFile: _noop,
+        onTabTap: (int _) {},
+        onBack: _noop,
+        recentItems: List<HistoryItemView>.generate(
+          12,
+          (int i) => HistoryItemView(
+            title: '会议_$i.mp4',
+            description: '',
+            meta: '10 MB · 1 分钟 · 已生成纪要',
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+
+    // 本质断言：顶栏不在滚动容器子树内（header 在 SingleChildScrollView 之外）。
+    expect(
+      find.ancestor(of: find.text('导入音视频'), matching: find.byType(Scrollable)),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: find.byIcon(Icons.chevron_left_rounded),
+        matching: find.byType(Scrollable),
+      ),
+      findsNothing,
+    );
+
+    final double titleBefore = tester.getTopLeft(find.text('导入音视频')).dy;
+    final double backBefore = tester.getTopLeft(find.byIcon(Icons.chevron_left_rounded)).dy;
+
+    // 滚到底部（12 条最近记录足以让内容超出一屏）。
+    final ScrollPosition position =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    expect(position.maxScrollExtent, greaterThan(0));
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+
+    // 滚动后顶栏与返回箭头仍在原位（不随内容滚走）且可见。
+    expect(find.text('导入音视频'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
+    expect(tester.getTopLeft(find.text('导入音视频')).dy, titleBefore);
+    expect(tester.getTopLeft(find.byIcon(Icons.chevron_left_rounded)).dy, backBefore);
+  });
+
+  testWidgets('屏15 矮屏（390×500）滚动后：顶栏常驻', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      const ImportProcessingScreen(
+        title: '产品评审_录屏.mp4',
+        subtitle: '248 MB · 42 分钟 12 秒',
+        isVideo: true,
+        steps: _runningSteps,
+        detail: null,
+        etaMinutes: 2,
+        allDone: false,
+        onBack: _noop,
+        onCancel: _noop,
+        onViewMinutes: _noop,
+      ),
+      size: const Size(390, 500),
+    );
+    expect(tester.takeException(), isNull);
+
+    // 顶栏不在滚动容器内。
+    expect(
+      find.ancestor(of: find.text('处理中'), matching: find.byType(Scrollable)),
+      findsNothing,
+    );
+
+    final double titleBefore = tester.getTopLeft(find.text('处理中')).dy;
+    final ScrollPosition position =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    expect(position.maxScrollExtent, greaterThan(0));
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+
+    expect(find.text('处理中'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('处理中')).dy, titleBefore);
+    // 右上「后台处理」同样常驻可点。
+    // 「后台处理」出现两次（顶栏链接 + 底部主按钮），两处都不在滚动容器内。
+    expect(
+      find.ancestor(of: find.text('后台处理'), matching: find.byType(Scrollable)),
+      findsNothing,
+    );
+  });
+
   testWidgets('屏15 完成态：显示「查看纪要」与 100%', (WidgetTester tester) async {
     await _pumpAt390(
       tester,

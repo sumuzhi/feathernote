@@ -142,10 +142,12 @@ class ImportProcessingScreen extends StatelessWidget {
         onCancel: onCancel,
         onViewMinutes: onViewMinutes,
       ),
-      body: Padding(
-        // HTML 内容区 padding: 4px 20px 24px。
+      // 固定头部：顶栏 + 其上 4、其下 16 的间距一起挪出滚动区，顶栏与文件卡的
+      // 视觉间距仍是 16（与改前一致）。右上「后台处理」随时可点。
+      header: Padding(
         padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             SizedBox(height: s(context, 4)),
@@ -154,6 +156,15 @@ class ImportProcessingScreen extends StatelessWidget {
               onBack: onBack,
             ),
             SizedBox(height: s(context, 16)),
+          ],
+        ),
+      ),
+      body: Padding(
+        // HTML 内容区 padding: 4px 20px 24px（顶部 4 已随 header 一起给到顶栏）。
+        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
             _FileCard(title: title, subtitle: subtitle, isVideo: isVideo),
             SizedBox(height: s(context, 16)),
             _OverallCard(
