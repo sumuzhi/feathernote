@@ -7,6 +7,8 @@
 ///
 /// 视觉层只做渲染：数据与交互全部由 `lib/ui/pages/import_page.dart` 翻译。
 /// 顶部状态栏（9:41 / 信号 / 电量）是画布产物，不还原（见 `screen_frame.dart`）。
+/// 底部 TabBar 同样不渲染（产品指令：导入两屏都不再显示 Tab 栏），内容区按
+/// 782（= 844 − 62）撑满；`onTabTap` / `selectedTab` 仅为保持调用方契约。
 library;
 
 import 'package:flutter/material.dart';
@@ -24,8 +26,8 @@ class ImportIdleScreen extends StatelessWidget {
     super.key,
     required this.onPickFile,
     required this.recentItems,
-    required this.onTabTap,
     required this.onBack,
+    this.onTabTap,
     this.onHelp,
     this.selectedTab = 0,
     this.picking = false,
@@ -37,8 +39,8 @@ class ImportIdleScreen extends StatelessWidget {
   /// 最近导入（最多 5 条）。
   final List<HistoryItemView> recentItems;
 
-  /// 底部 Tab 点击。
-  final ValueChanged<int> onTabTap;
+  /// 底部 Tab 点击（本屏不渲染 TabBar，保留入参以兼容调用方）。
+  final ValueChanged<int>? onTabTap;
 
   /// 顶栏返回。
   final VoidCallback onBack;
@@ -46,7 +48,7 @@ class ImportIdleScreen extends StatelessWidget {
   /// 顶栏「帮助」；为 null 时按设计稿只作静态文案（HTML 未定义跳转）。
   final VoidCallback? onHelp;
 
-  /// 选中 Tab。
+  /// 选中 Tab（本屏不渲染 TabBar，保留入参以兼容调用方）。
   final int selectedTab;
 
   /// 是否在选择文件中（按钮禁用）。
@@ -55,10 +57,10 @@ class ImportIdleScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ScreenFrame(
-      tabIndex: selectedTab,
-      onTabTap: onTabTap,
-      // HTML 的 TabBar 外壳 390×95（12 上 / 21 下内边距 + 62 胶囊）。
-      bottomSpacer: s(context, 95),
+      // 不传 tabIndex / onTabTap → 不渲染底部 TabBar（同屏 15）：
+      // 内容区按设计稿 782（= 844 − 62）撑满整屏，底部只留 24 的内容内边距
+      // （+ 系统 home indicator 安全区），不再给 TabBar 预留 95。
+      bottomSpacer: s(context, 24) + MediaQuery.viewPaddingOf(context).bottom,
       body: Padding(
         // HTML 内容区 padding: 4px 20px 0。
         padding: EdgeInsets.symmetric(horizontal: s(context, 20)),

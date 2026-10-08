@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_minutes_flutter/ui/screens/import_idle_screen.dart';
 import 'package:smart_minutes_flutter/ui/screens/import_processing_screen.dart';
 import 'package:smart_minutes_flutter/ui/theme/app_theme.dart';
+import 'package:smart_minutes_flutter/ui/widgets/app_tab_bar.dart';
 import 'package:smart_minutes_flutter/ui/widgets/history_card.dart';
 
 /// 按设计稿画布（390×844）挂载被测屏幕。
@@ -83,6 +84,8 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
+    // 屏 14 不再渲染底部 Tab 栏（产品指令）。
+    expect(find.byType(AppTabBar), findsNothing);
 
     // 设计稿里的固定文案，一字不改。
     expect(find.text('导入音视频'), findsOneWidget);
@@ -134,12 +137,13 @@ void main() {
     );
     expect(tester.takeException(), isNull);
     expect(find.text('最近导入'), findsNothing);
+    expect(find.byType(AppTabBar), findsNothing);
   });
 
   testWidgets('屏15 处理中：无溢出 + 卡片位置对齐 HTML page-offset', (WidgetTester tester) async {
     await _pumpAt390(
       tester,
-      ImportProcessingScreen(
+      const ImportProcessingScreen(
         title: '产品评审_录屏.mp4',
         subtitle: '248 MB · 42 分钟 12 秒',
         isVideo: true,
@@ -153,6 +157,8 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
+    // 屏 15 按 HTML 无底部 Tab 栏。
+    expect(find.byType(AppTabBar), findsNothing);
 
     // 设计稿固定文案。
     expect(find.text('处理中'), findsOneWidget);
@@ -301,7 +307,7 @@ void main() {
   testWidgets('屏15 窄屏 320×640 仍可滚动且无溢出', (WidgetTester tester) async {
     await _pumpAt390(
       tester,
-      ImportProcessingScreen(
+      const ImportProcessingScreen(
         title: '产品评审_录屏.mp4',
         subtitle: '248 MB · 42 分钟 12 秒',
         isVideo: true,
