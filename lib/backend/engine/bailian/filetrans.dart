@@ -189,6 +189,77 @@ class BailianFiletrans {
     return ossUrl;
   }
 
+  /// 上传本地文件到临时 OSS（**流式**，导入链路专用，设计文档 §1.3）。
+  ///
+  /// 与 [uploadLocalFile] 的三点区别（既有方法语义**零改动**）：
+  /// - `MultipartFile.fromFile` 由 dio 按块流式读文件，2GB 上限场景不整读内存；
+  /// - 支持上传进度回调 [onProgress] 与取消（[cancelToken]，dio 原生中断）；
+  /// - 大小上限走 [AppConfig.importMaxMb]（独立于录音的 `uploadMaxMb=200`）。
+  ///
+  /// [filename] 缺省取路径末段；导入链路建议传安全文件名（如 `<meetingId><ext>`），
+  /// 避免中文/特殊字符进入 OSS key。
+  Future<String> uploadLocalFileStream(
+    String filePath, {
+    void Function(int sentBytes, int totalBytes)? onProgress,
+    CancelToken? cancelToken,
+    String? filename,
+    String? model,
+  }) async {
+    final File file = File(filePath);
+    final int length = await file.length();
+    final int maxBytes = cfg.importMaxMb * 1024 * 1024;
+    if (length > maxBytes) {
+      final String limitLabel =
+          cfg.importMaxMb % 1024 == 0 ? '${cfg.importMaxMb ~/ 1024}GB' : '${cfg.importMaxMb}MB';
+      throw AppError(
+        ErrorCode.engineError,
+        '单个文件需小于 $limitLabel，当前文件 ${(length / 1024 / 1024 / 1024).toStringAsFixed(1)}GB',
+        engineCode: 'E_TOO_LARGE',
+      );
+    }
+    final String name = filename ?? filePath.split(Platform.pathSeparator).last;
+    logInfo(
+      'filetrans',
+      '流式上传开始',
+      <String, Object?>{'file': filePath, 'bytes': length, 'maxMb': cfg.importMaxMb, 'name': name},
+    );
+    final Stopwatch watch = Stopwatch()..start();
+    final Map<String, dynamic> pol = await getUploadPolicy(model: model);
+    // 字段顺序严格（顺序错误 OSS 会 403），与 uploadBuffer 保持一致。
+    final FormData form = FormData.fromMap(<String, dynamic>{
+      'OSSAccessKeyId': '${pol['oss_access_key_id']}',
+      'Signature': '${pol['signature']}',
+      'policy': '${pol['policy']}',
+      'x-oss-object-acl': '${pol['x_oss_object_acl']}',
+      'x-oss-forbid-overwrite': '${pol['x_oss_forbid_overwrite']}',
+      'key': '${pol['upload_dir']}/$name',
+      'success_action_status': '200',
+      'file': MultipartFile.fromFile(filePath, filename: name),
+    });
+    final Response<dynamic> resp = await _dio.post<dynamic>(
+      '${pol['upload_host']}',
+      data: form,
+      onSendProgress: onProgress,
+      cancelToken: cancelToken,
+      options: Options(
+        receiveTimeout: Duration(milliseconds: cfg.uploadTimeoutMs),
+        sendTimeout: Duration(milliseconds: cfg.uploadTimeoutMs),
+      ),
+    );
+    _ensureOk(resp, '流式上传');
+    final String ossUrl = buildOssUrl('${pol['upload_dir']}', name);
+    logInfo(
+      'filetrans',
+      '流式上传完成',
+      <String, Object?>{
+        'bytes': length,
+        'elapsedMs': watch.elapsedMilliseconds,
+        'ossUrl': ossUrl,
+      },
+    );
+    return ossUrl;
+  }
+
   /// 步骤3：提交异步转写任务。
   Future<SubmitResult> submitFiletrans(String fileUrl, {bool diarization = true, List<String>? languageHints}) async {
     final String url = '$httpBase/api/v1/services/audio/asr/transcription';

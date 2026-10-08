@@ -12,5 +12,7 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // 导入音视频平台通道（feathernote/media_import）。
+    MediaImportPlugin.register(with: engineBridge.applicationRegistrar.messenger)
   }
 }
