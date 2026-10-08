@@ -281,18 +281,30 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
       stepStatus[ImportService.stepTranscribe] = 'done';
       stepStatus[ImportService.stepMinutes] = 'running';
     } else if (dbStatus == ImportStatus.failed) {
-      // 失败步定位：把正在 running 的步标失败；都没 running 则按 kind 兜底。
-      if (stepStatus[ImportService.stepTranscribe] == 'running') {
-        stepStatus[ImportService.stepTranscribe] = 'failed';
-      } else if (stepStatus[ImportService.stepMinutes] == 'running') {
-        stepStatus[ImportService.stepMinutes] = 'failed';
-      } else if (stepStatus[ImportService.stepUpload] == 'running') {
-        stepStatus[ImportService.stepUpload] = 'failed';
-      } else if (isVideo) {
-        stepStatus[ImportService.stepExtract] = 'failed';
-      } else {
-        stepStatus[ImportService.stepUpload] = 'failed';
+      // 失败步定位：优先信事件流已标的 failed；没标则按 running / kind 兜底。
+      if (!stepStatus.containsValue('failed')) {
+        if (stepStatus[ImportService.stepTranscribe] == 'running') {
+          stepStatus[ImportService.stepTranscribe] = 'failed';
+        } else if (stepStatus[ImportService.stepMinutes] == 'running') {
+          stepStatus[ImportService.stepMinutes] = 'failed';
+        } else if (stepStatus[ImportService.stepUpload] == 'running') {
+          stepStatus[ImportService.stepUpload] = 'failed';
+        } else if (isVideo) {
+          stepStatus[ImportService.stepExtract] = 'failed';
+        } else {
+          stepStatus[ImportService.stepUpload] = 'failed';
+        }
       }
+      // 失败后不再推进：残留的 running 步复位（视频分离已有产物则标完成）。
+      stepStatus.updateAll((String step, String status) {
+        if (status != 'running') return status;
+        if (step == ImportService.stepExtract &&
+            isVideo &&
+            (meeting.audioKey?.isNotEmpty ?? false)) {
+          return 'done';
+        }
+        return 'idle';
+      });
     }
 
     final List<ImportStepView> steps = <ImportStepView>[

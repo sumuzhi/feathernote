@@ -402,8 +402,9 @@ class ImportService {
         }
         final String m4aPath = await archive.pathForKey(key);
         _currentStep[meetingId] = stepUpload;
-        final String m4aOss = await _uploadFile(meetingId, m4aPath, '$meetingId.m4a', totalBytes);
+        // 分离+归档完成即标 done：m4a 二次上传失败不应让「分离音轨」卡停在转圈。
         _emit(meetingId, stepExtract, 'done');
+        final String m4aOss = await _uploadFile(meetingId, m4aPath, '$meetingId.m4a', totalBytes);
         await _stepTranscribe(meetingId, m4aOss);
         await _stepMinutes(meetingId);
       } else {
