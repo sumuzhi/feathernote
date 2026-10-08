@@ -1,0 +1,53 @@
+
+classDiagram
+    class ImportService {
+        +Engine engine
+        +MeetingRepository persistence
+        +BailianFiletrans filetrans
+        +FinalizePoller finalizePoller
+        +MinutesService minutesService
+        +AudioArchive archive
+        +AppConfig cfg
+        +Future~Meeting~ startImport(ImportRequest req)
+        +Future~void~ cancelImport(String meetingId)
+        +Future~void~ retryImport(String meetingId)
+        +Future~void~ recoverOnStartup()
+        +Stream~ImportProgressEvent~ get events
+        -Future~void~ _run(String meetingId)
+        -Future~void~ _markFailed(String meetingId, String step, Object error)
+    }
+    class ImportProgressEvent {
+        +String meetingId
+        +String step
+        +String status
+        +double percent
+        +String? detail
+        +int etaMinutes
+    }
+    class MediaImportChannel {
+        +MethodChannel _ch
+        +Future~ProbeResult~ probeMedia(String path)
+        +Future~ExtractResult~ extractAudioTrack(String token, String src, String dest)
+        +Future~bool~ cancelExtract(String token)
+    }
+    class FinalizePoller {
+        +Future~String~ start(String meetingId, String wavPath)
+        +Future~String~ startWithOssUrl(String meetingId, String ossUrl)
+        +void abandon(String meetingId)
+    }
+    class BailianFiletrans {
+        +Future~String~ uploadLocalFile(String path)
+        +Future~String~ uploadLocalFileStream(String path, void Function(int,int)? onProgress, CancelToken? token)
+    }
+    class Meeting {
+        +ImportStatus importStatus
+        +String? importError
+        +String? importTaskId
+        +String? importMetaJson
+    }
+    ImportService --> MediaImportChannel : step2 分离
+    ImportService --> BailianFiletrans : step1/2 上传
+    ImportService --> FinalizePoller : step3 转写
+    ImportService --> MinutesService : step4 纪要
+    ImportService ..> ImportProgressEvent : emits
+    ImportService --> Meeting : 持久化 import_*

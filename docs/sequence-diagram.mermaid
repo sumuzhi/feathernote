@@ -1,0 +1,39 @@
+
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant IP as ImportPage/ProcessingPage
+    participant API as BackendApi
+    participant IS as ImportService
+    participant MC as MediaImportChannel
+    participant FT as BailianFiletrans
+    participant FP as FinalizePoller
+    participant MS as MinutesService
+    participant DB as MeetingRepository
+
+    U->>IP: 选择 mp4（屏14）
+    IP->>IP: 客户端预检（扩展名/2GB）
+    IP->>API: startImport(ImportRequest)
+    API->>DB: 建 meeting(status=stopped, source=imported, import_status=import_pending)
+    API->>IS: run(meetingId, srcPath, kind=video)
+    IS->>DB: 复制原文件到沙箱 tmp
+    IS->>FT: uploadLocalFileStream(src)（step1，进度→importEvents）
+    FT-->>IS: oss://
+    IS->>DB: import_status=extracting
+    IS->>MC: extractAudioTrack(src, tmp/<id>.m4a)（step2）
+    MC-->>IS: {path, durationMs}
+    IS->>FT: uploadLocalFileStream(m4a) → oss://
+    IS->>DB: import_status=transcribing, audioKey=m4a 归档, import_task_id 落库
+    IS->>FP: startWithOssUrl(meetingId, ossUrl)（step3，复用既有链路）
+    loop 每 3s
+        FP->>FT: GET /api/v1/tasks/{taskId}
+    end
+    FP->>DB: 终稿落盘（finalize_status=done, transcript_source=filetrans）
+    FP-->>IS: onComplete
+    IS->>DB: import_status=minutes
+    IS->>MS: generateStream(meetingId)（step4）
+    MS->>DB: minutes_md 落盘（status=minutes_ready）
+    IS->>DB: import_status=done
+    IS-->>IP: ImportProgressEvent(done)
+    U->>IP: 「查看纪要」→ /meeting/:id
+
