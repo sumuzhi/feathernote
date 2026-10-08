@@ -197,6 +197,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       selectedTab: 0,
       busy: busy,
       busyHint: busyHint,
+      // 导入入口：录音中 / 收尾中 / 启动中隐藏（设计 §8.2「不允许再开一段」同守卫）。
+      onImportTap: busy ? null : () => unawaited(context.push('/import')),
     );
   }
 

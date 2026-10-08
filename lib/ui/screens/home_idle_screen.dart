@@ -38,6 +38,7 @@ class HomeIdleScreen extends StatelessWidget {
     this.onAvatarTap,
     this.busy = false,
     this.busyHint,
+    this.onImportTap,
   });
 
   /// 问候语（「早上好，苏木」；空则不渲染）。
@@ -93,6 +94,9 @@ class HomeIdleScreen extends StatelessWidget {
 
   /// 忙态原因（显示在 Hero 副文案下方）。
   final String? busyHint;
+
+  /// 点击「导入音视频」入口（null = 不渲染入口；录音中 / 生成中隐藏，设计 §8.2）。
+  final VoidCallback? onImportTap;
 
 /// 屏 01 的演示态（供「屏幕目录」直接使用 HTML 文案与数据）。
   factory HomeIdleScreen.demo({
@@ -168,6 +172,12 @@ class HomeIdleScreen extends StatelessWidget {
             busy: busy,
             busyHint: busyHint,
           ),
+          if (onImportTap != null) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
+              child: _ImportEntryCard(onTap: onImportTap!),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.page, 26, AppSpacing.page, 0),
             child: SectionHeader(
@@ -229,6 +239,62 @@ class _RecentCard extends StatelessWidget {
                     ? AppBadgeTone.done
                     : AppBadgeTone.summarized,
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「导入音视频」入口卡（HTML 设计稿屏 01 下方入口；设计 §8.2）。
+class _ImportEntryCard extends StatelessWidget {
+  const _ImportEntryCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '导入音视频',
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SurfaceCard(
+          radius: AppRadius.card2,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF1E6),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.movie_creation_rounded,
+                  size: 20,
+                  color: AppColors.orange,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('导入音视频', style: AppTextStyles.settingTitle),
+                    const SizedBox(height: 2),
+                    Text(
+                      '上传视频 / 音频，自动生成纪要',
+                      style: AppTextStyles.metaSmall.copyWith(color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.muted),
             ],
           ),
         ),

@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/history_screen.dart';
@@ -196,14 +197,27 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
   }
 
   HistoryItemView _toView(MeetingSummary item, DateTime now, {bool cut = false}) {
+    // 导入会议：badge「导入」/「导入失败」+ 处理中角标（设计 §8.1）。
+    final bool imported = item.source == MeetingSource.imported;
+    final bool importProcessing = imported &&
+        (item.importStatus == ImportStatus.importPending ||
+            item.importStatus == ImportStatus.extracting ||
+            item.importStatus == ImportStatus.transcribing ||
+            item.importStatus == ImportStatus.minutes);
+    final bool importFailed = imported && item.importStatus == ImportStatus.failed;
     return HistoryItemView(
       title: item.title,
       description: item.minutesExcerpt.isEmpty
-          ? '暂无纪要，停止录音后自动生成'
+          ? (importFailed
+              ? '导入失败，可进入详情页重试'
+              : (imported ? '来自视频 / 音频导入' : '暂无纪要，停止录音后自动生成'))
           : item.minutesExcerpt,
       meta:
           '${formatDurationCn(item.durationMs)} · ${formatDayTime(item.createdAt, now: now)} · ${formatPeople(item.speakerCount)}',
-      badge: item.hasMinutes ? HistoryBadge.summarized : HistoryBadge.done,
+      badge: importFailed
+          ? HistoryBadge.importFailed
+          : (imported ? HistoryBadge.imported : (item.hasMinutes ? HistoryBadge.summarized : HistoryBadge.done)),
+      processing: importProcessing,
       cut: cut,
       dimBadge: cut,
       onTap: () => context.push('/meeting/${item.id}'),

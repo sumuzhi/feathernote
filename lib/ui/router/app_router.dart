@@ -17,6 +17,7 @@ import '../../domain/meeting.dart';
 import '../providers/recorder_controller.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
+import '../pages/import_page.dart';
 import '../pages/meeting_page.dart';
 import '../pages/profile_page.dart';
 import '../pages/transcript_page.dart';
@@ -78,6 +79,25 @@ final GoRouter appRouter = GoRouter(
       pageBuilder: (BuildContext context, GoRouterState state) => _transitionPage(
         state,
         TranscriptPage(
+          meetingId: state.pathParameters['id'] ?? '',
+          initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/import',
+      name: 'import',
+      // 屏 14：选择文件 + 最近导入（压栈页，设计 §8.1）。
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _pushPage(state, const ImportPage()),
+    ),
+    GoRoute(
+      path: '/import/:id',
+      name: 'importProcessing',
+      // 屏 15：四步处理中（`extra` 可带首帧 [Meeting]，与转写页同约定）。
+      pageBuilder: (BuildContext context, GoRouterState state) => _pushPage(
+        state,
+        ImportProcessingPage(
           meetingId: state.pathParameters['id'] ?? '',
           initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
         ),

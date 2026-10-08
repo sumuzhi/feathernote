@@ -14,6 +14,12 @@ enum HistoryBadge {
   /// 已完成。
   done,
 
+  /// 导入（来源 = 视频 / 音频导入）。
+  imported,
+
+  /// 导入失败。
+  importFailed,
+
   /// 无徽标。
   none,
 }
@@ -28,6 +34,7 @@ class HistoryItemView {
     this.badge = HistoryBadge.summarized,
     this.cut = false,
     this.dimBadge = false,
+    this.processing = false,
     this.onTap,
     this.onMore,
     this.dismissKey,
@@ -52,6 +59,9 @@ class HistoryItemView {
 
   /// 徽标是否半透明（s09 截断卡用 opacity .7）。
   final bool dimBadge;
+
+  /// 是否「导入处理中」角标（imported 会议在 pending/extracting/transcribing/minutes）。
+  final bool processing;
 
   /// 点击卡片。
   final VoidCallback? onTap;
@@ -88,6 +98,10 @@ class HistoryCard extends StatelessWidget {
         badge = const AppBadge(text: '已总结', tone: AppBadgeTone.summarized);
       case HistoryBadge.done:
         badge = const AppBadge(text: '已完成', tone: AppBadgeTone.done);
+      case HistoryBadge.imported:
+        badge = const AppBadge(text: '导入', tone: AppBadgeTone.neutral);
+      case HistoryBadge.importFailed:
+        badge = const AppBadge(text: '导入失败', tone: AppBadgeTone.neutral);
       case HistoryBadge.none:
         badge = const SizedBox.shrink();
     }
@@ -169,6 +183,10 @@ class HistoryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (item.processing) ...<Widget>[
+                const AppBadge(text: '处理中', tone: AppBadgeTone.neutral),
+                const SizedBox(width: 6),
+              ],
               Opacity(opacity: item.dimBadge ? 0.7 : 1, child: badge),
             ],
           ),
