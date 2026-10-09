@@ -175,7 +175,34 @@ class ImportService {
   Future<Meeting> startImport(ImportRequest req) async {
     final MediaProbeResult probe = await mediaImport.probeMedia(req.srcPath);
     if (!probe.hasAudio) {
-      throw const AppError(ErrorCode.engineError, '该视频没有可用的音频轨道', engineCode: 'E_NO_AUDIO_TRACK');
+      // 诊断字段必须进日志（用户回传日志定位；探测不到 vs 真无音轨要能区分）。
+      logWarn(
+        'import',
+        '探测判定无音轨',
+        <String, Object?>{
+          'srcPath': req.srcPath,
+          'srcName': req.srcName,
+          'sizeBytes': req.sizeBytes,
+          'trackCount': probe.trackCount,
+          'trackMimes': probe.trackMimes,
+          'durationMs': probe.durationMs,
+          'isVideoContainer': probe.isVideoContainer,
+        },
+      );
+      // trackCount == 0：容器解不出任何轨（多为非标准 mp4）→ 与「有轨但无音轨」区分。
+      if (probe.trackCount == 0) {
+        throw const AppError(
+          ErrorCode.engineError,
+          '无法解析该视频，请转成标准 mp4 后重试',
+          engineCode: 'E_UNSUPPORTED_CONTAINER',
+        );
+      }
+      throw AppError(
+        ErrorCode.engineError,
+        '该文件不包含音轨，无法转写。请确认原文件是否有声音，'
+            '或换一个带声音的视频/音频文件。',
+        engineCode: 'E_NO_AUDIO_TRACK',
+      );
     }
     if (probe.durationMs > cfg.importMaxDurationHours * 3600000) {
       throw AppError(

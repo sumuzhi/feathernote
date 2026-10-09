@@ -58,7 +58,12 @@ class PollResult {
 /// 等待终态结果。
 class WaitResult {
   /// 构造等待结果。
-  const WaitResult({required this.status, this.transcriptionUrl, required this.elapsedMs});
+  const WaitResult({
+    required this.status,
+    this.transcriptionUrl,
+    required this.elapsedMs,
+    this.message,
+  });
 
   /// 终态（`SUCCEEDED` / `FAILED` / `TIMEOUT`）。
   final String status;
@@ -68,6 +73,9 @@ class WaitResult {
 
   /// 耗时（毫秒）。
   final int elapsedMs;
+
+  /// 服务端消息（失败时给出原因，如 `ASR_RESPONSE_HAVE_NO_WORDS`）。
+  final String? message;
 }
 
 /// filetrans 客户端（依赖可注入，单测不触网）。

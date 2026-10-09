@@ -23,6 +23,8 @@ class MediaProbeResult {
     required this.hasAudio,
     required this.isVideoContainer,
     required this.mimeType,
+    this.trackCount = 0,
+    this.trackMimes = const <String>[],
   });
 
   /// 媒体时长（毫秒；取全部音视频轨的最大值）。
@@ -36,6 +38,12 @@ class MediaProbeResult {
 
   /// 尽力猜测的 MIME 类型（猜不出为空串）。
   final String mimeType;
+
+  /// 探测到的轨道数（诊断用；`0` 表示容器解不出任何轨）。
+  final int trackCount;
+
+  /// 轨道 MIME 列表（诊断用，格式 `"0:video/avc"`；老端可能缺省为空）。
+  final List<String> trackMimes;
 }
 
 /// `extractAudioTrack` 结果。
@@ -78,6 +86,8 @@ class MediaImportChannel {
         hasAudio: map['hasAudio'] == true,
         isVideoContainer: map['isVideoContainer'] == true,
         mimeType: (map['mimeType'] as String?) ?? '',
+        trackCount: (map['trackCount'] as num?)?.toInt() ?? 0,
+        trackMimes: _asStringList(map['trackMimes']),
       );
     } on PlatformException catch (e) {
       throw _mapError(e, 'probeMedia');
@@ -153,5 +163,11 @@ class MediaImportChannel {
       );
     }
     return raw;
+  }
+
+  /// 兼容解析字符串列表（老端缺省 / 非列表一律退化为空）。
+  List<String> _asStringList(Object? raw) {
+    if (raw is! List) return const <String>[];
+    return raw.whereType<String>().toList(growable: false);
   }
 }

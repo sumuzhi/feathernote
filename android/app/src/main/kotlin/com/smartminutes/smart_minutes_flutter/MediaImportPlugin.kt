@@ -3,9 +3,12 @@ package com.smartminutes.smart_minutes_flutter
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -31,6 +34,9 @@ import java.util.concurrent.Executors
  */
 object MediaImportPlugin {
     private const val CHANNEL = "feathernote/media_import"
+
+    /** logcat 诊断 tag（探测音轨判定链路的可观测入口）。 */
+    private const val TAG = "MediaImport"
 
     /** token（=meetingId）→ 取消标志。 */
     private val cancelFlags: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -60,39 +66,76 @@ object MediaImportPlugin {
         val path: String = call.argument<String>("path")
             ?: return respondError(result, "E_SRC_UNREADABLE", "参数缺少 path")
         executor.execute {
+            // 前置校验：文件必须存在且有内容（file_picker cache 副本可能为空/半成品）。
+            val file = File(path)
+            if (!file.exists() || file.length() <= 0L) {
+                respondError(
+                    result, "E_SRC_UNREADABLE",
+                    "文件读取失败，可能已被移动或删除",
+                )
+                return@execute
+            }
+
             val extractor = MediaExtractor()
             try {
-                extractor.setDataSource(path)
-                var durationMs = 0L
-                var hasAudio = false
-                var isVideoContainer = false
-                var mimeType = ""
-                for (i in 0 until extractor.trackCount) {
-                    val format: MediaFormat = extractor.getTrackFormat(i)
-                    val trackMime: String = format.getString(MediaFormat.KEY_MIME) ?: continue
-                    val trackDurationUs =
-                        if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                            format.getLong(MediaFormat.KEY_DURATION)
-                        } else {
-                            0L
-                        }
-                    val trackDurationMs = trackDurationUs / 1000
-                    if (trackDurationMs > durationMs) durationMs = trackDurationMs
-                    if (trackMime.startsWith("audio/")) {
-                        hasAudio = true
-                        if (mimeType.isEmpty()) mimeType = trackMime
-                    } else if (trackMime.startsWith("video/")) {
-                        isVideoContainer = true
-                        if (mimeType.isEmpty()) mimeType = trackMime
+                val probe = scanTracks(extractor, path)
+
+                var trackCount = probe.trackCount
+                var trackMimes = probe.trackMimes
+                var hasAudio = probe.hasAudio
+                var isVideoContainer = probe.isVideoContainer
+                var mimeType = probe.mimeType
+                var durationMs = probe.durationMs
+                var source = "extractor"
+
+                // 兜底①：String 重载解不出任何轨（SAF/cache 路径下 Java File API 有时不全）
+                // → 改用 FileDescriptor 重载再探一次。
+                if (trackCount == 0) {
+                    val retry = scanTracksViaFd(path)
+                    if (retry != null && retry.trackCount > 0) {
+                        trackCount = retry.trackCount
+                        trackMimes = retry.trackMimes
+                        hasAudio = retry.hasAudio
+                        isVideoContainer = retry.isVideoContainer
+                        if (mimeType.isEmpty()) mimeType = retry.mimeType
+                        if (retry.durationMs > durationMs) durationMs = retry.durationMs
+                        source = "extractor-fd"
                     }
                 }
+
+                // 兜底②：有轨但未识别到 audio/ → 用 MediaMetadataRetriever 复核。
+                var retrieverOverride = false
+                if (trackCount > 0 && !hasAudio) {
+                    val claimed = retrieverHasAudio(path)
+                    if (claimed == true) {
+                        hasAudio = true
+                        retrieverOverride = true
+                        source = "retriever-override"
+                    }
+                }
+
+                val diagnostics = buildString {
+                    append("path=").append(path)
+                    append(" exists=").append(file.exists())
+                    append(" size=").append(file.length())
+                    append(" trackCount=").append(trackCount)
+                    append(" mimes=").append(trackMimes)
+                    append(" durationMs=").append(durationMs)
+                    append(" source=").append(source)
+                    if (retrieverOverride) append(" retrieverOverride=true")
+                }
+                Log.d(TAG, diagnostics)
+
                 respond(result, mapOf(
                     "durationMs" to durationMs,
                     "hasAudio" to hasAudio,
                     "isVideoContainer" to isVideoContainer,
                     "mimeType" to mimeType,
+                    "trackCount" to trackCount,
+                    "trackMimes" to trackMimes,
                 ))
             } catch (e: Exception) {
+                Log.d(TAG, "probeMedia failed path=$path err=${e.message}")
                 respondError(
                     result, "E_SRC_UNREADABLE",
                     "文件读取失败，可能已被移动或删除（${e.message ?: "未知原因"}）",
@@ -102,6 +145,104 @@ object MediaImportPlugin {
                     extractor.release()
                 } catch (_: Exception) {
                 }
+            }
+        }
+    }
+
+    /** 单次 track 扫描结果。 */
+    private data class TrackScan(
+        val trackCount: Int,
+        val trackMimes: List<String>,
+        val hasAudio: Boolean,
+        val isVideoContainer: Boolean,
+        val durationMs: Long,
+        val mimeType: String,
+    )
+
+    /** 用 MediaExtractor(String) 扫描轨道。 */
+    private fun scanTracks(extractor: MediaExtractor, path: String): TrackScan {
+        extractor.setDataSource(path)
+        return collectTracks(extractor)
+    }
+
+    /** 用 MediaExtractor(FileDescriptor) 扫描轨道（失败返回 null）。 */
+    private fun scanTracksViaFd(path: String): TrackScan? {
+        var pfd: ParcelFileDescriptor? = null
+        val extractor = MediaExtractor()
+        return try {
+            pfd = ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY)
+            extractor.setDataSource(pfd.fileDescriptor)
+            collectTracks(extractor)
+        } catch (e: Exception) {
+            Log.d(TAG, "scanTracksViaFd failed path=$path err=${e.message}")
+            null
+        } finally {
+            try {
+                extractor.release()
+            } catch (_: Exception) {
+            }
+            try {
+                pfd?.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** 遍历已 setDataSource 的 extractor 收集轨道信息。 */
+    private fun collectTracks(extractor: MediaExtractor): TrackScan {
+        var durationMs = 0L
+        var hasAudio = false
+        var isVideoContainer = false
+        var mimeType = ""
+        val mimes = mutableListOf<String>()
+        for (i in 0 until extractor.trackCount) {
+            val format: MediaFormat = extractor.getTrackFormat(i)
+            val trackMime: String = format.getString(MediaFormat.KEY_MIME) ?: ""
+            mimes.add("$i:$trackMime")
+            val trackDurationUs =
+                if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                    format.getLong(MediaFormat.KEY_DURATION)
+                } else {
+                    0L
+                }
+            val trackDurationMs = trackDurationUs / 1000
+            if (trackDurationMs > durationMs) durationMs = trackDurationMs
+            if (trackMime.startsWith("audio/")) {
+                hasAudio = true
+                if (mimeType.isEmpty()) mimeType = trackMime
+            } else if (trackMime.startsWith("video/")) {
+                isVideoContainer = true
+                if (mimeType.isEmpty()) mimeType = trackMime
+            }
+        }
+        return TrackScan(
+            trackCount = extractor.trackCount,
+            trackMimes = mimes,
+            hasAudio = hasAudio,
+            isVideoContainer = isVideoContainer,
+            durationMs = durationMs,
+            mimeType = mimeType,
+        )
+    }
+
+    /** MediaMetadataRetriever 复核是否有音轨（true/false；解不出返回 null）。 */
+    private fun retrieverHasAudio(path: String): Boolean? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(path)
+            val flag = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            when (flag?.lowercase()) {
+                "yes" -> true
+                "no" -> false
+                else -> null
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "retrieverHasAudio failed path=$path err=${e.message}")
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
             }
         }
     }
