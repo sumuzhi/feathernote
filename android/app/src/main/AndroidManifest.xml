@@ -6,9 +6,13 @@
     <!-- 麦克风采集（record 插件也会合并声明，这里显式写出便于审计）。 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 录音期间的前台服务：Android 14+ 起 microphone 类型必须显式声明，
-         否则系统会在切后台 / 锁屏时提前掐断麦克风流（表现为「只录一小会儿」）。 -->
+         否则系统会在切后台 / 锁屏时提前掐断麦克风流（表现为「只录一小会儿」）。
+         dataSync：终稿转写（上传+轮询）与纪要生成等网络型后台工作托底。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 电池优化白名单请求（切后台不被国产 ROM 强杀的最有效非侵入手段）。 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Android 13+ 前台服务通知需要该权限（否则通知不显示、服务可能起不来）。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 导出写公共 Download（media_store_plus）：API ≤29 需要写权限，30+ 走 MediaStore 零权限。 -->
@@ -42,11 +46,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- 录音前台服务：flutter_foreground_task 要求由 App 侧声明（勿改 service name）。 -->
+        <!-- 保活前台服务：flutter_foreground_task 要求由 App 侧声明（勿改 service name）。
+             stopWithTask=false：从最近任务划掉 App 时服务继续存活（录音/转写/生成
+             不中断，点通知可回到应用）；true 会在划掉瞬间连带杀服务。 -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="microphone"
-            android:stopWithTask="true"
+            android:foregroundServiceType="microphone|dataSync"
+            android:stopWithTask="false"
             android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

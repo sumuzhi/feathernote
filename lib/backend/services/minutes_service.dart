@@ -15,6 +15,7 @@ import 'dart:async';
 import '../../core/config/app_config.dart';
 import '../../core/error/app_error.dart';
 import '../../core/log/log.dart';
+import '../../core/platform/recording_foreground_service.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
 import '../engine/engine.dart';
@@ -138,6 +139,8 @@ class MinutesService {
     // 前置守卫（会议不存在 / 空逐字稿 / Prompt 构建失败）不触发落盘——
     // 与旧实现一致：只有引擎流真正启动后，结局才参与落盘。
     bool engineStarted = false;
+    // 保活持有标记：acquire 成功后 finally 里必须配对 release（非 Android 是 no-op）。
+    bool keepAliveHeld = false;
     final Stopwatch watch = Stopwatch()..start();
     int firstTokenMs = -1;
     try {
@@ -189,6 +192,13 @@ class MinutesService {
       );
 
       engineStarted = true;
+      // 保活：生成为 LLM 流式网络任务（分钟级），无前台服务时切后台/锁屏
+      // 进程可被系统随时回收 → 生成中断。持有至落盘完成后释放。
+      await RecordingForegroundService.instance.acquire(
+        'minutes/$meetingId',
+        notificationText: '正在生成纪要，请勿强制关闭',
+      );
+      keepAliveHeld = true;
       await for (final String delta in engine.chatStream(
         messages,
         options: LlmOptions(
@@ -250,6 +260,10 @@ class MinutesService {
         if (failure != null) {
           task.controller.addError(failure);
         }
+      }
+      if (keepAliveHeld) {
+        await RecordingForegroundService.instance.release('minutes/$meetingId');
+        keepAliveHeld = false;
       }
       if (!task.controller.isClosed) {
         unawaited(task.controller.close());

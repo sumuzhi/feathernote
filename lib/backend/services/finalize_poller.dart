@@ -19,6 +19,7 @@ import 'dart:async';
 import '../../core/config/app_config.dart';
 import '../../core/error/app_error.dart';
 import '../../core/log/log.dart';
+import '../../core/platform/recording_foreground_service.dart';
 import '../../core/ws_protocol.dart';
 import '../../domain/enums.dart';
 import '../../domain/meeting.dart';
@@ -182,6 +183,18 @@ class FinalizePoller {
 
   /// 后台执行段：上传 → 提交 → 轮询 → 落盘 / 广播。不参与 [start] 的返回契约。
   Future<void> _run(String meetingId, String wavPath, bool diarization) async {
+    final String keepAliveHolder = 'finalize/$meetingId';
+    // 保活：终稿链路（上传 + filetrans 轮询）可达数分钟，切后台无前台服务
+    // 时进程可被系统随时回收 → 终稿中断只能靠重启恢复。
+    // 不 await：`_run` 必须在首个微任务内走到 submit（start 契约测试固化了
+    // 「start 返回即已开跑」的可见性）；acquire 对持有者集合的登记是同步的，
+    // 引用计数依然配对安全（finally release）。
+    unawaited(
+      RecordingForegroundService.instance.acquire(
+        keepAliveHolder,
+        notificationText: '正在转写录音（终稿处理）…',
+      ),
+    );
     try {
       if (_abandoned.contains(meetingId)) return;
       final String taskId = await _withRetry<String>(
@@ -205,6 +218,8 @@ class FinalizePoller {
       }
       final String? knownTaskId = _tasks[meetingId]?.taskId;
       await _handleRunFailure(meetingId, knownTaskId ?? '', error);
+    } finally {
+      await RecordingForegroundService.instance.release(keepAliveHolder);
     }
   }
 
@@ -223,10 +238,15 @@ class FinalizePoller {
 
     unawaited(
       Future<void>(() async {
+        final String keepAliveHolder = 'finalize/$meetingId';
         try {
           _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'pending');
           onProgress?.call(meetingId, 'pending', taskId);
           if (!accepted.isCompleted) accepted.complete('');
+          await RecordingForegroundService.instance.acquire(
+            keepAliveHolder,
+            notificationText: '正在转写录音（终稿处理）…',
+          );
           await _pollAndPersist(meetingId, taskId);
         } catch (error) {
           if (!accepted.isCompleted) accepted.complete('');
@@ -236,6 +256,7 @@ class FinalizePoller {
           }
           await _handleRunFailure(meetingId, taskId, error);
         } finally {
+          await RecordingForegroundService.instance.release(keepAliveHolder);
           if (_inflight[meetingId] == submitted) {
             unawaited(_inflight.remove(meetingId));
           }
