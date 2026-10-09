@@ -45,7 +45,6 @@ class MinutesView {
     required this.abstractText,
     required this.sections,
     required this.transcriptChars,
-    this.longTag = false,
     this.expandNote,
     this.onExpandAbstract,
     this.onOpenTranscript,
@@ -53,7 +52,7 @@ class MinutesView {
     this.onRetry,
   });
 
-  /// 卡片标题（「✦ AI 结构化纪要」）。
+  /// 卡片标题（「✦ AI 纪要」）。
   final String title;
 
   /// 模型标签（qwen3.7-plus）。
@@ -69,9 +68,6 @@ class MinutesView {
   ///
   /// 展示位置在顶部信息卡（[MeetingInfoCard]），本卡不渲染。
   final String transcriptChars;
-
-  /// 是否展示「内容较长」标签（屏 11）。
-  final bool longTag;
 
   /// 「展开全文 · 摘要约 N 字」文案（屏 11）。
   final String? expandNote;
@@ -121,10 +117,10 @@ class MinutesCard extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 9,
             runSpacing: 6,
+            // 用户要求：仅保留 LLM（模型）标签，移除「内容较长」标签。
             children: <Widget>[
               Text(view.title, style: AppTextStyles.cardHead),
               AppTag(text: view.modelTag),
-              if (view.longTag) const AppTag(text: '内容较长', wash: true),
             ],
           ),
           const SizedBox(height: 13),

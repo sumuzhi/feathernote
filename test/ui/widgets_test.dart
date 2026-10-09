@@ -295,7 +295,7 @@ void main() {
         _host(
           MinutesCard(
             view: MinutesView(
-              title: '✦ AI 结构化纪要',
+              title: '✦ AI 纪要',
               modelTag: 'qwen3.7-plus',
               abstractText: '本次会议围绕 Q3 产品规划展开，核心共识是激活率目标上调至 35%。',
               sections: const <MinutesSectionView>[
@@ -310,23 +310,22 @@ void main() {
           ),
         ),
       );
-      expect(find.text('✦ AI 结构化纪要'), findsOneWidget);
+      expect(find.text('✦ AI 纪要'), findsOneWidget);
       expect(find.text('qwen3.7-plus'), findsOneWidget);
       expect(find.text('重要决策'), findsOneWidget);
       // 入口已上移至顶部信息卡：卡片底部不再渲染。
       expect(find.text('查看完整转写'), findsNothing);
     });
 
-    testWidgets('超长纪要：内容较长标签 + 展开全文 + 查看全部 N 条', (WidgetTester tester) async {
+    testWidgets('超长纪要：展开全文 + 查看全部 N 条（内容较长标签已移除）', (WidgetTester tester) async {
       bool expanded = false;
       int? moreIndex;
       await tester.pumpWidget(
         _host(
           MinutesCard(
             view: MinutesView(
-              title: '✦ AI 结构化纪要',
+              title: '✦ AI 纪要',
               modelTag: 'qwen3.7-plus',
-              longTag: true,
               abstractText: '本次会议围绕 Q3 产品规划展开…',
               expandNote: '展开全文 · 摘要约 1,240 字',
               sections: const <MinutesSectionView>[
@@ -343,7 +342,8 @@ void main() {
           ),
         ),
       );
-      expect(find.text('内容较长'), findsOneWidget);
+      // 用户要求：移除「内容较长」标签（仅保留 LLM 标签）。
+      expect(find.text('内容较长'), findsNothing);
       expect(find.text('重要决策 · 共 8 条'), findsOneWidget);
       expect(find.text('查看全部 8 条决策'), findsOneWidget);
       await tester.tap(find.text('展开全文 · 摘要约 1,240 字'));
@@ -628,7 +628,7 @@ void main() {
       expect(groups.last.items.last.cut, isTrue);
 
       expect(demoShortMinutesView().modelTag, 'qwen3.7-plus');
-      expect(demoLongMinutesView().longTag, isTrue);
+      // 「内容较长」标签已移除（用户要求），demo 数据不再携带 longTag。
       expect(demoLongMinutesView().expandNote, '展开全文 · 摘要约 1,240 字');
       expect(demoLongMinutesView(expanded: true).expandNote, '收起');
     });

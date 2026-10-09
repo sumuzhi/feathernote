@@ -310,9 +310,8 @@ MinutesView demoLongMinutesView({
       '后段就渠道合作分成比例展开讨论，法务复核尚未给出结论，将直接影响 8 月底能否落地。'
       '会议最后明确了三项责任人：数据团队本周内给出新口径看板，商务团队推进协议签署，运营团队同步素材排期。';
   return MinutesView(
-    title: '✦ AI 结构化纪要',
+    title: '✦ AI 纪要',
     modelTag: 'qwen3.7-plus',
-    longTag: true,
     abstractText: expanded ? full : truncated,
     expandNote: expanded ? '收起' : '展开全文 · 摘要约 1,240 字',
     sections: <MinutesSectionView>[

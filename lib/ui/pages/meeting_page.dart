@@ -420,7 +420,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     final int chars = outline.summaryChars > 0
         ? outline.summaryChars
         : countChars(outline.raw);
-    final bool long = countChars(outline.raw) > 600;
+    // 用户要求：移除「内容较长」标签，仅保留 LLM（模型）标签。
 
     final List<MinutesSectionView> sections = <MinutesSectionView>[
       for (int i = 0; i < outline.sections.length; i++)
@@ -433,9 +433,10 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
 
     return Outline(
       view: MinutesView(
-        title: '✦ AI 结构化纪要',
+        // 用户要求：「AI 结构化纪要」改为「AI 纪要」，且移除「内容较长」标签
+        // （仅保留 LLM/模型标签）。
+        title: '✦ AI 纪要',
         modelTag: meeting.minutesPartial ? '生成中断' : 'qwen3.7-plus',
-        longTag: long,
         abstractText: outline.summary.isEmpty
             ? (outline.tailBody.isEmpty ? '纪要生成中…' : outline.tailBody)
             : outline.summary,
@@ -471,7 +472,7 @@ class Outline {
   /// 空态。
   factory Outline.empty({String? error, VoidCallback? onRetry}) => Outline(
     view: MinutesView(
-      title: '✦ AI 结构化纪要',
+      title: '✦ AI 纪要',
       modelTag: '待生成',
       abstractText: error == null ? '纪要尚未生成。' : '纪要生成失败：$error',
       sections: const <MinutesSectionView>[],
@@ -484,7 +485,7 @@ class Outline {
   /// 生成中。
   factory Outline.generating() => const Outline(
     view: MinutesView(
-      title: '✦ AI 结构化纪要',
+      title: '✦ AI 纪要',
       modelTag: 'qwen3.7-plus',
       abstractText: '正在根据逐字稿生成结构化纪要，请稍候…',
       sections: <MinutesSectionView>[],

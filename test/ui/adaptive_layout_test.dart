@@ -151,7 +151,7 @@ void main() {
             SingleChildScrollView(
               child: MinutesCard(
                 view: MinutesView(
-                  title: '✦ AI 结构化纪要',
+                  title: '✦ AI 纪要',
                   modelTag: 'qwen3.7-plus',
                   abstractText: '本次提供的录音文件时长极短（7秒），' * 3,
                   sections: const <MinutesSectionView>[
