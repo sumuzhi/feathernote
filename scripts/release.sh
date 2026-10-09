@@ -54,12 +54,18 @@ echo "✅ 目标版本 ${VERSION}+${VERSION_CODE}（当前 versionCode=${CURRENT
 
 # ── 1. bump 版本并提交 ─────────────────────────────────────────────────────────
 step "1/6 bump 版本并提交"
-awk -v ver="${VERSION}+${VERSION_CODE}" \
-  '{ if ($0 ~ /^version: /) print "version: " ver; else print }' \
-  pubspec.yaml > pubspec.yaml.tmp && mv pubspec.yaml.tmp pubspec.yaml
-grep '^version:' pubspec.yaml
-git add pubspec.yaml
-git commit -m "chore(release): bump ${VERSION}+${VERSION_CODE}"
+if [[ "$CURRENT_CODE" -eq "$VERSION_CODE" ]]; then
+  # 幂等：上次发布中断在 bump 之后时，直接续跑（不重复提交）。
+  echo "✅ 已处于目标版本 ${VERSION}+${VERSION_CODE}，跳过 bump（沿用中断的发布）"
+else
+  awk -v ver="${VERSION}+${VERSION_CODE}" \
+    '{ if ($0 ~ /^version: /) print "version: " ver; else print }' \
+    pubspec.yaml > pubspec.yaml.tmp && mv pubspec.yaml.tmp pubspec.yaml
+  grep '^version:' pubspec.yaml
+  git add pubspec.yaml
+  git commit -m "chore(release): bump ${VERSION}+${VERSION_CODE}"
+  echo "✅ 已提交 bump"
+fi
 HASH=$(git rev-parse --short HEAD)
 echo "✅ 提交 ${HASH}"
 
