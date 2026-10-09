@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../backend/backend_api.dart' show HealthStatus;
 import '../../core/update/app_update.dart';
@@ -34,10 +35,28 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   ExportDestination _destination = ExportDestination.appDownload;
   bool _checkingUpdate = false;
 
+  /// 真实版本号（来自 `package_info_plus`，随 pubspec bump 自动更新）。
+  ///
+  /// 历史缺陷：此前展示走 `AppConfig.version`（`--dart-define` 非 const 读法
+  /// 在 AOT 下不折叠）→ 永远显示写死的「1.0.0」，不随发布变化。
+  /// null = 平台通道不可用（测试环境），回落到配置值。
+  String? _pkgVersion;
+
   @override
   void initState() {
     super.initState();
     _loadDestination();
+    _loadPackageVersion();
+  }
+
+  Future<void> _loadPackageVersion() async {
+    try {
+      final PackageInfo info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _pkgVersion = info.version);
+    } catch (_) {
+      // 测试环境 / 平台通道不可用：保持 null，展示回落到配置值。
+    }
   }
 
   Future<void> _loadDestination() async {
@@ -233,7 +252,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       filetransModel: config.filetransModel,
       summaryStrategy: config.summaryStrategy,
       languageLabel: language,
-      version: config.version,
+      version: _pkgVersion ?? config.version,
       buildStamp: config.buildStamp,
     );
   }

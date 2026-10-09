@@ -356,7 +356,7 @@ class AppConfig {
       enableLocalHttp: Secrets.enableLocalHttp,
       localHttpPort: Secrets.localHttpPort,
       useMockEngine: Secrets.useMockEngine || _readString('ENGINE_PROVIDER', 'bailian') == 'mock',
-      version: _readString('SMART_MINUTES_VERSION', '1.0.0'),
+      version: Secrets.appVersion.isNotEmpty ? Secrets.appVersion : '1.0.0',
       buildStamp: Secrets.buildStamp,
       updateManifestUrl: _readString(
         'UPDATE_MANIFEST_URL',

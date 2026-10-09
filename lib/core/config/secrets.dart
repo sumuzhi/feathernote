@@ -28,6 +28,14 @@ abstract final class Secrets {
   /// 曾导致「设置页版本行」一直为空、下载页的构建戳核对机制失效。
   static const String buildStamp = String.fromEnvironment('BUILD_STAMP');
 
+  /// 展示版本号（`--dart-define=SMART_MINUTES_VERSION=1.0.4`）。
+  ///
+  /// ⚠️ 同 [buildStamp]：必须 const。历史上曾用非 const 的 `_readString` 读取，
+  /// AOT 下不折叠 → 永远回落到默认值「1.0.0」（2026-10-09 用户实测报告）。
+  /// 注意：UI 展示已改走 `package_info_plus`（自动随 pubspec bump），本值仅作
+  /// `AppConfig.version` 的编译期兜底。
+  static const String appVersion = String.fromEnvironment('SMART_MINUTES_VERSION');
+
   /// 日志级别覆盖（`--dart-define=LOG_LEVEL=debug`）。
   static const String logLevel = String.fromEnvironment('LOG_LEVEL', defaultValue: 'info');
 
