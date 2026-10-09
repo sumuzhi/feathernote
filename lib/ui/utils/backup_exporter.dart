@@ -21,8 +21,6 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart' show FilePicker;
 import 'package:flutter/foundation.dart' show Uint8List;
-import 'package:media_store_plus/media_store_plus.dart'
-    show MediaStore, SaveInfo, DirType, DirName;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -30,7 +28,12 @@ import '../../domain/meeting.dart';
 import '../../domain/segment.dart';
 import '../../domain/speaker.dart';
 import 'export_destination.dart';
-import 'exporter.dart' show ExportCancelledException, sanitizeFileName;
+import 'exporter.dart'
+    show
+        ExportCancelledException,
+        kExportLocationAppDocs,
+        sanitizeFileName,
+        saveToPublicDownload;
 
 /// 构建 backup.json 内容（纯函数，便于单测）。
 Map<String, dynamic> buildBackupJson({
@@ -202,6 +205,8 @@ Future<String> exportBackup({
   }
 
   // 3. 落位：与纪要导出同通道（MediaStore 公共 Download / SAF / iOS 分享）。
+  //    返回值语义 = **给用户展示的短位置标签**（绝不回传应用内部绝对路径，
+  //    那既撑爆 toast 也对用户无意义——用户无法访问 /data 目录）。
   if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
     final Uint8List bytes = await File(zipPath).readAsBytes();
     final String? pickedPath = await FilePicker.platform.saveFile(
@@ -211,18 +216,13 @@ Future<String> exportBackup({
     if (pickedPath == null) {
       throw const ExportCancelledException();
     }
-    return pickedPath;
+    // 用户刚在系统弹窗里亲自选的位置，toast 只需短文件名。
+    return p.basename(pickedPath);
   }
   if (Platform.isAndroid) {
-    final SaveInfo? info = await MediaStore().saveFile(
-      tempFilePath: zipPath,
-      dirType: DirType.download,
-      dirName: DirName.download,
-    );
-    if (info == null) return zipPath;
-    return 'Download/SmartMinutes/$zipName.zip';
+    return saveToPublicDownload(tempFilePath: zipPath, fileName: '$zipName.zip');
   }
-  return zipPath;
+  return kExportLocationAppDocs;
 }
 
 String _stamp(DateTime now) =>

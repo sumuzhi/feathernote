@@ -23,6 +23,42 @@ import 'package:share_plus/share_plus.dart';
 
 import 'export_destination.dart';
 
+/// 公共下载子目录的位置标签（导出成功时给用户展示的「位置」）。
+const String kExportLocationDownload = 'Download/SmartMinutes';
+
+/// 回落位置标签：文件只写进了应用文档目录（用户无法用文件管理器直接浏览）。
+const String kExportLocationAppDocs = '应用文档目录';
+
+/// 写入公共 `Download/SmartMinutes/`（MediaStore），返回**给用户展示的位置标签**。
+///
+/// 实测（2026-10-10，OPPO PKX110 / ColorOS Android 15）：`saveFile` 可能返回
+/// null 但文件**已成功写入**公共目录（插件 native 返回的 JSON 解析失败），
+/// 因此不能拿返回值当成败依据——为 null 时用 `getFileUri` 复核，确认写入了
+/// 才报 `Download/SmartMinutes`，否则如实回落 [kExportLocationAppDocs]。
+Future<String> saveToPublicDownload({
+  required String tempFilePath,
+  required String fileName,
+}) async {
+  final SaveInfo? info = await MediaStore().saveFile(
+    tempFilePath: tempFilePath,
+    dirType: DirType.download,
+    dirName: DirName.download,
+  );
+  if (info != null) return kExportLocationDownload;
+  try {
+    final Uri? uri = await MediaStore().getFileUri(
+      fileName: fileName,
+      dirType: DirType.download,
+      dirName: DirName.download,
+      relativePath: MediaStore.appFolder,
+    );
+    if (uri != null) return kExportLocationDownload;
+  } catch (_) {
+    // 复核通道本身不可用（未初始化等）→ 如实报应用内位置。
+  }
+  return kExportLocationAppDocs;
+}
+
 /// 导出格式。
 enum ExportFormat {
   /// Markdown（.md）。
@@ -108,7 +144,8 @@ Future<String> exportRawFile({
     if (pickedPath == null) {
       throw const ExportCancelledException();
     }
-    return pickedPath;
+    // 用户刚在系统弹窗里亲自选的位置，toast 只需短文件名，不回显长路径。
+    return p.basename(pickedPath);
   }
 
   // 默认：Android → 公共 Download/SmartMinutes/；其他平台 → 应用文档目录。
@@ -118,16 +155,10 @@ Future<String> exportRawFile({
       fileName: safeName,
       extension: extension,
     );
-    final SaveInfo? info = await MediaStore().saveFile(
+    return saveToPublicDownload(
       tempFilePath: localPath,
-      dirType: DirType.download,
-      dirName: DirName.download,
+      fileName: '$safeName$extension',
     );
-    if (info == null) {
-      // 极端情况（用户在系统弹窗拒绝）：回落本地可访问路径，不静默丢文件。
-      return localPath;
-    }
-    return 'Download/SmartMinutes/$safeName$extension';
   }
 
   // iOS：无「公共下载目录」概念，按产品决策走**系统分享面板**（UIActivityViewController,
@@ -143,7 +174,8 @@ Future<String> exportRawFile({
       ShareParams(files: <XFile>[XFile(localPath)]),
     );
   }
-  return localPath;
+  // 面板关闭后文件已交由用户处理，位置标签只说明「在应用文档目录留了底」。
+  return kExportLocationAppDocs;
 }
 
 /// 用户在系统「另存为」里取消导出。

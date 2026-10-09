@@ -243,9 +243,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         audioPathResolver: (Meeting meeting) => api.getAudioPath(meeting.id),
       );
       if (!mounted) return;
+      // 位置标签是短文案（如 Download/SmartMinutes 或文件名），绝不含应用
+      // 内部绝对路径——那既撑爆 toast 也对用户无意义（无法访问 /data）。
       ref
           .read(toastProvider.notifier)
-          .show('备份已导出：$path', tone: ToastTone.success);
+          .show('备份已导出到 $path', tone: ToastTone.success);
     } on ExportCancelledException {
       return;
     } catch (error) {
