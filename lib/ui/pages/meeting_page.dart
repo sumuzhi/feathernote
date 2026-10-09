@@ -395,8 +395,12 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   }
 
   /// 把 Markdown 纪要解析为界面结构；生成中则流式预览当前缓冲。
+  ///
+  /// 生成中**只看** `_streamBuffer`，绝不回退渲染库中旧残篇——
+  /// 旧残篇正是历史卡 desc 的来源，回退渲染会造成「旧残篇 ↔ 新流内容」
+  /// 跳变（用户看到的闪烁）。残篇场景由服务层附着/重放保证缓冲即刻有值。
   Outline _outlineOf(Meeting meeting) {
-    final String raw = _generating && _streamBuffer.isNotEmpty
+    final String raw = _generating
         ? _streamBuffer
         : (meeting.minutesMd ?? '');
     if (raw.trim().isEmpty) {
