@@ -29,7 +29,6 @@ class ImportIdleScreen extends StatelessWidget {
     required this.recentItems,
     required this.onBack,
     this.onTabTap,
-    this.onHelp,
     this.selectedTab = 0,
     this.picking = false,
   });
@@ -45,9 +44,6 @@ class ImportIdleScreen extends StatelessWidget {
 
   /// 顶栏返回。
   final VoidCallback onBack;
-
-  /// 顶栏「帮助」；为 null 时按设计稿只作静态文案（HTML 未定义跳转）。
-  final VoidCallback? onHelp;
 
   /// 选中 Tab（本屏不渲染 TabBar，保留入参以兼容调用方）。
   final int selectedTab;

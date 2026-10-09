@@ -157,8 +157,6 @@ class _ImportPageState extends ConsumerState<ImportPage> {
       recentItems: recent,
       onTabTap: _onTabTap,
       onBack: _goBack,
-      // HTML 的「帮助」是静态文案，未定义跳转目标，因此不挂点击。
-      onHelp: null,
     );
   }
 
