@@ -397,13 +397,21 @@ class ImportService {
         // 音频产物已归档：直接重上传 → 转写。
         _currentStep[meetingId] = stepUpload;
         final String ossUrl = await _uploadFile(meetingId, archivedPath, '$meetingId$ext', sizeBytes);
+        _emit(meetingId, stepUpload, 'done');
         await _stepTranscribe(meetingId, ossUrl);
         return;
       }
       if (isVideo && archivedPath != null) {
-        // m4a 已归档：免分离，重上传 → 转写。
+        // m4a 已归档：免分离，重上传（silent）→ 转写。
         _currentStep[meetingId] = stepUpload;
-        final String ossUrl = await _uploadFile(meetingId, archivedPath, '$meetingId.m4a', sizeBytes);
+        _emit(meetingId, stepUpload, 'done');
+        final String ossUrl = await _uploadFile(
+          meetingId,
+          archivedPath,
+          '$meetingId.m4a',
+          sizeBytes,
+          silent: true,
+        );
         await _stepTranscribe(meetingId, ossUrl);
         await _stepMinutes(meetingId);
         return;
@@ -420,7 +428,10 @@ class ImportService {
       await _patchMeta(meetingId, meta);
 
       if (isVideo) {
-        // ── step2：分离音轨 → m4a → 归档 → 上传 m4a ──
+        // ── step1 末尾：原文件上传完成，步骤① 立即标 done，避免后续 m4a 二次上传
+        //    又把「上传文件」回退成 running（否则会出现「分离音轨已完成、上传却仍在转圈」）。
+        _emit(meetingId, stepUpload, 'done');
+        // ── step2：分离音轨 → m4a → 归档 ──
         await _stepExtract(meetingId, sandboxCopy, totalBytes);
         final Meeting? updated = await persistence.loadMeeting(meetingId);
         final String? key = updated?.audioKey;
@@ -428,10 +439,17 @@ class ImportService {
           throw const AppError(ErrorCode.engineError, '音轨归档丢失', engineCode: 'E_EXTRACT_FAILED');
         }
         final String m4aPath = await archive.pathForKey(key);
-        _currentStep[meetingId] = stepUpload;
         // 分离+归档完成即标 done：m4a 二次上传失败不应让「分离音轨」卡停在转圈。
         _emit(meetingId, stepExtract, 'done');
-        final String m4aOss = await _uploadFile(meetingId, m4aPath, '$meetingId.m4a', totalBytes);
+        // m4a 二次上传：silent —— 不向「上传文件」步骤回发进度（步骤① 已置 done），
+        // 否则加载态会反复跳动。
+        final String m4aOss = await _uploadFile(
+          meetingId,
+          m4aPath,
+          '$meetingId.m4a',
+          totalBytes,
+          silent: true,
+        );
         await _stepTranscribe(meetingId, m4aOss);
         await _stepMinutes(meetingId);
       } else {
@@ -613,12 +631,16 @@ class ImportService {
   // ────────────────────────────────────────────────────────────── 工具方法
 
   /// 流式上传（进度 → 事件流；取消令牌注册）。
+  ///
+  /// [silent]：`true` 时不向 `stepUpload` 回发进度（用于「上传文件」步骤已置 done 后
+  /// 的二次上传，如视频分离出的 m4a），避免该步骤的加载态在 done 后又回退成 running。
   Future<String> _uploadFile(
     String meetingId,
     String filePath,
     String ossName,
-    int sizeBytes,
-  ) async {
+    int sizeBytes, {
+    bool silent = false,
+  }) async {
     _checkCancelled(meetingId);
     final CancelToken token = CancelToken();
     _uploadTokens[meetingId] = token;
@@ -628,6 +650,7 @@ class ImportService {
         filename: ossName,
         cancelToken: token,
         onProgress: (int sent, int total) {
+          if (silent) return;
           final int totalBytes = total > 0 ? total : sizeBytes;
           final double percent = totalBytes > 0 ? (sent / totalBytes).clamp(0.0, 1.0).toDouble() : 0;
           _emit(

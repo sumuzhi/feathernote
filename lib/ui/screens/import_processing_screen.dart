@@ -83,9 +83,8 @@ class ImportProcessingScreen extends StatelessWidget {
     required this.subtitle,
     required this.isVideo,
     required this.steps,
-    required this.detail,
-    required this.etaMinutes,
     required this.allDone,
+    this.failureReason,
     required this.onBack,
     required this.onCancel,
     required this.onViewMinutes,
@@ -105,14 +104,11 @@ class ImportProcessingScreen extends StatelessWidget {
   /// 四步卡数据。
   final List<ImportStepView> steps;
 
-  /// 提示（软警告 / 失败原因）。
-  final String? detail;
-
-  /// 预计剩余分钟数（0 = 不显示）。
-  final int etaMinutes;
-
   /// 四步是否全部完成。
   final bool allDone;
+
+  /// 失败原因（仅在导入失败态展示；非失败为 null，不渲染，避免反复出现/隐藏抖动）。
+  final String? failureReason;
 
   /// 「后台处理」（顶栏右上 = 橙色主按钮）。
   final VoidCallback onBack;
@@ -167,12 +163,7 @@ class ImportProcessingScreen extends StatelessWidget {
           children: <Widget>[
             _FileCard(title: title, subtitle: subtitle, isVideo: isVideo),
             SizedBox(height: s(context, 16)),
-            _OverallCard(
-              percent: percent,
-              etaMinutes: etaMinutes,
-              failed: failed,
-              detail: detail,
-            ),
+            _OverallCard(percent: percent, failureReason: failureReason),
             SizedBox(height: s(context, 16)),
             _StepsCard(steps: steps),
             SizedBox(height: s(context, 16)),
@@ -379,35 +370,24 @@ class _KindChip extends StatelessWidget {
 }
 
 /// 整体进度卡（350 宽，圆角 20，padding 18/16，gap 12）。
+///
+/// 稳定渲染「整体进度 + 百分比 + 进度条」三项，**不再在下方追加随处理进度
+/// 反复出现/隐藏的 ETA tips**（旧实现里「预计还需约 X 分钟」会随 etaMinutes
+/// 在 0 ↔ >0 间闪现，导致卡片高度跳动、整页内容上下抖动，产品反馈已剔除）。
+///
+/// 仅当 [failureReason] 非空（导入失败态）时，在进度条下方追加一行失败原因——
+/// 这是一次性的静态展示（进入失败态才出现），不会在处理过程中反复闪现，因此
+/// 不会引发抖动，同时保留失败诊断信息（详见类级说明 / issue ③ 修复边界）。
 class _OverallCard extends StatelessWidget {
-  const _OverallCard({
-    required this.percent,
-    required this.etaMinutes,
-    required this.failed,
-    this.detail,
-  });
+  const _OverallCard({required this.percent, this.failureReason});
 
   final double percent;
-  final int etaMinutes;
-  final bool failed;
-  final String? detail;
+
+  /// 失败原因（仅失败态非空；处理中/完成态为 null 不渲染）。
+  final String? failureReason;
 
   @override
   Widget build(BuildContext context) {
-    final String? hint;
-    final Color hintColor;
-    if (failed && detail != null && detail!.isNotEmpty) {
-      // 失败：把失败原因放在预计位（HTML 没有失败态，按说明条同款 11 号灰字外推，
-      // 仅换成红色以示区别）。
-      hint = detail;
-      hintColor = AppColors.red;
-    } else if (etaMinutes > 0) {
-      hint = '预计还需约 $etaMinutes 分钟 · 可点右上角「后台处理」继续其他操作';
-      hintColor = AppColors.muted;
-    } else {
-      hint = null;
-      hintColor = AppColors.muted;
-    }
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
@@ -447,24 +427,19 @@ class _OverallCard extends StatelessWidget {
             radius: s(context, 4),
             percent: percent,
           ),
-          if (hint != null) ...<Widget>[
-            SizedBox(height: s(context, 12)),
-            // 设计稿里这行是单行（卡片总高 101 = 16+19+12+8+12+17.6+16）；
-            // 系统字体偏宽时用 FittedBox 轻缩，不换行，保证卡片高度不变。
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                hint,
-                style: ImportDesign.ts(
-                  context,
-                  11,
-                  FontWeight.w400,
-                  hintColor,
-                  lineHeight: ImportDesign.lh11Note,
-                ),
-                maxLines: 1,
+          if (failureReason != null) ...<Widget>[
+            SizedBox(height: s(context, 10)),
+            Text(
+              failureReason!,
+              style: ImportDesign.ts(
+                context,
+                11,
+                FontWeight.w400,
+                AppColors.red,
+                lineHeight: ImportDesign.lh11,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ],
@@ -905,18 +880,23 @@ class _SolidButton extends StatelessWidget {
   }
 }
 
-/// 整体进度：进行中步有百分比时直接取它（与 HTML 的 48% 一致），
-/// 否则按已完成步数占比。
+/// 整体进度：四步等权（每步占 1/4），累计「已完成占比」。
+///
+/// - 完成的步（`done` / `skip`）记满权重；
+/// - 进行中且有百分比的步（① 上传 / ② 分离音轨）按其当前百分比计入；
+/// - 其余（等待中 / 进行中但无百分比的 ③④）记 0。
+///
+/// 旧实现只取进行中单步的百分比（把一步当 100%），或只数已完成步数，
+/// 都漏算了另三步；这里把四步合并为一条整体进度。
 double _overallPercent(List<ImportStepView> steps) {
   if (steps.isEmpty) return 0.0;
+  double completed = 0.0;
   for (final ImportStepView step in steps) {
-    if (step.running && step.percent != null) {
-      return step.percent!.clamp(0.0, 1.0);
+    if (step.done || step.skip) {
+      completed += 1.0;
+    } else if (step.running && step.percent != null) {
+      completed += step.percent!.clamp(0.0, 1.0);
     }
   }
-  int done = 0;
-  for (final ImportStepView step in steps) {
-    if (step.done || step.skip) done++;
-  }
-  return (done / steps.length).clamp(0.0, 1.0);
+  return (completed / steps.length).clamp(0.0, 1.0);
 }

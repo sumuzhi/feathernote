@@ -148,8 +148,7 @@ void main() {
         subtitle: '248 MB · 42 分钟 12 秒',
         isVideo: true,
         steps: _runningSteps,
-        detail: null,
-        etaMinutes: 2,
+        failureReason: null,
         allDone: false,
         onBack: _noop,
         onCancel: _noop,
@@ -175,23 +174,27 @@ void main() {
     expect(find.text('正在从视频中提取音频轨道 · AAC 48kHz'), findsOneWidget);
     expect(find.text('音轨分离完成后自动开始'), findsOneWidget);
     expect(find.text('转写完成后自动开始'), findsOneWidget);
+    // 修复 ③：整体进度卡不再渲染 ETA tips（反复出现/隐藏导致抖动）。
     expect(
-      find.text('预计还需约 2 分钟 · 可点右上角「后台处理」继续其他操作'),
-      findsOneWidget,
+      find.textContaining('预计还需'),
+      findsNothing,
     );
     expect(
       find.text('视频仅解析音轨，画面内容不参与分析；原文件不会被修改'),
       findsOneWidget,
     );
-    // 整体进度与步骤 ② 都是 48%（设计稿同值）。
-    expect(find.text('48%'), findsNWidgets(2));
+    // 修复 ①：整体进度按四步等权 —— ①完成(1.0) + ②48% + ③④0 =
+    // (1.0+0.48)/4 ≈ 37%；步骤 ② 自身尾标仍为 48%。
+    expect(find.text('37%'), findsOneWidget);
+    expect(find.text('48%'), findsOneWidget);
 
     // 几何：OverallCard 顶 152（HTML 214 − 62），标题行 152+16 = 168。
     expect(tester.getTopLeft(find.text('整体进度')).dy, closeTo(168, 0.5));
     // 文件卡 64..136（HTML 126 − 62），卡内 44 图标行居中 → 标题落在 80。
     expect(tester.getTopLeft(find.text('产品评审_录屏.mp4')).dy, closeTo(80, 0.5));
-    // StepsCard 顶 269（HTML 331 − 62）+ 内边距 18 → 步骤 ① 落在 287。
-    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(287, 2));
+    // 修复 ③：整体进度卡不再渲染 ETA tips 行，OverallCard 比旧实现矮约 30px，
+    // 故 StepsCard 整体上移 → 步骤 ① 落在 257（实测值；旧实现为 287）。
+    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(257, 2));
     // 说明条内文字区宽 350 − 14×2 = 322。
     expect(
       tester
@@ -274,8 +277,7 @@ void main() {
         subtitle: '248 MB · 42 分钟 12 秒',
         isVideo: true,
         steps: _runningSteps,
-        detail: null,
-        etaMinutes: 2,
+        failureReason: null,
         allDone: false,
         onBack: _noop,
         onCancel: _noop,
@@ -337,8 +339,7 @@ void main() {
             status: 'done',
           ),
         ],
-        detail: null,
-        etaMinutes: 0,
+        failureReason: null,
         allDone: true,
         onBack: _noop,
         onCancel: _noop,
@@ -380,8 +381,7 @@ void main() {
             status: 'idle',
           ),
         ],
-        detail: '网络中断，请检查网络后重试',
-        etaMinutes: 0,
+        failureReason: '网络中断，请检查网络后重试',
         allDone: false,
         onBack: _noop,
         onCancel: _noop,
@@ -405,8 +405,7 @@ void main() {
         subtitle: '248 MB · 42 分钟 12 秒',
         isVideo: true,
         steps: _runningSteps,
-        detail: null,
-        etaMinutes: 2,
+        failureReason: null,
         allDone: false,
         onBack: _noop,
         onCancel: _noop,
@@ -415,5 +414,102 @@ void main() {
       size: const Size(320, 640),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  // ── 修复 ①：整体进度四步等权回归 ──
+
+  testWidgets('屏15 整体进度：①完成 + ②③④等待（视频，②idle）= 25%', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      const ImportProcessingScreen(
+        title: 't',
+        subtitle: 's',
+        isVideo: true,
+        steps: <ImportStepView>[
+          ImportStepView(index: 1, title: '上传文件', subtitle: '', status: 'done'),
+          ImportStepView(index: 2, title: '分离音轨', subtitle: '', status: 'idle'),
+          ImportStepView(index: 3, title: '语音转写', subtitle: '', status: 'idle'),
+          ImportStepView(index: 4, title: 'AI 生成纪要', subtitle: '', status: 'idle'),
+        ],
+        failureReason: null,
+        allDone: false,
+        onBack: _noop,
+        onCancel: _noop,
+        onViewMinutes: _noop,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    // 仅 ①完成 → 1/4 = 25%（旧实现会把单步当 100%，错误显示 100%）。
+    expect(find.text('25%'), findsOneWidget);
+  });
+
+  testWidgets('屏15 整体进度：①②完成 + ③④等待 = 50%', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      const ImportProcessingScreen(
+        title: 't',
+        subtitle: 's',
+        isVideo: true,
+        steps: <ImportStepView>[
+          ImportStepView(index: 1, title: '上传文件', subtitle: '', status: 'done'),
+          ImportStepView(index: 2, title: '分离音轨', subtitle: '', status: 'done'),
+          ImportStepView(index: 3, title: '语音转写', subtitle: '', status: 'idle'),
+          ImportStepView(index: 4, title: 'AI 生成纪要', subtitle: '', status: 'idle'),
+        ],
+        failureReason: null,
+        allDone: false,
+        onBack: _noop,
+        onCancel: _noop,
+        onViewMinutes: _noop,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    // ①②完成 → 2/4 = 50%。
+    expect(find.text('50%'), findsOneWidget);
+  });
+
+  testWidgets('屏15 整体进度：①完成 + ②进行 60% + ③④等待 = 40%', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      const ImportProcessingScreen(
+        title: 't',
+        subtitle: 's',
+        isVideo: true,
+        steps: <ImportStepView>[
+          ImportStepView(index: 1, title: '上传文件', subtitle: '', status: 'done'),
+          ImportStepView(index: 2, title: '分离音轨', subtitle: '', status: 'running', percent: 0.6),
+          ImportStepView(index: 3, title: '语音转写', subtitle: '', status: 'idle'),
+          ImportStepView(index: 4, title: 'AI 生成纪要', subtitle: '', status: 'idle'),
+        ],
+        failureReason: null,
+        allDone: false,
+        onBack: _noop,
+        onCancel: _noop,
+        onViewMinutes: _noop,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    // (1.0 + 0.6) / 4 = 0.4 → 40%；步骤 ② 自身尾标仍显示 60%。
+    expect(find.text('40%'), findsOneWidget);
+    expect(find.text('60%'), findsOneWidget);
+  });
+
+  testWidgets('屏15 处理中（非失败）：不渲染失败原因行', (WidgetTester tester) async {
+    await _pumpAt390(
+      tester,
+      const ImportProcessingScreen(
+        title: 't',
+        subtitle: 's',
+        isVideo: true,
+        steps: _runningSteps,
+        failureReason: null,
+        allDone: false,
+        onBack: _noop,
+        onCancel: _noop,
+        onViewMinutes: _noop,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('网络'), findsNothing);
   });
 }

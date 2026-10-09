@@ -144,7 +144,7 @@ class _ImportPageState extends ConsumerState<ImportPage> {
         .toList(growable: false);
     final List<HistoryItemView> recent = <HistoryItemView>[
       for (int i = 0; i < imported.length && i < 5; i++)
-        _importItemView(
+        importItemView(
           imported[i],
           now,
           onTap: () => context.push('/meeting/${imported[i].id}'),
@@ -394,9 +394,8 @@ class _ImportProcessingPageState extends ConsumerState<ImportProcessingPage> {
           : fileMeta,
       isVideo: isVideo,
       steps: steps,
-      detail: failed ? (meeting.importError ?? state.detail) : state.detail,
-      etaMinutes: allDone || failed ? 0 : state.etaMinutes,
       allDone: allDone,
+      failureReason: failed ? (state.detail ?? _loaded?.importError) : null,
       onBack: () => context.canPop() ? context.pop() : context.go('/'),
       onCancel: failed || allDone
           ? () {
@@ -527,17 +526,27 @@ String _durationLabel(int milliseconds) {
 }
 
 /// 导入会议 → 历史卡片视图（「导入」badge + 处理中角标，设计 §8.1）。
-HistoryItemView _importItemView(MeetingSummary item, DateTime now, {VoidCallback? onTap}) {
+///
+/// 描述文案优先级：**已生成的 AI 纪要预览（`minutesExcerpt`）> 失败提示 > 处理中
+/// 占位 > 通用占位**。此前对「已完成导入」一律写死「来自视频 / 音频导入」，
+/// 导致列表与详情页展示的真实 AI 纪要不一致 —— 现统一为优先展示真实纪要预览
+/// （与 [HistoryPage._toView] 行为一致）。
+///
+/// 暴露为公开函数以便单测（描述优先级分支）；内部调用点见 [_ImportPageState.build]。
+HistoryItemView importItemView(MeetingSummary item, DateTime now, {VoidCallback? onTap}) {
   final bool processing = item.importStatus == ImportStatus.importPending ||
       item.importStatus == ImportStatus.extracting ||
       item.importStatus == ImportStatus.transcribing ||
       item.importStatus == ImportStatus.minutes;
   final bool failed = item.importStatus == ImportStatus.failed;
+  final String description = item.minutesExcerpt.isNotEmpty
+      ? item.minutesExcerpt
+      : (failed
+          ? '导入失败，可进入详情页重试'
+          : (processing ? '导入处理中，完成后自动生成纪要' : '来自视频 / 音频导入'));
   return HistoryItemView(
     title: item.title,
-    description: failed
-        ? (item.minutesExcerpt.isEmpty ? '导入失败，可进入详情页重试' : item.minutesExcerpt)
-        : (processing ? '导入处理中，完成后自动生成纪要' : '来自视频 / 音频导入'),
+    description: description,
     meta: '${formatDurationCn(item.durationMs)} · ${formatDayTime(item.createdAt, now: now)}',
     badge: failed ? HistoryBadge.importFailed : HistoryBadge.imported,
     processing: processing,

@@ -168,6 +168,45 @@ void main() {
     );
   });
 
+  test('视频导入：stepUpload 在 done 后不因 m4a 二次上传回退为 running（修复 ②）', () async {
+    final File src = File(p.join(tmpDir.path, '会议录像2.mp4'))
+      ..writeAsBytesSync(List<int>.filled(4096, 9));
+    mediaImport.probeResult = const MediaProbeResult(
+      durationMs: 120000,
+      hasAudio: true,
+      isVideoContainer: true,
+      mimeType: 'video/mp4',
+    );
+    mediaImport.extractBytes = 1024;
+    mediaImport.extractDurationMs = 119000;
+    engine.taskId = 'task-v2';
+
+    final Meeting meeting = await service.startImport(
+      ImportRequest(srcPath: src.path, srcName: '会议录像2.mp4', isVideo: true, sizeBytes: 4096),
+    );
+    await waitUntil(
+      () => repo.saved[meeting.id]?.importStatus == ImportStatus.done,
+      hint: '视频导入应到 done',
+    );
+
+    final List<ImportProgressEvent> uploadEvents = events
+        .where((ImportProgressEvent e) =>
+            e.meetingId == meeting.id && e.step == ImportService.stepUpload)
+        .toList();
+    expect(uploadEvents, isNotEmpty, reason: '应至少发出初始 running 与 done');
+    // 上传步最终必须稳定落在 done。
+    expect(uploadEvents.last.status, 'done');
+    // done 之后不得再出现 running：m4a 二次上传为 silent，不应回发进度，否则
+    // 会出现「分离音轨已完成、上传却仍在转圈」的回退假象。
+    final int doneIndex = uploadEvents.lastIndexWhere((ImportProgressEvent e) => e.status == 'done');
+    expect(doneIndex, greaterThanOrEqualTo(0));
+    final bool runningAfterDone =
+        uploadEvents.skip(doneIndex + 1).any((ImportProgressEvent e) => e.status == 'running');
+    expect(runningAfterDone, isFalse);
+    // 两步上传仍都真实发生（原文件 + 分离出的 m4a）。
+    expect(filetrans.uploadedNames, containsAll(<String>['${meeting.id}.mp4', '${meeting.id}.m4a']));
+  });
+
   test('取消：upload 阶段取消 → failed(用户取消)', () async {
     final File src = File(p.join(tmpDir.path, 'slow.mp3'))
       ..writeAsBytesSync(List<int>.filled(1024, 1));
