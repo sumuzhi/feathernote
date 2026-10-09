@@ -98,30 +98,25 @@ void main() {
     });
   });
 
-  group('buildBackupMarkdown', () {
-    test('每场会议一节：标题 + 元信息 + AI 纪要 + 逐字稿', () {
-      final String md = buildBackupMarkdown(
-        meetings: <Meeting>[
-          _meeting('m1', minutesMd: '## 核心观点\n- 结论 A'),
-        ],
-        exportedAt: exportedAt,
+  group('buildMeetingMarkdown（每场会议单独一个 md）', () {
+    test('包含标题 + 元信息 + AI 纪要 + 逐字稿', () {
+      final String md = buildMeetingMarkdown(
+        _meeting('m1', minutesMd: '## 核心观点\n- 结论 A'),
       );
-      expect(md, contains('# 声羽 FeatherNote 数据备份'));
-      expect(md, contains('## 会议 m1'));
-      expect(md, contains('### AI 纪要'));
+      expect(md, contains('# 会议 m1'));
+      expect(md, contains('- 创建时间：2026-10-09T10:00:00.000'));
+      expect(md, contains('## AI 纪要'));
       expect(md, contains('- 结论 A'));
-      expect(md, contains('### 逐字稿（2 段）'));
+      expect(md, contains('## 逐字稿（2 段）'));
       expect(md, contains('第 1 段内容'));
-      expect(md, contains('导出时间：${exportedAt.toIso8601String()}'));
     });
 
     test('无纪要会议：跳过 AI 纪要小节，不产生空标题', () {
-      final String md = buildBackupMarkdown(
-        meetings: <Meeting>[_meeting('m2', minutesMd: null)],
-        exportedAt: exportedAt,
+      final String md = buildMeetingMarkdown(
+        _meeting('m2', minutesMd: null),
       );
-      expect(md, contains('## 会议 m2'));
-      expect(md, isNot(contains('### AI 纪要')));
+      expect(md, contains('# 会议 m2'));
+      expect(md, isNot(contains('## AI 纪要')));
     });
   });
 }
