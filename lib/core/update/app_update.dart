@@ -137,23 +137,31 @@ class AppUpdateChecker {
   /// 保证启动路径不被更新检查拖垮。
   Future<UpdateDecision> check() async {
     try {
-      final Map<String, dynamic> data =
-          fetch != null ? await fetch!(manifestUrl) : await _doFetch(manifestUrl);
-      final RemoteVersion remote = RemoteVersion.fromJson(data);
-      final int local = await _readLocal();
-      final bool need = needsUpdate(local, remote);
-      if (need) {
-        logInfo(
-          'update',
-          '检测到新版本 remote=${remote.version}(${remote.versionCode}) '
-          'local=$local → 提示更新',
-        );
-      }
-      return UpdateDecision(available: need, remote: remote);
+      return await checkStrict();
     } catch (e) {
       logWarn('update', '版本检查失败（已忽略，不阻断启动）：$e');
       return const UpdateDecision(available: false);
     }
+  }
+
+  /// 手动检查（设置页「点击版本行」）：与 [check] 相同的判定，但**失败会抛出**。
+  ///
+  /// 手动场景必须能区分「已是最新」与「网络失败」——启动期的静默吞错语义
+  /// 在这里会把故障伪装成「已是最新」，误导用户。
+  Future<UpdateDecision> checkStrict() async {
+    final Map<String, dynamic> data =
+        fetch != null ? await fetch!(manifestUrl) : await _doFetch(manifestUrl);
+    final RemoteVersion remote = RemoteVersion.fromJson(data);
+    final int local = await _readLocal();
+    final bool need = needsUpdate(local, remote);
+    if (need) {
+      logInfo(
+        'update',
+        '检测到新版本 remote=${remote.version}(${remote.versionCode}) '
+        'local=$local → 提示更新',
+      );
+    }
+    return UpdateDecision(available: need, remote: remote);
   }
 
   Map<String, dynamic> _asMap(dynamic raw) {

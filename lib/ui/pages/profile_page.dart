@@ -10,12 +10,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../backend/backend_api.dart' show HealthStatus;
+import '../../core/update/app_update.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/profile_screen.dart';
 import '../utils/export_destination.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/export_destination_sheet.dart';
+import '../widgets/update_dialog.dart';
 
 /// 设置页。
 class ProfilePage extends ConsumerStatefulWidget {
@@ -30,6 +32,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _diarization = true;
   bool _keepAudio = false;
   ExportDestination _destination = ExportDestination.appDownload;
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -141,10 +144,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               icon: Icons.layers_rounded,
               title: '版本',
               subtitle: config.buildStamp.isEmpty
-                  ? '端化运行 · 本地进程内后端'
-                  : '端化运行 · ${config.buildStamp}',
-              value: config.version,
-              onTap: () => _toast('版本 ${config.version} · ${config.buildStamp}'),
+                  ? '端化运行 · 本地进程内后端 · 点击检查更新'
+                  : '端化运行 · ${config.buildStamp} · 点击检查更新',
+              value: _checkingUpdate ? '检查中…' : config.version,
+              onTap: _checkUpdateManually,
             ),
           ],
         ),
@@ -173,6 +176,36 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     await saveExportDestination(picked);
     if (!mounted) return;
     setState(() => _destination = picked);
+  }
+
+  /// 手动检查更新（点击「版本」行）。
+  ///
+  /// 走 [AppUpdateChecker.checkStrict]（失败抛出），与启动期静默检查区分：
+  /// 有更新 → 复用启动期同一个更新弹窗；无更新 → toast「已是最新」；
+  /// 网络失败 → toast 可读错误（绝不把故障伪装成「已是最新」）。
+  Future<void> _checkUpdateManually() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    final AppConfigView config = _configView();
+    try {
+      final UpdateDecision decision = await AppUpdateChecker(
+        manifestUrl: ref.read(appConfigProvider).updateManifestUrl,
+      ).checkStrict();
+      if (!mounted) return;
+      if (decision.available && decision.remote != null) {
+        await showAppUpdateDialog(context, decision.remote!);
+      } else {
+        _toast('已是最新版本（${config.version}'
+            '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}）');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ref
+          .read(toastProvider.notifier)
+          .show('检查更新失败：请检查网络后重试', tone: ToastTone.warning);
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
   }
 
   /// 累计时长展示：不满 1 小时用 0.xh（保留 1 位小数，最小 0.1h）；

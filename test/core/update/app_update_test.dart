@@ -3,13 +3,15 @@
 /// 覆盖纯函数 [needsUpdate]、[RemoteVersion.fromJson]，以及 [AppUpdateChecker.check]
 /// 的成功 / 失败路径。通过注入 `fetch` 与 `localVersionCodeProvider` 避免触碰
 /// `PackageInfo.fromPlatform`（测试环境无平台通道）。
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:smart_minutes_flutter/core/update/app_update.dart';
 
 void main() {
   group('needsUpdate', () {
-    final RemoteVersion valid = RemoteVersion(
+    const RemoteVersion valid = RemoteVersion(
       version: '1.0.1',
       versionCode: 2,
       downloadUrl: 'https://example.com/a.apk',
@@ -25,14 +27,14 @@ void main() {
     });
 
     test('manifest 无效（versionCode<=0 或无下载地址）→ 不更新', () {
-      final bad = RemoteVersion(version: '', versionCode: 0, downloadUrl: '');
-      final noUrl = RemoteVersion(version: '1.0.1', versionCode: 2, downloadUrl: '');
+      const RemoteVersion bad = RemoteVersion(version: '', versionCode: 0, downloadUrl: '');
+      const RemoteVersion noUrl = RemoteVersion(version: '1.0.1', versionCode: 2, downloadUrl: '');
       expect(needsUpdate(1, bad), isFalse);
       expect(needsUpdate(1, noUrl), isFalse);
     });
 
     test('远端 minVersionCode 高于本地 → 需要更新（即便版本号相等）', () {
-      final forced = RemoteVersion(
+      const RemoteVersion forced = RemoteVersion(
         version: '1.0.1',
         versionCode: 2,
         downloadUrl: 'https://example.com/a.apk',
@@ -108,6 +110,46 @@ void main() {
       );
       final UpdateDecision d = await checker.check();
       expect(d.available, isFalse);
+    });
+  });
+
+  group('AppUpdateChecker.checkStrict（手动检查：失败抛出）', () {
+    test('manifest 更高 → available=true', () async {
+      final AppUpdateChecker checker = AppUpdateChecker(
+        manifestUrl: 'https://x/version.json',
+        fetch: (_) async => <String, dynamic>{
+          'version': '1.0.3',
+          'versionCode': 4,
+          'downloadUrl': 'https://x/a.apk',
+        },
+        localVersionCodeProvider: () async => 3,
+      );
+      final UpdateDecision d = await checker.checkStrict();
+      expect(d.available, isTrue);
+      expect(d.remote?.version, '1.0.3');
+    });
+
+    test('本地已是最新 → available=false（不抛）', () async {
+      final AppUpdateChecker checker = AppUpdateChecker(
+        manifestUrl: 'https://x/version.json',
+        fetch: (_) async => <String, dynamic>{
+          'version': '1.0.3',
+          'versionCode': 4,
+          'downloadUrl': 'https://x/a.apk',
+        },
+        localVersionCodeProvider: () async => 4,
+      );
+      final UpdateDecision d = await checker.checkStrict();
+      expect(d.available, isFalse);
+    });
+
+    test('manifest 不可达 → 抛出（与 check 的静默语义区分）', () async {
+      final AppUpdateChecker checker = AppUpdateChecker(
+        manifestUrl: 'https://x/version.json',
+        fetch: (_) => Future<Map<String, dynamic>>.error(StateError('network')),
+        localVersionCodeProvider: () async => 1,
+      );
+      await expectLater(checker.checkStrict(), throwsA(isA<StateError>()));
     });
   });
 }
