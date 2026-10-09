@@ -153,24 +153,17 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
   GlobalKey _keyFor(TranscriptItemView item) =>
       _itemKeys.putIfAbsent('${item.segmentId}@${item.startTimeMs}', GlobalKey.new);
 
-  /// 命中定位。
+  /// 命中定位（虚拟渲染下目标条目可能尚未构建——即用户反馈的「无法准确定位」）。
   ///
-  /// ① 目标已构建 → [Scrollable.ensureVisible] 精确滚动；
-  /// ② 目标未构建（窗口内但视口外）→ 按比例估算偏移先跳转（builder 随即构建
-  ///    周边条目），post-frame 再精确对位一次。
-  void _scrollToHit() {
+  /// 策略：① 目标已构建 → [Scrollable.ensureVisible] 精确定位；
+  /// ② 未构建 → 按「平均行高 × 目标下标」估算偏移跳转，每跳一帧检查目标是否
+  /// 已被 builder 构建（跳转点周边条目会构建），未出现则按「当前偏移的估算
+  /// 条目位置」与目标的差值修正偏移，**迭代收敛**（上限 8 次），最终
+  /// ensureVisible 精确对位。单次比例估算在条目高度差异大（正文长短不一）
+  /// 时误差可达数屏，一次跳转定位不到——这正是旧实现的问题。
+  Future<void> _scrollToHit() async {
     final String? id = widget.hitTargetId;
     if (id == null) return;
-    final BuildContext? ctx = _itemKeys[id]?.currentContext;
-    if (ctx != null) {
-      Scrollable.ensureVisible(
-        ctx,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        alignment: 0.2,
-      );
-      return;
-    }
     int pos = -1;
     for (int i = 0; i < _lastShown && i < _lastFiltered.length; i++) {
       final TranscriptItemView it = _lastFiltered[i];
@@ -179,20 +172,53 @@ class _TranscriptScreenState extends State<TranscriptScreen> {
         break;
       }
     }
-    if (pos < 0 || !_scrollController.hasClients || _lastShown <= 0) return;
-    final double max = _scrollController.position.maxScrollExtent;
-    _scrollController.jumpTo((max * (pos / _lastShown)).clamp(0.0, max));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final BuildContext? c2 = _itemKeys[id]?.currentContext;
-      if (c2 != null) {
-        Scrollable.ensureVisible(
-          c2,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          alignment: 0.2,
-        );
+    if (pos < 0 || !_scrollController.hasClients) {
+      // 数据未就绪 / 列表未布局：等一帧后重试一次。
+      await WidgetsBinding.instance.endOfFrame;
+      final BuildContext? c0 = _itemKeys[id]?.currentContext;
+      if (c0 != null && c0.mounted) {
+        await _ensureVisible(c0);
       }
-    });
+      return;
+    }
+    if (_lastShown <= 1) {
+      await WidgetsBinding.instance.endOfFrame;
+      final BuildContext? c1 = _itemKeys[id]?.currentContext;
+      if (c1 != null && c1.mounted) {
+        await _ensureVisible(c1);
+      }
+      return;
+    }
+    final double max = _scrollController.position.maxScrollExtent;
+    final double avg = max / (_lastShown - 1);
+    double offset = (pos * avg).clamp(0.0, max);
+    for (int attempt = 0; attempt < 8; attempt++) {
+      _scrollController.jumpTo(offset);
+      await WidgetsBinding.instance.endOfFrame;
+      final BuildContext? ctx = _itemKeys[id]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        await _ensureVisible(ctx);
+        return;
+      }
+      // 修正：估算「当前偏移对应的条目下标」，与目标差值 × 平均行高再修正。
+      final int curIdx = (offset / avg).round().clamp(0, _lastShown - 1);
+      final int delta = pos - curIdx;
+      if (delta == 0) break;
+      offset = (offset + delta * avg).clamp(0.0, max);
+    }
+    final BuildContext? finalCtx = _itemKeys[id]?.currentContext;
+    if (finalCtx != null && finalCtx.mounted) {
+      await _ensureVisible(finalCtx);
+    }
+  }
+
+  Future<void> _ensureVisible(BuildContext ctx) {
+    return Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: 0.2,
+    );
   }
 
   @override

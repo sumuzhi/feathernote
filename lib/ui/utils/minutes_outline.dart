@@ -10,6 +10,8 @@
 /// 任意 `#`/`##`/`###` 标题都会被识别为分节，识别不到的散段归入 [MinutesOutline.tailBody]。
 library;
 
+import '../../core/ext/markdown_ext.dart' show kSummaryTitleKeywords;
+
 /// 纪要分节。
 class MinutesSection {
   /// 构造分节。
@@ -91,14 +93,8 @@ class MinutesOutline {
       sections.where((MinutesSection s) => !s.hasItems && s.body.isNotEmpty).toList(growable: false);
 }
 
-/// 摘要候选标题（按优先级）。
-const List<String> _summaryTitleKeywords = <String>[
-  '200字摘要',
-  '200 字摘要',
-  '核心观点',
-  '摘要',
-  '一句话总结',
-];
+/// 摘要候选标题关键词已上移至 `core/ext/markdown_ext.dart` 的
+/// [kSummaryTitleKeywords]（与历史卡 desc 提取同源，单一真相源）。
 
 /// 名词归并表（标题 → 短名词）。
 const List<String> _nounKeywords = <String>[
@@ -261,7 +257,7 @@ _ParseResult _parseSections(String markdown) {
 }
 
 String _pickSummaryText(List<MinutesSection> sections, List<String> preamble) {
-  for (final String keyword in _summaryTitleKeywords) {
+  for (final String keyword in kSummaryTitleKeywords) {
     for (final MinutesSection section in sections) {
       if (!section.title.contains(keyword)) continue;
       final String text =
@@ -283,7 +279,7 @@ String _summarySourceTitle(
   String summary,
 ) {
   if (summary.isEmpty) return '';
-  for (final String keyword in _summaryTitleKeywords) {
+  for (final String keyword in kSummaryTitleKeywords) {
     for (final MinutesSection section in sections) {
       if (!section.title.contains(keyword)) continue;
       final String text =

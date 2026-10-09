@@ -89,8 +89,7 @@ void main() {
 
     // 设计稿里的固定文案，一字不改。
     expect(find.text('导入音视频'), findsOneWidget);
-    // 顶栏标准化后「帮助」为 icon + semantics 标签（原为右上文字链接）。
-    expect(find.byIcon(Icons.help_outline_rounded), findsOneWidget);
+    // 用户要求移除右上角「帮助」icon（原断言已随之删除）。
     expect(find.text('拖拽文件到此处'), findsOneWidget);
     expect(find.text('MP4 / MOV / MP3 / WAV · 单个文件 ≤ 2GB'), findsOneWidget);
     expect(find.text('选择文件'), findsOneWidget);

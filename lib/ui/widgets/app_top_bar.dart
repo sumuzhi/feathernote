@@ -15,8 +15,8 @@ class AppTopBar extends StatelessWidget {
     required this.subtitle,
     required this.leadingIcon,
     required this.onLeading,
-    required this.actionIcon,
-    required this.onAction,
+    this.actionIcon,
+    this.onAction,
     this.dimTitle = false,
     this.actionTooltip = '更多',
   });
@@ -33,11 +33,11 @@ class AppTopBar extends StatelessWidget {
   /// 左侧点击。
   final VoidCallback onLeading;
 
-  /// 右侧图标。
-  final IconData actionIcon;
+  /// 右侧图标（null = 无右侧按钮；标题仍居中——左/右各补一个等宽占位）。
+  final IconData? actionIcon;
 
   /// 右侧点击。
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
 
   /// 标题是否半透明（断线态 s06 的「录音中」opacity .28）。
   final bool dimTitle;
@@ -47,6 +47,7 @@ class AppTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasAction = actionIcon != null && onAction != null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(AppSpacing.page, 6, AppSpacing.page, 0),
       child: Row(
@@ -57,14 +58,33 @@ class AppTopBar extends StatelessWidget {
               children: <Widget>[
                 Opacity(
                   opacity: dimTitle ? 0.28 : 1,
-                  child: Text(title, style: AppTextStyles.cardHead),
+                  child: Text(
+                    title,
+                    style: AppTextStyles.cardHead,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(height: 3),
-                Text(subtitle, style: AppTextStyles.metaSmall),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: AppTextStyles.metaSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             ),
           ),
-          AppCircleButton(icon: actionIcon, onTap: onAction, tooltip: actionTooltip),
+          // 无右侧按钮时补等宽占位：保证标题相对屏幕真居中（用户要求）。
+          if (hasAction)
+            AppCircleButton(
+              icon: actionIcon!,
+              onTap: onAction!,
+              tooltip: actionTooltip,
+            )
+          else
+            const SizedBox(width: 44),
         ],
       ),
     );

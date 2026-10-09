@@ -69,14 +69,12 @@ class ImportIdleScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           SizedBox(height: s(context, 4)),
+          // 用户要求：title 居中、删掉右侧「帮助」icon。
           AppTopBar(
             title: '导入音视频',
             subtitle: '',
             leadingIcon: Icons.chevron_left_rounded,
             onLeading: onBack,
-            actionIcon: Icons.help_outline_rounded,
-            onAction: onHelp ?? () {},
-            actionTooltip: '帮助',
           ),
           SizedBox(height: s(context, 12)),
         ],
