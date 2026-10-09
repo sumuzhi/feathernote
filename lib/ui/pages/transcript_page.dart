@@ -28,8 +28,14 @@ import '../widgets/filter_chips.dart';
 import '../widgets/speaker_chips.dart';
 import '../widgets/transcript_tile.dart';
 
-/// 超出该段数时展示「分段加载中」胶囊（对齐屏 12 的长内容形态）。
+/// 超出该段数时展示「分段加载」胶囊（对齐屏 12 的长内容形态）。
 const int kLongTranscriptThreshold = 200;
+
+/// 分页窗口：初始渲染条数，触底按页扩窗。
+///
+/// 真分页修复两件事：① 数千段一次性渲染导致滚动卡顿；② 旧「分段加载中」
+/// 胶囊是纯装饰（≥200 段即永远显示），被误读为「卡在加载中」。
+const int kTranscriptPageSize = 80;
 
 /// 完整转写页。
 class TranscriptPage extends ConsumerStatefulWidget {
@@ -61,6 +67,68 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
   List<int> _hits = const <int>[];
   int _hitCursor = 0;
 
+  // ── 长列表性能（真分页 + 派生缓存）─────────────────────────────────
+  /// 渲染窗口大小（过滤后最多显示的条数），触底经 [_onLoadMore] 扩窗。
+  int _visibleCount = kTranscriptPageSize;
+
+  /// 每段说话人序号缓存（segments/speakers 变化时重算，避免每次 build O(n) 查询）。
+  List<int> _ordinals = const <int>[];
+
+  /// 过滤后的总段数（跟随 _filter / _segments）。
+  int _filteredTotal = 0;
+
+  /// 全文字数缓存（原实现在每次 build 对全文跑正则——播放位置 tick 下 O(总字数)）。
+  int _charCount = 0;
+
+  /// 说话人 chips 缓存。
+  List<SpeakerChipView> _chips = const <SpeakerChipView>[];
+
+  /// 触底扩窗节流戳。
+  DateTime _lastLoadMoreAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 重算派生数据（segments / speakers 变化时调用；绝不放进 build）。
+  ///
+  /// ⚠️ 不 clamp 窗口：`_load` 完成时段落可能尚未从 watchSegments 流到达
+  /// （此时 filteredTotal=0），若在此收缩窗口会把渲染窗口永久压成 0 ——
+  /// 「列表一片空白」的根因。窗口切片由 Screen 端 `min(visibleCount, len)` 完成。
+  void _recomputeDerived() {
+    _ordinals = <int>[
+      for (final TranscriptSegment segment in _segments)
+        speakerViewFor(speakerId: segment.speakerId, speakers: _speakers).ordinal,
+    ];
+    _filteredTotal = _countFiltered();
+    _chips = _computeChips();
+    _charCount = _segments.fold<int>(
+      0,
+      (int sum, TranscriptSegment s) =>
+          sum + s.text.replaceAll(RegExp(r'\s'), '').length,
+    );
+  }
+
+  int _countFiltered() {
+    if (_filter == 0) return _segments.length;
+    int count = 0;
+    for (final int ordinal in _ordinals) {
+      if (ordinal == _filter) count++;
+    }
+    return count;
+  }
+
+  /// 触底扩窗（节流：滚动事件连续触发，200ms 内只受理一次）。
+  void _onLoadMore() {
+    if (!mounted) return;
+    final DateTime now = DateTime.now();
+    if (now.difference(_lastLoadMoreAt) < const Duration(milliseconds: 200)) {
+      return;
+    }
+    if (_visibleCount >= _filteredTotal) return;
+    _lastLoadMoreAt = now;
+    setState(() {
+      _visibleCount =
+          (_visibleCount + kTranscriptPageSize).clamp(0, _filteredTotal);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +139,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       _segments = seed.segments;
       _speakers = seed.speakers;
       _loading = false;
+      _recomputeDerived();
     }
     unawaited(_load());
   }
@@ -108,6 +177,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
         _meeting = meeting ?? _meeting;
         if (meeting != null) _speakers = meeting.speakers;
         _loading = false;
+        _recomputeDerived();
       });
       _subscription = api.watchSegments(widget.meetingId).listen(
         (List<TranscriptSegment> segments) {
@@ -117,6 +187,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
             if (_speakers.isEmpty && segments.isNotEmpty) {
               _speakers = deriveSpeakers(segments, meetingId: widget.meetingId);
             }
+            _recomputeDerived();
             if (_keyword.isNotEmpty) _recomputeHits();
           });
         },
@@ -141,7 +212,7 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
   }
 
   /// 唯一的说话人过滤 chip（按序号升序）。
-  List<SpeakerChipView> _chipViews() {
+  List<SpeakerChipView> _computeChips() {
     final Map<int, String> byOrdinal = <int, String>{};
     for (final TranscriptSegment segment in _segments) {
       final SpeakerView view = speakerViewFor(
@@ -218,19 +289,19 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
     final AudioPlayerState audioState = ref.watch(audioPlayerControllerProvider);
     final Meeting? meeting = _meeting;
     final List<TranscriptItemView> items = _viewItems(audioState);
-    final List<SpeakerChipView> chips = _chipViews();
-    final int charCount = _segments.fold<int>(0, (int sum, TranscriptSegment s) => sum + s.text.replaceAll(RegExp(r'\s'), '').length);
+    final bool hasMore = _visibleCount < _filteredTotal;
+    final int shown = hasMore ? _visibleCount : _filteredTotal;
 
     return TranscriptScreen(
       meetingName: meeting?.title ?? '完整转写',
       infoText: formatTranscriptInfo(
         durationMs: meeting?.durationMs ?? 0,
-        speakerCount: meeting?.speakerCount ?? chips.length,
+        speakerCount: meeting?.speakerCount ?? _chips.length,
       ),
-      charCountText: formatCharCount(charCount),
+      charCountText: formatCharCount(_charCount),
       filters: <FilterChipView>[
         FilterChipView(label: '全部', selected: _filter == 0),
-        for (final SpeakerChipView chip in chips)
+        for (final SpeakerChipView chip in _chips)
           FilterChipView(
             label: chip.label,
             ordinal: chip.ordinal,
@@ -239,7 +310,10 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       ],
       selectedFilter: _filter,
       onFilterChanged: (int index) => setState(() {
-        _filter = index == 0 ? 0 : chips[index - 1].ordinal;
+        _filter = index == 0 ? 0 : _chips[index - 1].ordinal;
+        // 切换说话人 → 窗口重置，从第一页重新开始。
+        _visibleCount = kTranscriptPageSize;
+        _filteredTotal = _countFiltered();
       }),
       items: items,
       hit: _hits.isEmpty
@@ -260,9 +334,13 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
                 _hitCursor = 0;
               }),
             ),
-      segmentLoadingText: _segments.length >= kLongTranscriptThreshold
-          ? '分段加载中 · 已显示 ${formatThousands(_segments.length)} 段'
+      // 诚实文案：窗口未满 → 「上滑加载更多 · N / M」；全部加载完 → 不再显示
+      // （旧实现 ≥200 段就永久显示「分段加载中」，被误读为卡死在加载）。
+      segmentLoadingText: _segments.length >= kLongTranscriptThreshold && hasMore
+          ? '上滑加载更多 · 已显示 ${formatThousands(shown)} / ${formatThousands(_filteredTotal)} 段'
           : null,
+      visibleCount: _visibleCount,
+      onLoadMore: hasMore ? _onLoadMore : null,
       onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
       onPlaySegment: (TranscriptItemView item) => _onPlaySegment(item),
       // 返回 = 压栈 pop 回纪要页；无栈（深链冷启动）时兜底 go。

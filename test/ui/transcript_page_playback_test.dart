@@ -185,8 +185,24 @@ TranscriptTile _owner(WidgetTester tester) => tester.widget<TranscriptTile>(
 ///
 /// 不能直接 `find.byIcon(Icons.play_arrow_rounded).at(i)`：播放中该条按钮会换成
 /// 自定义的暂停图标（不是 Icon），图标数量会变，`.at(i)` 会点到别的段上去。
+///
+/// ⚠️ 列表已改 `ListView.builder` 虚拟化（性能修复）：视口外的条目**不会被构建**，
+/// 必须按段文本定位目标条目并先滚动到可见，再按「条目内第一个 GestureDetector」点击。
+/// 不能用 `.at(index)`——虚拟化下 widget 树里只有窗口内的条目，下标会越界。
 Future<void> _tapTile(WidgetTester tester, int index) async {
-  final Finder tile = find.byType(TranscriptTile).at(index);
+  final Finder tile = find.ancestor(
+    of: find.text('第 $index 段正文'),
+    matching: find.byType(TranscriptTile),
+  );
+  // 滚动到可见（虚拟化下可能尚未构建）；已可见时 scrollUntilVisible 直接跳过。
+  await tester.scrollUntilVisible(
+    tile,
+    160,
+    scrollable: find
+        .byWidgetPredicate((Widget w) => w is Scrollable && w.axis == Axis.vertical)
+        .first,
+  );
+  await tester.pumpAndSettle();
   await tester.tap(
     find.descendant(of: tile, matching: find.byType(GestureDetector)).first,
   );
@@ -207,7 +223,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(TranscriptTile), findsNWidgets(3));
+    // 虚拟化列表：视口内至少有 1 条被构建即视为渲染正常（不逐条点验数量）。
+    expect(find.byType(TranscriptTile), findsWidgets);
     expect(_component, findsNothing, reason: '初始不应有播放组件');
 
     // 点第 2 条的播放入口。

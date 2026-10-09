@@ -15,6 +15,13 @@ import '../widgets/progress_pill.dart';
 import '../widgets/transcript_tile.dart';
 import 'screen_frame.dart';
 
+/// 「展示全部」哨兵值：调用方不传 [TranscriptScreen.visibleCount] 时不做窗口切片
+/// （设计稿目录页预览用）。
+const int kTranscriptShowAll = 1 << 30;
+
+/// 触底预加载阈值：距列表底部不足该像素时触发 [TranscriptScreen.onLoadMore]。
+const double _kLoadMoreTriggerExtent = 800;
+
 /// 转写页。
 class TranscriptScreen extends StatelessWidget {
   /// 构造转写页。
@@ -35,6 +42,8 @@ class TranscriptScreen extends StatelessWidget {
     this.segmentLoadingText,
     this.onExpandSegment,
     this.onPlaySegment,
+    this.visibleCount = kTranscriptShowAll,
+    this.onLoadMore,
   });
 
   /// 顶栏副标题（会议名）。
@@ -85,13 +94,26 @@ class TranscriptScreen extends StatelessWidget {
   /// `_segments` 会错位，导致「过滤说话人后点播放播的是别的话」。
   final ValueChanged<TranscriptItemView>? onPlaySegment;
 
+  /// 渲染窗口大小（过滤后最多显示的条数）。
+  ///
+  /// 真分页：页面传入窗口大小，触底时经 [onLoadMore] 扩窗。超长转写（数千段）
+  /// 一次性渲染全部 tile 是滚动卡顿的根因（无虚拟化 + 每次 setState 全量布局）。
+  final int visibleCount;
+
+  /// 触底扩窗回调（null = 不分页，如设计稿目录页）。
+  final VoidCallback? onLoadMore;
+
   @override
   Widget build(BuildContext context) {
-    final List<TranscriptItemView> visible = selectedFilter == 0
+    final List<TranscriptItemView> filtered = selectedFilter == 0
         ? items
         : items
             .where((TranscriptItemView item) => item.ordinal == selectedFilter)
             .toList(growable: false);
+    final int shown =
+        visibleCount < filtered.length ? visibleCount : filtered.length;
+    final List<TranscriptItemView> visible = filtered.sublist(0, shown);
+    final bool hasMore = filtered.length > shown;
 
     return ScreenFrame(
       // 只滚动转写列表：顶栏 / 信息条 / 筛选 / 命中条固定（自行管理滚动）。
@@ -140,44 +162,61 @@ class TranscriptScreen extends StatelessWidget {
               onClose: hit!.onClose,
             ),
           // 仅转写列表滚动（底部留白避开 CTA：手势条 inset + CTA 高度 + 余量）。
+          // ListView.builder 虚拟化：只构建/布局可见条目——超长转写（数千段）
+          // 用 SingleChildScrollView+Column 会全量布局，是滚动卡顿的根因。
           Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                22,
-                8,
-                22,
-                MediaQuery.viewPaddingOf(context).bottom + 100,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (visible.isEmpty)
-                    Padding(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (ScrollNotification notification) {
+                // 触底预加载：距底部不足阈值即扩窗（hasMore 时）。
+                if (onLoadMore == null ||
+                    !hasMore ||
+                    notification.metrics.extentAfter >= _kLoadMoreTriggerExtent) {
+                  return false;
+                }
+                onLoadMore!();
+                return false;
+              },
+              child: ListView.builder(
+                padding: EdgeInsets.fromLTRB(
+                  22,
+                  8,
+                  22,
+                  MediaQuery.viewPaddingOf(context).bottom + 100,
+                ),
+                itemCount: visible.isEmpty
+                    ? 1
+                    : visible.length + (segmentLoadingText != null ? 1 : 0),
+                itemBuilder: (BuildContext context, int index) {
+                  if (visible.isEmpty) {
+                    return Padding(
                       padding: const EdgeInsets.only(top: 24),
                       child: Text(
                         '该说话人暂无转写内容',
                         style: AppTextStyles.meta,
                         textAlign: TextAlign.center,
                       ),
-                    )
-                  else
-                    for (int i = 0; i < visible.length; i++)
-                      TranscriptTile(
-                        // 稳定 key：段由「segmentId + 起点」唯一定位。
-                        // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
-                        // 错误复用元素，进度组件就可能渲染到别的条目上。
-                        key: ValueKey<String>(
-                          '${visible[i].segmentId}@${visible[i].startTimeMs}',
-                        ),
-                        item: visible[i],
-                        onExpand:
-                            onExpandSegment == null ? null : () => onExpandSegment!(i),
-                        onPlay:
-                            onPlaySegment == null ? null : () => onPlaySegment!(visible[i]),
-                      ),
-                  if (segmentLoadingText != null)
-                    AppSegmentedLoadingPill(text: segmentLoadingText!),
-                ],
+                    );
+                  }
+                  // 末尾：加载进度胶囊（窗口未满时才出现，全部加载完即消失）。
+                  if (index >= visible.length) {
+                    return AppSegmentedLoadingPill(text: segmentLoadingText!);
+                  }
+                  return TranscriptTile(
+                    // 稳定 key：段由「segmentId + 起点」唯一定位。
+                    // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
+                    // 错误复用元素，进度组件就可能渲染到别的条目上。
+                    key: ValueKey<String>(
+                      '${visible[index].segmentId}@${visible[index].startTimeMs}',
+                    ),
+                    item: visible[index],
+                    onExpand: onExpandSegment == null
+                        ? null
+                        : () => onExpandSegment!(index),
+                    onPlay: onPlaySegment == null
+                        ? null
+                        : () => onPlaySegment!(visible[index]),
+                  );
+                },
               ),
             ),
           ),
