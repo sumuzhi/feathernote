@@ -428,7 +428,6 @@ class _GalleryScreenHostState extends ConsumerState<GalleryScreenHost> {
           ],
         ),
       ],
-      versionText: '版本 v1.0.0 · 端化运行',
       onSettings: () => _toast('设置'),
       onTabTap: (_) => widget.onExit(),
     );

@@ -165,8 +165,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ],
         ),
       ],
-      versionText: '版本 ${config.version} · 端化运行'
-          '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}',
       onSettings: () => _toast('智能会议纪要 · 端化运行'),
       onTabTap: (int index) {
         switch (index) {

@@ -86,7 +86,6 @@ ProfileScreen _profile() {
         ],
       ),
     ],
-    versionText: '版本 1.0.0 · 端化运行',
     onSettings: () {},
     onTabTap: (int _) {},
   );

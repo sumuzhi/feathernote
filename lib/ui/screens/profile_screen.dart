@@ -83,7 +83,6 @@ class ProfileScreen extends StatelessWidget {
     super.key,
     required this.stats,
     required this.sections,
-    required this.versionText,
     required this.onSettings,
     required this.onTabTap,
     this.selectedTab = 2,
@@ -91,9 +90,6 @@ class ProfileScreen extends StatelessWidget {
 
   /// 设置分组。
   final List<ProfileSectionView> sections;
-
-  /// 版本行文案。
-  final String versionText;
 
   /// 点击右上设置。
   final VoidCallback onSettings;
@@ -169,14 +165,9 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ),
                   ],
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
-                    child: Text(
-                      versionText,
-                      style: AppTextStyles.version,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+                  // 用户要求：移除页脚「版本 x.y.z · 端化运行 · 构建戳」——
+                  // 版本信息只在「运行参数 → 版本」行展示（那里同时承担更新检查入口）。
+                  const SizedBox(height: 28),
                 ],
               ),
             ),

@@ -85,7 +85,6 @@ ProfileScreen _profile() {
         ],
       ),
     ],
-    versionText: '版本 1.0.0 · 端化运行 · 0925-2300/740ca3d',
     onSettings: () {},
     onTabTap: (int _) {},
   );
