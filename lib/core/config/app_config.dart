@@ -360,7 +360,7 @@ class AppConfig {
       buildStamp: Secrets.buildStamp,
       updateManifestUrl: _readString(
         'UPDATE_MANIFEST_URL',
-        'https://2d1c7d182ab842d9adc9e83f7f76e75f.app.workbuddy.host/version.json',
+        'https://smart-minutes-apk.app.workbuddy.host/version.json',
       ),
     );
   }

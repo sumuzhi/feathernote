@@ -56,7 +56,12 @@ class MeetingInfoCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(
-                child: Text(title, style: AppTextStyles.cardTitle),
+                child: Text(
+                  title,
+                  style: AppTextStyles.cardTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               const SizedBox(width: 12),
               AppBadge(text: badgeText, tone: badgeTone),

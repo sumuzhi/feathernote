@@ -227,7 +227,7 @@ class _RecentCard extends StatelessWidget {
               Text(
                 item.title,
                 style: AppTextStyles.settingTitle.copyWith(fontSize: 16),
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 7),
