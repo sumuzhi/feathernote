@@ -78,13 +78,31 @@ Future<String> exportMeeting({
   ExportDestination destination = ExportDestination.appDownload,
 }) async {
   final List<int> bytes = await exportBytes(markdown: markdown, format: format);
+  return exportRawFile(
+    fileName: fileName,
+    extension: format.extension,
+    bytes: bytes,
+    destination: destination,
+  );
+}
+
+/// 写入任意字节并按目标返回**给用户展示的保存位置**（纪要导出与数据备份共用）。
+///
+/// - [ExportDestination.appDownload]（默认）：Android 经 MediaStore 写公共
+///   `Download/SmartMinutes/`；iOS 写应用文档目录后弹分享面板。
+/// - [ExportDestination.askEachTime]：弹系统「另存为」，由用户选位置与文件名（Android）。
+Future<String> exportRawFile({
+  required String fileName,
+  required String extension,
+  required List<int> bytes,
+  ExportDestination destination = ExportDestination.appDownload,
+}) async {
   final String safeName = sanitizeFileName(fileName);
-  final String fullExt = format.extension;
 
   // 「每次导出时选择」：系统另存为（SAF），取消返回 null。
   if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
     final String? pickedPath = await FilePicker.platform.saveFile(
-      fileName: '$safeName$fullExt',
+      fileName: '$safeName$extension',
       bytes: Uint8List.fromList(bytes),
     );
     if (pickedPath == null) {
@@ -98,7 +116,7 @@ Future<String> exportMeeting({
     final String localPath = await _writeLocalBytes(
       bytes: bytes,
       fileName: safeName,
-      extension: fullExt,
+      extension: extension,
     );
     final SaveInfo? info = await MediaStore().saveFile(
       tempFilePath: localPath,
@@ -109,16 +127,16 @@ Future<String> exportMeeting({
       // 极端情况（用户在系统弹窗拒绝）：回落本地可访问路径，不静默丢文件。
       return localPath;
     }
-    return 'Download/SmartMinutes/$safeName$fullExt';
+    return 'Download/SmartMinutes/$safeName$extension';
   }
 
-  // iOS：无「公共下载目录」概念，按产品决策走**系统分享面板**（UIActivityViewController，
+  // iOS：无「公共下载目录」概念，按产品决策走**系统分享面板**（UIActivityViewController,
   // AirDrop / 文件 / 第三方 App 均可接收）。文件先落应用文档目录 exports/，
   // 面板关闭（无论是否真的分享）后返回本地路径，调用方照常提示位置。
   final String localPath = await _writeLocalBytes(
     bytes: bytes,
     fileName: safeName,
-    extension: fullExt,
+    extension: extension,
   );
   if (Platform.isIOS) {
     await SharePlus.instance.share(

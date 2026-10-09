@@ -15,7 +15,9 @@ import '../../core/update/app_update.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/profile_screen.dart';
+import '../utils/backup_exporter.dart';
 import '../utils/export_destination.dart';
+import '../utils/exporter.dart' show ExportCancelledException;
 import '../widgets/app_toast.dart';
 import '../widgets/export_destination_sheet.dart';
 import '../widgets/update_dialog.dart';
@@ -31,9 +33,9 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _diarization = true;
-  bool _keepAudio = false;
   ExportDestination _destination = ExportDestination.appDownload;
   bool _checkingUpdate = false;
+  bool _exportingBackup = false;
 
   /// 真实版本号（来自 `package_info_plus`，随 pubspec bump 自动更新）。
   ///
@@ -130,22 +132,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         ProfileSectionView(
           title: '数据与存储',
           rows: <ProfileSettingView>[
-            ProfileSettingView(
-              icon: Icons.wifi_off_rounded,
-              title: '音频留存',
-              subtitle: '转写后不保存原始音频',
-              toggle: true,
-              toggleValue: _keepAudio,
-              switchLabel: '音频留存',
-              onToggle: (bool value) => setState(() => _keepAudio = value),
-            ),
+            // 用户要求：移除「音频留存」开关——音频一律留存于本地归档。
             ProfileSettingView(
               icon: Icons.storage_rounded,
               title: '数据库',
               subtitle:
-                  'SQLite · schema ${health?.schemaVersion ?? '—'} · $summarized 场已总结',
-              value: '${meetings.length} 条',
-              onTap: () => _toast('已存 ${meetings.length} 条会议'),
+                  'SQLite · schema ${health?.schemaVersion ?? '—'} · $summarized 场已总结 · 点击导出备份',
+              value: _exportingBackup ? '导出中…' : '${meetings.length} 条',
+              onTap: _exportBackup,
             ),
           ],
         ),
@@ -205,7 +199,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   Future<void> _checkUpdateManually() async {
     if (_checkingUpdate) return;
     setState(() => _checkingUpdate = true);
-    final AppConfigView config = _configView();
     try {
       final UpdateDecision decision = await AppUpdateChecker(
         manifestUrl: ref.read(appConfigProvider).updateManifestUrl,
@@ -214,10 +207,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       if (decision.available && decision.remote != null) {
         await showAppUpdateDialog(context, decision.remote!);
       } else {
-        // 带上「线上实际返回的版本」，便于诊断 CDN 缓存旧清单类问题。
-        _toast('已是最新版本（本地 ${config.version}'
-            '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}'
-            ' · 线上 ${decision.remote?.version ?? '?'}(${decision.remote?.versionCode ?? 0})）');
+        // 用户要求：仅提示「已是最新」，不展示过多信息。
+        _toast('当前已是最新版本');
       }
     } catch (error) {
       if (!mounted) return;
@@ -226,6 +217,46 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           .show('检查更新失败：请检查网络后重试', tone: ToastTone.warning);
     } finally {
       if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  /// 数据备份（用户确认的内容：含音频全量 ZIP = backup.json + summary.md + 各会议音频）。
+  ///
+  /// 点击「数据库」行触发；导出中防重入，行 value 显示「导出中…」。
+  Future<void> _exportBackup() async {
+    if (_exportingBackup) return;
+    setState(() => _exportingBackup = true);
+    _toast('正在导出数据备份…');
+    try {
+      final api = await ref.read(backendProvider.future);
+      final int? schemaVersion =
+          (await ref.read(healthProvider.future)).schemaVersion;
+      final List<MeetingSummary> summaries =
+          ref.read(meetingsProvider).value ?? const <MeetingSummary>[];
+      final List<Meeting> meetings = <Meeting>[];
+      for (final MeetingSummary summary in summaries) {
+        final Meeting? meeting = await api.getMeeting(summary.id);
+        if (meeting != null) meetings.add(meeting);
+      }
+      final String path = await exportBackup(
+        meetings: meetings,
+        destination: _destination,
+        schemaVersion: schemaVersion,
+        audioPathResolver: (Meeting meeting) => api.getAudioPath(meeting.id),
+      );
+      if (!mounted) return;
+      ref
+          .read(toastProvider.notifier)
+          .show('备份已导出：$path', tone: ToastTone.success);
+    } on ExportCancelledException {
+      return;
+    } catch (error) {
+      if (!mounted) return;
+      ref
+          .read(toastProvider.notifier)
+          .show('备份导出失败：$error', tone: ToastTone.warning);
+    } finally {
+      if (mounted) setState(() => _exportingBackup = false);
     }
   }
 
