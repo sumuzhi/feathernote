@@ -3,7 +3,7 @@ description: 智能会议纪要 · 移动端（Flutter + Dart 本地后端，无
 publish_to: 'none'
 
 # versionName+versionCode：Android 侧读这里。
-version: 1.0.14+15
+version: 1.0.15+16
 
 environment:
   sdk: ^3.13.4
