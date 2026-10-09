@@ -6,8 +6,9 @@ import UniformTypeIdentifiers
 /// 导入音视频平台通道（`feathernote/media_import`）。
 ///
 /// 契约 SSOT：docs/IMPORT-PIPELINE-DESIGN.md §6.3 / §6.4。
-/// - probeMedia：AVURLAsset.load(.duration / .tracks) 遍历轨判断 mediaType（iOS 15+ 异步 API，
-///   项目 deployment target = 15.0）；
+/// - probeMedia：先做「文件存在且非空」前置校验（E_SRC_UNREADABLE），再
+///   AVURLAsset.load(.duration / .tracks) 遍历轨判断 mediaType（iOS 15+ 异步 API，
+///   项目 deployment target = 15.0），并回传 trackCount / trackMimes 供诊断；
 /// - extractAudioTrack：AVAssetExportSession(presetAppleM4A) 导出 m4a——**零解码零转码**；
 ///   对视频 asset 直接 M4A 失败时的兜底（§6.3）：先 passthrough 转封装为 .mov，
 ///   再对 .mov 跑 presetAppleM4A（两段都零转码）；
@@ -46,6 +47,26 @@ import UniformTypeIdentifiers
       respondError(result, "E_SRC_UNREADABLE", "参数缺少 path")
       return
     }
+
+    // 前置校验：文件必须存在且有内容（file_picker 的 cache 副本可能是空文件/半成品）。
+    // 与 Android 侧 File.exists() && length() > 0 对齐；不满足直接报 E_SRC_UNREADABLE，
+    // 不再交给 AVURLAsset（它对空文件的报错对用户不可读）。
+    var fileSize = 0
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: path),
+      let attrs = try? fileManager.attributesOfItem(atPath: path),
+      let size = attrs[.size] as? Int {
+      fileSize = size
+    }
+    guard fileSize > 0 else {
+      let diagnostics =
+        "[MediaImport] probeMedia path=\(path) exists=\(fileManager.fileExists(atPath: path)) "
+        + "size=\(fileSize) → E_SRC_UNREADABLE（文件不存在或为空）"
+      print(diagnostics)
+      respondError(result, "E_SRC_UNREADABLE", "文件读取失败，可能已被移动或删除")
+      return
+    }
+
     let asset = AVURLAsset(url: URL(fileURLWithPath: path))
     Task {
       do {
@@ -53,7 +74,6 @@ import UniformTypeIdentifiers
         let tracks = try await asset.load(.tracks)
         var hasAudio = false
         var isVideoContainer = false
-        var mimeType = ""
         for track in tracks {
           if track.mediaType == .audio {
             hasAudio = true
@@ -64,13 +84,36 @@ import UniformTypeIdentifiers
         // 由扩展名尽力猜测 MIME（探测结果的主要判断字段是 hasAudio/isVideoContainer）。
         let mimeType = guessMime(path: path)
         let durationMs = Int(CMTimeGetSeconds(duration) * 1000)
+        // 轨道清单（诊断用）：格式「<序号>:<mediaType.rawValue>」，如 ["0:vide","1:soun"]。
+        //
+        // 注意：Android 侧同一字段是**真实 MIME**（如 "0:video/avc"、"1:audio/mp4a-latm"），
+        // iOS 侧只有 AVAssetTrack.mediaType（.audio → "soun"、.video → "vide"、.text → "text"）。
+        // 两端字符串不同是**允许且刻意保留**的：Dart 只把 trackMimes 写诊断日志，判定只用
+        // trackCount（0 → E_UNSUPPORTED_CONTAINER；>0 且 hasAudio=false → E_NO_AUDIO_TRACK），
+        // 不做任何前缀/字符串匹配。iOS 不移植 Android 的 MediaMetadataRetriever /
+        // ParcelFileDescriptor 兜底——AVFoundation 没有对应 API，且 iOS 侧 asset.load(.tracks)
+        // 对同一路径不存在「解不出轨」的分支。
+        let trackMimes: [String] = tracks.enumerated().map { entry in
+          "\(entry.offset):\(entry.element.mediaType.rawValue)"
+        }
+        print(
+          "[MediaImport] probeMedia path=\(path) size=\(fileSize) "
+            + "trackCount=\(tracks.count) mimes=\(trackMimes) durationMs=\(durationMs) "
+            + "source=avurlasset"
+        )
         respond(result, [
           "durationMs": durationMs,
           "hasAudio": hasAudio,
           "isVideoContainer": isVideoContainer,
           "mimeType": mimeType,
+          "trackCount": tracks.count,
+          "trackMimes": trackMimes,
         ])
       } catch {
+        print(
+          "[MediaImport] probeMedia failed path=\(path) size=\(fileSize) "
+            + "err=\(error.localizedDescription)"
+        )
         respondError(
           result, "E_SRC_UNREADABLE",
           "文件读取失败，可能已被移动或删除（\(error.localizedDescription)）")
