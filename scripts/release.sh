@@ -46,15 +46,18 @@ step "0/6 前置检查"
 PATCH="${VERSION##*.}"
 VERSION_CODE=$((PATCH + 1))
 CURRENT_CODE=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
-if [[ "$VERSION_CODE" -le "$CURRENT_CODE" ]]; then
-  echo "❌ versionCode(${VERSION_CODE}) 必须大于当前(${CURRENT_CODE})——否则设备会判定降级"
+if [[ "$VERSION_CODE" -lt "$CURRENT_CODE" ]]; then
+  echo "❌ versionCode(${VERSION_CODE}) 不能小于当前(${CURRENT_CODE})——设备会判定降级"
   exit 1
+fi
+if [[ "$VERSION_CODE" -eq "$CURRENT_CODE" ]]; then
+  echo "ℹ️ versionCode(${VERSION_CODE}) 与当前相同——视为中断续跑"
 fi
 echo "✅ 目标版本 ${VERSION}+${VERSION_CODE}（当前 versionCode=${CURRENT_CODE}）"
 
 # ── 1. bump 版本并提交 ─────────────────────────────────────────────────────────
 step "1/6 bump 版本并提交"
-if [[ "$CURRENT_CODE" -eq "$VERSION_CODE" ]]; then
+if [[ "$CURRENT_CODE" -ge "$VERSION_CODE" ]]; then
   # 幂等：上次发布中断在 bump 之后时，直接续跑（不重复提交）。
   echo "✅ 已处于目标版本 ${VERSION}+${VERSION_CODE}，跳过 bump（沿用中断的发布）"
 else
