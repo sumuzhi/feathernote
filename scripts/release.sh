@@ -46,7 +46,7 @@ if [[ "$VERSION_CODE" -le "$CURRENT_CODE" ]]; then
   echo "❌ versionCode($VERSION_CODE) 必须大于当前($CURRENT_CODE)——否则设备会判定降级"
   exit 1
 fi
-echo "✅ 目标版本 $VERSION+$VERSION_CODE（当前 versionCode=$CURRENT_CODE）"
+echo "✅ 目标版本 ${VERSION}+${VERSION_CODE}（当前 versionCode=${CURRENT_CODE}）"
 
 # ── 1. bump 版本并提交 ─────────────────────────────────────────────────────────
 step "1/6 bump 版本并提交"
@@ -125,7 +125,7 @@ sed -i '' \
   apk-share/index.html
 
 if [[ -n "$NOTES" ]]; then
-  sed -i '' "s|<br />✦ <b>本版更新.*$|<br />✦ <b>本版更新（$VERSION）</b>：$NOTES|" apk-share/index.html
+  sed -i '' "s|<br />✦ <b>本版更新.*$|<br />✦ <b>本版更新（${VERSION}）</b>：${NOTES}|" apk-share/index.html
 fi
 
 # JSON 合法性自检（python3 为 macOS 自带）。
