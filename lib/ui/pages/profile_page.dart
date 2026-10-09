@@ -214,8 +214,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       if (decision.available && decision.remote != null) {
         await showAppUpdateDialog(context, decision.remote!);
       } else {
-        _toast('已是最新版本（${config.version}'
-            '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}）');
+        // 带上「线上实际返回的版本」，便于诊断 CDN 缓存旧清单类问题。
+        _toast('已是最新版本（本地 ${config.version}'
+            '${config.buildStamp.isEmpty ? '' : ' · ${config.buildStamp}'}'
+            ' · 线上 ${decision.remote?.version ?? '?'}(${decision.remote?.versionCode ?? 0})）');
       }
     } catch (error) {
       if (!mounted) return;

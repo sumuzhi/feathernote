@@ -114,12 +114,26 @@ class AppUpdateChecker {
   final Dio _dio;
 
   Future<Map<String, dynamic>> _doFetch(String url) async {
+    // CDN 缓存击穿（2026-10-09 用户实测）：version.json 无 Cache-Control 头，
+    // EdgeOne 按扩展名默认缓存 —— 发布新版后设备在 TTL 内仍拉到旧清单
+    // （表现为「已是最新 1.0.8」/「首次启动无更新弹窗」）。
+    // ① 时间戳查询参数（EdgeOne 缓存键含 query → 强制回源）；
+    // ② 请求头声明 no-cache（尊重支持 revalidate 的中间层）。
+    final Uri uri = Uri.parse(url);
+    final Uri bust = uri.replace(queryParameters: <String, String>{
+      ...uri.queryParameters,
+      't': DateTime.now().millisecondsSinceEpoch.toString(),
+    });
     final Response<dynamic> resp = await _dio.get<dynamic>(
-      url,
+      bust.toString(),
       options: Options(
         responseType: ResponseType.json,
         sendTimeout: const Duration(seconds: 8),
         receiveTimeout: const Duration(seconds: 8),
+        headers: <String, String>{
+          'cache-control': 'no-cache',
+          'pragma': 'no-cache',
+        },
       ),
     );
     return _asMap(resp.data);
