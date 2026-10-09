@@ -32,6 +32,8 @@ class MinutesScreen extends StatelessWidget {
     this.notice,
     this.noticeAction,
     this.onNoticeAction,
+    this.headerCollapsed = false,
+    this.onToggleHeaderCollapse,
   });
 
   /// 顶栏副标题（「生成于 12:47」）。
@@ -63,6 +65,12 @@ class MinutesScreen extends StatelessWidget {
 
   /// 是否已收藏。
   final bool favorited;
+
+  /// 信息卡是否收起（true = 仅小号标题行，给纪要内容让空间）。
+  final bool headerCollapsed;
+
+  /// 点击信息卡切换收起/展开（null = 不支持收缩，如设计稿目录页）。
+  final VoidCallback? onToggleHeaderCollapse;
 
   /// 顶部提示（如「终稿处理中 · 完成后自动刷新纪要」）。
   final String? notice;
@@ -113,6 +121,9 @@ class MinutesScreen extends StatelessWidget {
             // 「查看完整转写」入口（按参考图挂在顶部信息卡内，替代原卡片底部行）。
             transcriptChars: minutes.transcriptChars,
             onOpenTranscript: minutes.onOpenTranscript,
+            // header 收缩（用户要求）：点击信息卡收起为小号标题行，给内容让空间。
+            collapsed: headerCollapsed,
+            onToggleCollapse: onToggleHeaderCollapse,
           ),
           if (notice != null)
             Container(

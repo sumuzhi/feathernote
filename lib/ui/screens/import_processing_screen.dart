@@ -211,8 +211,10 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
+          // Title：设计稿 left 50 与返回箭头间隙过大，对齐全局顶栏间距收紧到 30
+          // （用户要求：返回 icon 与 title 距离调整）。
           Positioned(
-            left: s(context, 50),
+            left: s(context, 30),
             top: s(context, 9.5),
             height: s(context, 25),
             child: Align(

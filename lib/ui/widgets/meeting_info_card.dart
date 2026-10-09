@@ -1,4 +1,8 @@
 /// 会议信息卡（HTML `#s03 .info` / `#s11 .info`）：标题 + 徽标 + 元信息。
+///
+/// 支持收起态（用户要求）：点击信息卡收起 → 仅显示小号标题 + 展开箭头，
+/// 为纪要内容让出空间；再点展开还原。整卡点击触发，卡内「查看完整转写」
+/// 入口命中测试优先、不会误触收缩。
 library;
 
 import 'package:flutter/material.dart';
@@ -17,6 +21,8 @@ class MeetingInfoCard extends StatelessWidget {
     this.badgeTone = AppBadgeTone.done,
     this.transcriptChars,
     this.onOpenTranscript,
+    this.collapsed = false,
+    this.onToggleCollapse,
   });
 
   /// 会议标题。
@@ -39,44 +45,105 @@ class MeetingInfoCard extends StatelessWidget {
   /// 点击「查看完整转写」。
   final VoidCallback? onOpenTranscript;
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(AppSpacing.page, 18, AppSpacing.page, 0),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      decoration: BoxDecoration(
+  /// 是否收起（true = 仅小号标题行）。
+  final bool collapsed;
+
+  /// 点击切换收起/展开（null = 不支持收缩，保持原静态形态）。
+  final VoidCallback? onToggleCollapse;
+
+  BoxDecoration _decoration() => BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(AppRadius.card),
         boxShadow: AppShadow.card,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      );
+
+  EdgeInsets get _margin => const EdgeInsets.fromLTRB(AppSpacing.page, 18, AppSpacing.page, 0);
+
+  @override
+  Widget build(BuildContext context) {
+    if (collapsed) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onToggleCollapse,
+        child: Container(
+          margin: _margin,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: _decoration(),
+          child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   title,
-                  style: AppTextStyles.cardTitle,
+                  // 收起态用小一号的历史卡标题（17/w600），给内容区让空间。
+                  style: AppTextStyles.itemTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(width: 12),
-              AppBadge(text: badgeText, tone: badgeTone),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 20,
+                color: AppColors.muted,
+              ),
             ],
           ),
-          const SizedBox(height: 9),
-          Text(meta, style: AppTextStyles.meta),
-          if (onOpenTranscript != null) ...<Widget>[
-            const SizedBox(height: 12),
-            _TranscriptEntry(
-              chars: transcriptChars ?? '',
-              onTap: onOpenTranscript!,
-            ),
-          ],
-        ],
+        ),
+      );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // 整卡点击收起；「查看完整转写」入口的内层 GestureDetector 命中优先，
+      // 不会误触。onToggleCollapse 为 null（不支持收缩）时无响应。
+      onTap: onToggleCollapse,
+      child: AnimatedSize(
+        duration: AppDuration.fade,
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: Container(
+          margin: _margin,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+          decoration: _decoration(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTextStyles.cardTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  AppBadge(text: badgeText, tone: badgeTone),
+                  // 收起入口提示（支持收缩时才显示）。
+                  if (onToggleCollapse != null) ...<Widget>[
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      size: 20,
+                      color: AppColors.muted,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 9),
+              Text(meta, style: AppTextStyles.meta),
+              if (onOpenTranscript != null) ...<Widget>[
+                const SizedBox(height: 12),
+                _TranscriptEntry(
+                  chars: transcriptChars ?? '',
+                  onTap: onOpenTranscript!,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

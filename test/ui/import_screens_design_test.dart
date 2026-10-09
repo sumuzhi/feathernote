@@ -102,16 +102,17 @@ void main() {
     );
     expect(find.text('最近导入'), findsOneWidget);
 
-    // 拖拽区内层：350 − 18×2 = 314 宽、148 高（52+6+22+6+16+6+40）。
+    // 拖拽区内层：350 − 18×2 = 314 宽。高度原为 148（52+6+22+6+16+6+40）；
+    // 2026-10-09 字号对齐全局字阶（说明文案 11→12）后实测 149。
     final Size zone = tester.getSize(
       find
           .ancestor(of: find.text('拖拽文件到此处'), matching: find.byType(Column))
           .first,
     );
     expect(zone.width, closeTo(314, 0.5));
-    expect(zone.height, closeTo(148, 0.5));
+    expect(zone.height, closeTo(149, 0.5));
 
-    // 最近卡片：350×60。
+    // 最近卡片：350×60（字号对齐全局字阶后 meta 11→12，实测高 64）。
     expect(
       tester.getSize(
         find
@@ -121,7 +122,7 @@ void main() {
             )
             .first,
       ),
-      const Size(350, 60),
+      const Size(350, 64),
     );
   });
 
@@ -193,8 +194,9 @@ void main() {
     // 文件卡 64..136（HTML 126 − 62），卡内 44 图标行居中 → 标题落在 80。
     expect(tester.getTopLeft(find.text('产品评审_录屏.mp4')).dy, closeTo(80, 0.5));
     // 修复 ③：整体进度卡不再渲染 ETA tips 行，OverallCard 比旧实现矮约 30px，
-    // 故 StepsCard 整体上移 → 步骤 ① 落在 257（实测值；旧实现为 287）。
-    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(257, 2));
+    // 故 StepsCard 整体上移 → 步骤 ① 落在 257（旧实现为 287）；
+    // 2026-10-09 字号对齐全局字阶（卡片标题 13→15，行盒 +3）后实测 260。
+    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(260, 2));
     // 说明条内文字区宽 350 − 14×2 = 322。
     expect(
       tester

@@ -47,6 +47,8 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
   Meeting? _meeting;
   bool _loading = true;
   bool _favorited = false;
+  // 信息卡收起态（用户要求：点击 header 收起为小号标题行，给内容让空间）。
+  bool _headerCollapsed = false;
   String _streamBuffer = '';
   bool _generating = false;
   String? _error;
@@ -312,6 +314,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
             .show(_favorited ? '已收藏' : '已取消收藏', tone: ToastTone.success);
       },
       favorited: _favorited,
+      headerCollapsed: _headerCollapsed,
+      onToggleHeaderCollapse: () =>
+          setState(() => _headerCollapsed = !_headerCollapsed),
     );
   }
 

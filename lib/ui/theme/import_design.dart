@@ -112,7 +112,24 @@ class ImportDesign {
   /// 17px 字 → 25px 行盒（页面标题）。
   static const double lh17 = 1.4706;
 
-  /// 按设计稿字号构造文本样式。
+  /// 设计稿字号 → 全局字阶（[AppTextStyles]）映射。
+  ///
+  /// 用户要求：导入两屏字号与整个 App 保持一致，不再沿用设计稿的更小字号。
+  /// 就近上取全局档（AppTextStyles：badge 11 / metaSmall 12 / meta 13 /
+  /// subHead·设置项 15 / input 14 / body·按钮 15 / cardHead 17）：
+  /// 10→11、11→12、12→13、13→15（标题类抬到全局 subHead 档）、14→14、15→15、17→17。
+  /// 行高倍率（[lh] 常量）保持不变，行盒随字号自然放大。
+  static double _globalSize(double designSize) {
+    if (designSize <= 10) return 11;
+    if (designSize <= 11) return 12;
+    if (designSize <= 12) return 13;
+    if (designSize <= 13) return 15;
+    if (designSize <= 14) return 14;
+    if (designSize <= 15) return 15;
+    return 17;
+  }
+
+  /// 按设计稿字号构造文本样式（字号经 [_globalSize] 映射到全局字阶）。
   static TextStyle ts(
     BuildContext context,
     double designSize,
@@ -122,7 +139,7 @@ class ImportDesign {
   }) {
     return TextStyle(
       fontFamily: AppTextStyles.fontFamily,
-      fontSize: s(context, designSize),
+      fontSize: s(context, _globalSize(designSize)),
       fontWeight: weight,
       color: color,
       height: lineHeight,
