@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/log/log.dart';
 import '../core/update/app_update.dart';
 import '../ui/providers/app_providers.dart';
 import '../ui/router/app_router.dart';
@@ -88,7 +89,22 @@ class _UpdatePromptState extends ConsumerState<_UpdatePrompt> {
     if (_checked) return;
     _checked = true;
     final String url = ref.read(appConfigProvider).updateManifestUrl;
-    final UpdateDecision decision = await AppUpdateChecker(manifestUrl: url).check();
+    final AppUpdateChecker checker = AppUpdateChecker(manifestUrl: url);
+    logDebug('update', '启动期更新检查开始', <String, Object?>{'manifest': url});
+    UpdateDecision decision;
+    try {
+      // 冷启动兜底：网络可能尚未就绪，首次失败等 5 秒重试一次，仍失败静默放弃。
+      decision = await checker.checkStrict();
+    } catch (firstError) {
+      logWarn('update', '启动期首次检查失败，5 秒后重试一次：$firstError');
+      await Future<void>.delayed(const Duration(seconds: 5));
+      try {
+        decision = await checker.checkStrict();
+      } catch (retryError) {
+        logWarn('update', '启动期重试仍失败（静默放弃，不阻断启动）：$retryError');
+        return;
+      }
+    }
     if (!mounted) return;
     if (decision.available && decision.remote != null) {
       await showAppUpdateDialog(context, decision.remote!);

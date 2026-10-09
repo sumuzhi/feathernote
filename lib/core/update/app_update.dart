@@ -124,6 +124,7 @@ class AppUpdateChecker {
       ...uri.queryParameters,
       't': DateTime.now().millisecondsSinceEpoch.toString(),
     });
+    logDebug('update', '更新清单请求', <String, Object?>{'url': bust.toString()});
     final Response<dynamic> resp = await _dio.get<dynamic>(
       bust.toString(),
       options: Options(
@@ -136,7 +137,18 @@ class AppUpdateChecker {
         },
       ),
     );
-    return _asMap(resp.data);
+    // 诊断日志（用户要求）：观察设备实际拿到的数据是新是旧、是不是 JSON。
+    final Object? raw = resp.data;
+    final String preview = raw is String
+        ? (raw.length > 160 ? raw.substring(0, 160) : raw)
+        : safeJson(raw).substring(0, safeJson(raw).length.clamp(0, 160));
+    logDebug('update', '更新清单响应', <String, Object?>{
+      'status': resp.statusCode,
+      'contentType': resp.headers.value('content-type'),
+      'dataType': raw.runtimeType.toString(),
+      'preview': preview,
+    });
+    return _asMap(raw);
   }
 
   Future<int> _readLocal() async {
@@ -168,6 +180,13 @@ class AppUpdateChecker {
     final RemoteVersion remote = RemoteVersion.fromJson(data);
     final int local = await _readLocal();
     final bool need = needsUpdate(local, remote);
+    // 诊断日志（用户要求）：判定三要素一次打全——远端清单 / 本地 versionCode / 结论。
+    logDebug('update', '更新判定', <String, Object?>{
+      'remote': '${remote.version}(${remote.versionCode})',
+      'downloadUrl': remote.downloadUrl,
+      'localVersionCode': local,
+      'need': need,
+    });
     if (need) {
       logInfo(
         'update',
