@@ -134,6 +134,7 @@ class AppConfig {
     required this.useMockEngine,
     required this.version,
     required this.buildStamp,
+    required this.updateManifestUrl,
   });
 
   // ── 引擎 ──
@@ -293,6 +294,13 @@ class AppConfig {
   /// 用于「手机 App 与下载页是否同一构建」的目视核对；未注入为空串。
   final String buildStamp;
 
+  /// 版本更新清单地址（`version.json`）。
+  ///
+  /// App 启动后拉取该清单与本地 versionCode 比较，发现有更高版本则弹窗提示更新。
+  /// 默认指向发布下载站的 manifest；可用 `--dart-define=UPDATE_MANIFEST_URL=...`
+  /// 覆盖（如内网/灰度地址）。清单不可达时静默跳过，不阻断启动。
+  final String updateManifestUrl;
+
   /// 默认的运行时配置（未指定的键取原 Node 版默认值）。
   ///
   /// 优先使用 `--dart-define` 注入的值；未注入时回落到默认值。
@@ -350,6 +358,10 @@ class AppConfig {
       useMockEngine: Secrets.useMockEngine || _readString('ENGINE_PROVIDER', 'bailian') == 'mock',
       version: _readString('SMART_MINUTES_VERSION', '1.0.0'),
       buildStamp: Secrets.buildStamp,
+      updateManifestUrl: _readString(
+        'UPDATE_MANIFEST_URL',
+        'https://smart-minutes-apk.app.workbuddy.host/version.json',
+      ),
     );
   }
 

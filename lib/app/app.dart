@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/update/app_update.dart';
 import '../ui/providers/app_providers.dart';
 import '../ui/router/app_router.dart';
 // routeObserver 从 app_router.dart 导出，无需额外导入。
 import '../ui/theme/app_theme.dart';
 import '../ui/widgets/app_toast.dart';
+import '../ui/widgets/update_dialog.dart';
 
 /// 全局滚动行为：**关闭过度滑动（overscroll）与滚动条（scrollbars）**。
 ///
@@ -50,10 +52,51 @@ class SmartMinutesApp extends StatelessWidget {
               statusBarIconBrightness: Brightness.dark,
               statusBarBrightness: Brightness.light,
             ),
-            child: _ToastLayer(child: child ?? const SizedBox.shrink()),
+            child: _UpdatePrompt(
+              child: _ToastLayer(child: child ?? const SizedBox.shrink()),
+            ),
           ),
     );
   }
+}
+
+/// 启动期版本更新检查封装。
+///
+/// 包裹在 Toast 层之外、MaterialApp.builder 之内，因此拥有 Overlay 环境可弹窗。
+/// 仅在每次启动（widget 首次挂载）检查一次：拉取远端 manifest 与本地 versionCode
+/// 比较，发现更高版本则弹窗；任何失败静默忽略，不阻断启动。
+class _UpdatePrompt extends ConsumerStatefulWidget {
+  /// 构造检查封装。
+  const _UpdatePrompt({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_UpdatePrompt> createState() => _UpdatePromptState();
+}
+
+class _UpdatePromptState extends ConsumerState<_UpdatePrompt> {
+  bool _checked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    if (_checked) return;
+    _checked = true;
+    final String url = ref.read(appConfigProvider).updateManifestUrl;
+    final UpdateDecision decision = await AppUpdateChecker(manifestUrl: url).check();
+    if (!mounted) return;
+    if (decision.available && decision.remote != null) {
+      await showAppUpdateDialog(context, decision.remote!);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// 把全局 Toast 包在 MaterialApp 之上（以获得 Directionality / Overlay 环境）。
