@@ -6,7 +6,7 @@
 #   例：./scripts/release.sh 1.0.13 "备份按每场会议单独导出 md"
 #
 # 做了什么（与人工流水线一致）：
-#   1. bump pubspec 版本（versionCode = 末段补丁号 + 1，强制单调递增）并提交；
+#   1. bump pubspec 版本（build number = 末段补丁号 + 1，强制单调递增）并提交；
 #   2. 临时 gradle.properties daemon=false → 构建 arm64-v8a split Release APK
 #      （注入 DASHSCOPE key / 模型 / BUILD_STAMP，与 run_real.sh 同源）；
 #   3. APK 落位 apk-share/（清理旧包），计算 MD5；
@@ -116,6 +116,25 @@ fi
 MD5_SHORT="${MD5:0:8}…${MD5: -5}"
 echo "✅ $APK_NAME  MD5=$MD5"
 
+# ⚠️ versionCode 必须以 APK 实读值为准，不能用 pubspec 的 build number 推算：
+# `--split-per-abi` 会给 arm64 包自动叠加 `1000 × ABI_VERSION(arm64=2)` 的偏移，
+# 即真实 versionCode = 2000 + build number。
+# 历史事故：清单写 14、APK 实为 2014，真机 local=2013 → `14 > 2013` 为假，
+# 更新提示永久失效（模拟器因装的是 local=1 的 debug 包反而不受影响，造成误判）。
+AAPT="${AAPT:-$(ls "$ANDROID_SDK_ROOT"/build-tools/*/aapt2 2>/dev/null | tail -1)}"
+[[ -n "$AAPT" && -x "$AAPT" ]] || { echo "❌ 找不到 aapt2（ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT）"; exit 1; }
+APK_CODE=$("$AAPT" dump badging "apk-share/$APK_NAME" |
+  sed -n "s/.*versionCode='\([0-9]\{1,\}\)'.*/\1/p" | head -1)
+[[ "$APK_CODE" =~ ^[0-9]+$ ]] || { echo "❌ 无法从 APK 读取真实 versionCode：$APK_NAME"; exit 1; }
+if [[ "$APK_CODE" -lt "$VERSION_CODE" ]]; then
+  echo "❌ APK 真实 versionCode(${APK_CODE}) 小于 pubspec build number(${VERSION_CODE})——异常，中止"
+  exit 1
+fi
+if [[ "$APK_CODE" -eq "$VERSION_CODE" ]]; then
+  echo "⚠️ APK 真实 versionCode 与 build number 相同（未检测到 ABI 偏移）——请确认是否走了 --split-per-abi"
+fi
+echo "✅ APK 真实 versionCode=${APK_CODE}（pubspec build number=${VERSION_CODE}，ABI 偏移=$((APK_CODE - VERSION_CODE))）"
+
 # ── 4. 由模板重新生成 version.json / index.html ───────────────────────────────
 step "4/6 生成 version.json / index.html"
 # HTML 转义更新说明（& < >）。
@@ -124,7 +143,7 @@ NOTES_HTML=$(printf '%s' "$NOTES" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
 cat > apk-share/version.json << EOF
 {
   "version": "${VERSION}",
-  "versionCode": ${VERSION_CODE},
+  "versionCode": ${APK_CODE},
   "buildStamp": "${STAMP}",
   "minVersionCode": 1,
   "downloadUrl": "https://2d1c7d182ab842d9adc9e83f7f76e75f.app.workbuddy.host/${APK_NAME}",
@@ -254,9 +273,13 @@ cat > apk-share/index.html << EOF
 </html>
 EOF
 
-# JSON 合法性自检（python3 为 macOS 自带）。
-python3 -c "import json;json.load(open('apk-share/version.json'))" \
-  || { echo "❌ version.json 不是合法 JSON"; exit 1; }
+# JSON 合法性自检 + versionCode 与 APK 实读值一致性（python3 为 macOS 自带）。
+python3 - "$APK_CODE" <<'PY' || { echo "❌ version.json 自检失败"; exit 1; }
+import json, sys
+data = json.load(open('apk-share/version.json'))
+assert data['versionCode'] == int(sys.argv[1]), (data['versionCode'], sys.argv[1])
+print('✅ version.json versionCode=%d 与 APK 一致' % data['versionCode'])
+PY
 echo "✅ version.json / index.html 已重新生成"
 
 # ── 5. push ────────────────────────────────────────────────────────────────────
@@ -268,10 +291,11 @@ echo "✅ 已推送（HEAD=$(git rev-parse --short HEAD)）"
 step "6/6 发布物就绪"
 cat << EOF
 
-✅ ${VERSION}(${VERSION_CODE}) 构建与发布物准备完毕：
+✅ ${VERSION}(${APK_CODE}) 构建与发布物准备完毕：
    APK   = apk-share/$APK_NAME
    MD5   = $MD5
    STAMP = $STAMP
+   （清单 versionCode=${APK_CODE} 取自检包后 APK 实读值，含 ABI 偏移）
 
 ⚠️ 最后一步：回到 WorkBuddy 对话说「部署」，由主理人完成 CDN 上传与
    线上核验（manifest / APK / 更新通道判定）。设备更新提示在 CDN
