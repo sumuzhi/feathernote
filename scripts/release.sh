@@ -30,8 +30,8 @@ NOTES="${2:-详见下载页更新说明。}"
 
 cd "$(dirname "$0")/.."
 
-FLUTTER="${FLUTTER:-$HOME/workbuddy/binaries/flutter/flutter/bin/flutter}"
-export JAVA_HOME="${JAVA_HOME:-$HOME/workbuddy/binaries/java/jdk-21.0.2.jdk/Contents/Home}"
+FLUTTER="${FLUTTER:-$HOME/.workbuddy/binaries/flutter/flutter/bin/flutter}"
+export JAVA_HOME="${JAVA_HOME:-$HOME/.workbuddy/binaries/java/jdk-21.0.2.jdk/Contents/Home}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}"
 export PATH="$JAVA_HOME/bin:$FLUTTER/bin:$PATH"
 
