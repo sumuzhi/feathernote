@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../theme/import_design.dart';
 import '../utils/design_scale.dart';
+import '../widgets/app_top_bar.dart';
 import 'screen_frame.dart';
 
 /// 单步卡视图数据。
@@ -138,22 +139,24 @@ class ImportProcessingScreen extends StatelessWidget {
         onCancel: onCancel,
         onViewMinutes: onViewMinutes,
       ),
-      // 固定头部：顶栏 + 其上 4、其下 16 的间距一起挪出滚动区，顶栏与文件卡的
-      // 视觉间距仍是 16（与改前一致）。右上「后台处理」随时可点。
-      header: Padding(
-        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(height: s(context, 4)),
-            _TopBar(
-              title: allDone ? '导入完成' : (failed ? '导入失败' : '处理中'),
-              onBack: onBack,
-            ),
-            SizedBox(height: s(context, 16)),
-          ],
-        ),
+      // 固定头部：顶栏（用户要求：与完整转写页统一，返回 icon 带背景圆形底）
+      // + 其上 4、其下 16 的间距一起挪出滚动区。右上「后台处理」随时可点。
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(height: s(context, 4)),
+          AppTopBar(
+            title: allDone ? '导入完成' : (failed ? '导入失败' : '处理中'),
+            subtitle: '',
+            leadingIcon: Icons.chevron_left_rounded,
+            onLeading: onBack,
+            actionIcon: Icons.cloud_upload_outlined,
+            onAction: onBack,
+            actionTooltip: '后台处理',
+          ),
+          SizedBox(height: s(context, 16)),
+        ],
       ),
       body: Padding(
         // HTML 内容区 padding: 4px 20px 24px（顶部 4 已随 header 一起给到顶栏）。
@@ -170,92 +173,6 @@ class ImportProcessingScreen extends StatelessWidget {
             _NoteCard(isVideo: isVideo),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 顶栏：返回箭头 + 「处理中」+「后台处理」（350×44）。
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.title, required this.onBack});
-
-  final String title;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final double tap = s(context, 44);
-    return SizedBox(
-      height: s(context, 44),
-      width: double.infinity,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          // Back：设计稿箭头 6.5×11 `#C2A08C`，中心 (9.25, 22)。
-          Positioned(
-            left: s(context, 9.25) - tap / 2,
-            top: s(context, 22) - tap / 2,
-            width: tap,
-            height: tap,
-            child: Semantics(
-              button: true,
-              label: '返回',
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onBack,
-                child: Icon(
-                  Icons.chevron_left_rounded,
-                  size: s(context, 20),
-                  color: ImportDesign.chevron,
-                ),
-              ),
-            ),
-          ),
-          // Title：设计稿 left 50 与返回箭头间隙过大，对齐全局顶栏间距收紧到 30
-          // （用户要求：返回 icon 与 title 距离调整）。
-          Positioned(
-            left: s(context, 30),
-            top: s(context, 9.5),
-            height: s(context, 25),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                title,
-                style: ImportDesign.ts(
-                  context,
-                  17,
-                  FontWeight.w700,
-                  AppColors.ink,
-                  lineHeight: ImportDesign.lh17,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-          // 「后台处理」：设计稿 51×25 右对齐，命中区向左扩到 67×44。
-          Positioned(
-            right: 0,
-            top: 0,
-            width: s(context, 67),
-            height: s(context, 44),
-            child: Semantics(
-              button: true,
-              label: '后台处理',
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onBack,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '后台处理',
-                    style: ImportDesign.ts(context, 13, FontWeight.w500, AppColors.orange),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

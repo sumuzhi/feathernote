@@ -97,12 +97,18 @@ Widget toastTextEnvironment({required Widget child}) => DefaultTextStyle(
 );
 
 /// 普通提示条（统一浅橙样式）。
+///
+/// [onClose] 非 null 时右侧显示 × 关闭按钮（用户要求：toast 会挡住顶部操作，
+/// 必须可手动关闭）。
 class AppToast extends StatelessWidget {
   /// 构造提示条。
-  const AppToast({super.key, required this.message});
+  const AppToast({super.key, required this.message, this.onClose});
 
   /// 提示内容。
   final ToastMessage message;
+
+  /// 点击 × 关闭（null = 不显示关闭按钮）。
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +141,22 @@ class AppToast extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (onClose != null) ...<Widget>[
+              const SizedBox(width: 8),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onClose,
+                child: const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -244,13 +266,14 @@ class AppActionToast extends StatelessWidget {
 
 /// 顶部浮层宿主：把 [child] 与提示浮层组合（放在页面最外层使用）。
 ///
-/// [message] 为 null 时提示滑出并淡出。
+/// [message] 为 null 时提示滑出并淡出；[onClose] 供 × 手动关闭。
 class AppToastOverlay extends StatelessWidget {
   /// 构造浮层宿主。
   const AppToastOverlay({
     super.key,
     required this.message,
     required this.child,
+    this.onClose,
   });
 
   /// 当前提示（null = 不显示）。
@@ -258,6 +281,9 @@ class AppToastOverlay extends StatelessWidget {
 
   /// 页面内容。
   final Widget child;
+
+  /// 点击 × 手动关闭提示。
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -282,7 +308,7 @@ class AppToastOverlay extends StatelessWidget {
                 opacity: current == null ? 0 : 1,
                 child: current == null
                     ? const SizedBox.shrink()
-                    : AppToast(message: current),
+                    : AppToast(message: current, onClose: onClose),
               ),
             ),
           ),

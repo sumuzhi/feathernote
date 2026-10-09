@@ -108,6 +108,11 @@ class _ToastLayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ToastMessage? message = ref.watch(toastProvider);
-    return AppToastOverlay(message: message, child: child);
+    return AppToastOverlay(
+      message: message,
+      // × 手动关闭（用户要求：toast 挡住顶部操作时可以立刻关掉）。
+      onClose: () => ref.read(toastProvider.notifier).clear(),
+      child: child,
+    );
   }
 }

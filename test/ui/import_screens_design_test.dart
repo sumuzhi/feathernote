@@ -89,7 +89,8 @@ void main() {
 
     // 设计稿里的固定文案，一字不改。
     expect(find.text('导入音视频'), findsOneWidget);
-    expect(find.text('帮助'), findsOneWidget);
+    // 顶栏标准化后「帮助」为 icon + semantics 标签（原为右上文字链接）。
+    expect(find.byIcon(Icons.help_outline_rounded), findsOneWidget);
     expect(find.text('拖拽文件到此处'), findsOneWidget);
     expect(find.text('MP4 / MOV / MP3 / WAV · 单个文件 ≤ 2GB'), findsOneWidget);
     expect(find.text('选择文件'), findsOneWidget);
@@ -162,8 +163,10 @@ void main() {
 
     // 设计稿固定文案。
     expect(find.text('处理中'), findsOneWidget);
-    // 「后台处理」在设计稿里出现两次：顶栏右侧链接 + 底部橙色主按钮。
-    expect(find.text('后台处理'), findsNWidgets(2));
+    // 顶栏标准化后「后台处理」右上为 icon（原为文字链接），
+    // 底部橙色主按钮仍是可见文字。
+    expect(find.text('后台处理'), findsOneWidget);
+    expect(find.byIcon(Icons.cloud_upload_outlined), findsOneWidget);
     expect(find.text('整体进度'), findsOneWidget);
     expect(find.text('取消处理'), findsOneWidget);
     expect(find.text('视频'), findsOneWidget);
@@ -189,14 +192,14 @@ void main() {
     expect(find.text('37%'), findsOneWidget);
     expect(find.text('48%'), findsOneWidget);
 
-    // 几何：OverallCard 顶 152（HTML 214 − 62），标题行 152+16 = 168。
-    expect(tester.getTopLeft(find.text('整体进度')).dy, closeTo(168, 0.5));
-    // 文件卡 64..136（HTML 126 − 62），卡内 44 图标行居中 → 标题落在 80。
-    expect(tester.getTopLeft(find.text('产品评审_录屏.mp4')).dy, closeTo(80, 0.5));
+    // 几何：顶栏标准化（AppTopBar，自带 page/6 padding）后内容整体 +6，
+    // OverallCard 顶 152→158，标题行落在 174（原 HTML 基线 168）。
+    expect(tester.getTopLeft(find.text('整体进度')).dy, closeTo(174, 0.5));
+    // 文件卡标题：原 80 → 86。
+    expect(tester.getTopLeft(find.text('产品评审_录屏.mp4')).dy, closeTo(86, 0.5));
     // 修复 ③：整体进度卡不再渲染 ETA tips 行，OverallCard 比旧实现矮约 30px，
-    // 故 StepsCard 整体上移 → 步骤 ① 落在 257（旧实现为 287）；
-    // 2026-10-09 字号对齐全局字阶（卡片标题 13→15，行盒 +3）后实测 260。
-    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(260, 2));
+    // 故 StepsCard 整体上移（旧实现 287）；字号映射 + 顶栏标准化后实测 266。
+    expect(tester.getTopLeft(find.text('上传文件')).dy, closeTo(266, 2));
     // 说明条内文字区宽 350 − 14×2 = 322。
     expect(
       tester

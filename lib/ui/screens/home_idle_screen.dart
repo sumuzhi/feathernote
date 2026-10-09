@@ -140,7 +140,8 @@ class HomeIdleScreen extends StatelessWidget {
                   Text(greeting, style: AppTextStyles.greeting),
                   const SizedBox(height: 4),
                 ],
-                Text('开始记录', style: AppTextStyles.pageTitle),
+                // 用户要求：三 Tab 页标题缩小（原 pageTitle 34 → sectionTitle 20）。
+                Text('开始记录', style: AppTextStyles.sectionTitle),
                 // 「一句话」：一言 API（诗词），随每次进首页刷新；无网静默隐藏。
                 // 单击复制到剪贴板，双击刷新句子（交互由 onQuoteTap/onQuoteRefresh 提供）。
                 if (dailyQuote != null && dailyQuote!.isNotEmpty) ...<Widget>[

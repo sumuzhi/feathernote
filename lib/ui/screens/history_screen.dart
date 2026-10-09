@@ -147,7 +147,8 @@ class HistoryScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text('历史记录', style: AppTextStyles.pageTitle),
+                      // 用户要求：标题缩小（原 pageTitle 34 → sectionTitle 20）。
+                      Text('历史记录', style: AppTextStyles.sectionTitle),
                       if (subtitle != null) ...<Widget>[
                         const SizedBox(height: 5),
                         Text(subtitle!, style: AppTextStyles.meta),
@@ -155,15 +156,9 @@ class HistoryScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+                // 用户要求：移除右上角筛选 icon（筛选 chips 仍保留在标题下方）。
                 if (variant == HistoryVariant.longList && onSort != null)
-                  _SortButton(label: sortLabel, onTap: onSort!)
-                else
-                  AppCircleButton(
-                    icon: Icons.tune_rounded,
-                    onTap: onFilterButton,
-                    tooltip: '筛选',
-                    orange: _isSearchEmpty,
-                  ),
+                  _SortButton(label: sortLabel, onTap: onSort!),
               ],
             ),
           ),

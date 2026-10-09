@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../theme/import_design.dart';
 import '../utils/design_scale.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/history_card.dart';
 import 'screen_frame.dart';
 
@@ -61,19 +62,24 @@ class ImportIdleScreen extends StatelessWidget {
       // 内容区按设计稿 782（= 844 − 62）撑满整屏，底部只留 24 的内容内边距
       // （+ 系统 home indicator 安全区），不再给 TabBar 预留 95。
       bottomSpacer: s(context, 24) + MediaQuery.viewPaddingOf(context).bottom,
-      // 固定头部：顶栏 + 其上 4、其下 12 的间距一起挪出滚动区，顶栏与内容的
-      // 视觉间距仍是 12（与改前一致）。
-      header: Padding(
-        padding: EdgeInsets.symmetric(horizontal: s(context, 20)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(height: s(context, 4)),
-            _TopBar(onBack: onBack, onHelp: onHelp),
-            SizedBox(height: s(context, 12)),
-          ],
-        ),
+      // 固定头部：顶栏（用户要求：与完整转写页统一，返回 icon 带背景圆形底）
+      // + 其上 4、其下 12 的间距一起挪出滚动区。
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(height: s(context, 4)),
+          AppTopBar(
+            title: '导入音视频',
+            subtitle: '',
+            leadingIcon: Icons.chevron_left_rounded,
+            onLeading: onBack,
+            actionIcon: Icons.help_outline_rounded,
+            onAction: onHelp ?? () {},
+            actionTooltip: '帮助',
+          ),
+          SizedBox(height: s(context, 12)),
+        ],
       ),
       body: Padding(
         // HTML 内容区 padding: 4px 20px 0（顶部 4 已随 header 一起给到顶栏）。
@@ -98,113 +104,6 @@ class ImportIdleScreen extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 顶栏：返回箭头 + 「导入音视频」+「帮助」（350×44，HTML `#s14 .top-bar`）。
-///
-/// 左右两个热区按设计稿坐标绝对定位（Stack），命中区放大到 44×44，
-/// 视觉位置仍落在设计稿的 left/top 上。
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onBack, this.onHelp});
-
-  final VoidCallback onBack;
-  final VoidCallback? onHelp;
-
-  @override
-  Widget build(BuildContext context) {
-    final double tap = s(context, 44);
-    return SizedBox(
-      height: s(context, 44),
-      width: double.infinity,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          // Back：设计稿箭头 6.5×11，中心 (9.25, 22)。
-          Positioned(
-            left: s(context, 9.25) - tap / 2,
-            top: s(context, 22) - tap / 2,
-            width: tap,
-            height: tap,
-            child: Semantics(
-              button: true,
-              label: '返回',
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onBack,
-                child: Icon(
-                  Icons.chevron_left_rounded,
-                  size: s(context, 20),
-                  color: AppColors.ink,
-                ),
-              ),
-            ),
-          ),
-          // Title：设计稿 left 50 与返回箭头间隙过大，对齐全局顶栏间距（~10px）
-          // 收紧到 left 30（用户要求：返回 icon 与 title 距离调整）。
-          Positioned(
-            left: s(context, 30),
-            top: s(context, 9.5),
-            height: s(context, 25),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '导入音视频',
-                style: ImportDesign.ts(
-                  context,
-                  17,
-                  FontWeight.w700,
-                  AppColors.ink,
-                  lineHeight: ImportDesign.lh17,
-                ),
-              ),
-            ),
-          ),
-          // Help：设计稿 52×19，右对齐，命中区向左扩到 67×44。
-          Positioned(
-            right: 0,
-            top: 0,
-            width: s(context, 67),
-            height: s(context, 44),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _HelpText(onHelp: onHelp),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 「帮助」文案（13 / w500 / #F0783C）。
-class _HelpText extends StatelessWidget {
-  const _HelpText({this.onHelp});
-
-  final VoidCallback? onHelp;
-
-  @override
-  Widget build(BuildContext context) {
-    final Widget text = Text(
-      '帮助',
-      style: ImportDesign.ts(
-        context,
-        13,
-        FontWeight.w500,
-        AppColors.orange,
-        lineHeight: ImportDesign.lh13,
-      ),
-    );
-    if (onHelp == null) return text;
-    return Semantics(
-      button: true,
-      label: '帮助',
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onHelp,
-        child: text,
       ),
     );
   }

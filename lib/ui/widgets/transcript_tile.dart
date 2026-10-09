@@ -228,12 +228,14 @@ class TranscriptTile extends StatelessWidget {
     if (!item.highlight) {
       return content;
     }
+    // 用户反馈「提示不明显」：高亮卡加强为浅橙底 + 橙色描边 + 左侧橙条。
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.hitBg,
         borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: const Color(0x80F0783C), width: 1.2),
       ),
       child: content,
     );

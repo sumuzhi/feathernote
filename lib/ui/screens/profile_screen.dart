@@ -4,7 +4,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import '../widgets/app_button.dart';
 import '../widgets/app_switch.dart';
 import '../widgets/app_tab_bar.dart';
 import '../widgets/surface_card.dart';
@@ -120,18 +119,8 @@ class ProfileScreen extends StatelessWidget {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpacing.page, 14, AppSpacing.page, 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: <Widget>[
-                Text('设置', style: AppTextStyles.pageTitle),
-                AppCircleButton(
-                  icon: Icons.info_outline_rounded,
-                  onTap: onSettings,
-                  tooltip: '关于',
-                  iconSize: 19,
-                ),
-              ],
-            ),
+            // 用户要求：移除右上角「关于」icon，仅保留标题。
+            child: Text('设置', style: AppTextStyles.sectionTitle),
           ),
           Expanded(
             child: SingleChildScrollView(

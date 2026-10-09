@@ -23,7 +23,7 @@ const int kTranscriptShowAll = 1 << 30;
 const double _kLoadMoreTriggerExtent = 800;
 
 /// 转写页。
-class TranscriptScreen extends StatelessWidget {
+class TranscriptScreen extends StatefulWidget {
   /// 构造转写页。
   const TranscriptScreen({
     super.key,
@@ -44,6 +44,8 @@ class TranscriptScreen extends StatelessWidget {
     this.onPlaySegment,
     this.visibleCount = kTranscriptShowAll,
     this.onLoadMore,
+    this.hitTargetId,
+    this.hitNavStamp = 0,
   });
 
   /// 顶栏副标题（会议名）。
@@ -103,17 +105,110 @@ class TranscriptScreen extends StatelessWidget {
   /// 触底扩窗回调（null = 不分页，如设计稿目录页）。
   final VoidCallback? onLoadMore;
 
+  /// 命中定位目标（`segmentId@startMs`）。用户反馈：点上一处/下一处必须滚到
+  /// 命中段所在位置。
+  final String? hitTargetId;
+
+  /// 命中定位递增戳：变化即触发一次滚动定位（页面在 onPrev/onNext 里 bump）。
+  final int hitNavStamp;
+
+  @override
+  State<TranscriptScreen> createState() => _TranscriptScreenState();
+}
+
+class _TranscriptScreenState extends State<TranscriptScreen> {
+  final ScrollController _scrollController = ScrollController();
+
+  /// 已构建条目的定位锚点（`segmentId@startMs` → key），命中定位用。
+  final Map<String, GlobalKey> _itemKeys = <String, GlobalKey>{};
+
+  // build 期间记录，供命中定位的「未构建 → 估算跳转」路径使用。
+  List<TranscriptItemView> _lastFiltered = const <TranscriptItemView>[];
+  int _lastShown = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 深链/恢复场景：首帧即带命中目标。
+    if (widget.hitTargetId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToHit());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant TranscriptScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 页面在「上一处/下一处」时 bump 戳 → 滚动定位到新命中段。
+    if (widget.hitNavStamp != oldWidget.hitNavStamp && widget.hitTargetId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToHit());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  GlobalKey _keyFor(TranscriptItemView item) =>
+      _itemKeys.putIfAbsent('${item.segmentId}@${item.startTimeMs}', GlobalKey.new);
+
+  /// 命中定位。
+  ///
+  /// ① 目标已构建 → [Scrollable.ensureVisible] 精确滚动；
+  /// ② 目标未构建（窗口内但视口外）→ 按比例估算偏移先跳转（builder 随即构建
+  ///    周边条目），post-frame 再精确对位一次。
+  void _scrollToHit() {
+    final String? id = widget.hitTargetId;
+    if (id == null) return;
+    final BuildContext? ctx = _itemKeys[id]?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        alignment: 0.2,
+      );
+      return;
+    }
+    int pos = -1;
+    for (int i = 0; i < _lastShown && i < _lastFiltered.length; i++) {
+      final TranscriptItemView it = _lastFiltered[i];
+      if ('${it.segmentId}@${it.startTimeMs}' == id) {
+        pos = i;
+        break;
+      }
+    }
+    if (pos < 0 || !_scrollController.hasClients || _lastShown <= 0) return;
+    final double max = _scrollController.position.maxScrollExtent;
+    _scrollController.jumpTo((max * (pos / _lastShown)).clamp(0.0, max));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final BuildContext? c2 = _itemKeys[id]?.currentContext;
+      if (c2 != null) {
+        Scrollable.ensureVisible(
+          c2,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: 0.2,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final List<TranscriptItemView> filtered = selectedFilter == 0
-        ? items
-        : items
-            .where((TranscriptItemView item) => item.ordinal == selectedFilter)
+    final List<TranscriptItemView> filtered = widget.selectedFilter == 0
+        ? widget.items
+        : widget.items
+            .where((TranscriptItemView item) => item.ordinal == widget.selectedFilter)
             .toList(growable: false);
-    final int shown =
-        visibleCount < filtered.length ? visibleCount : filtered.length;
+    final int shown = widget.visibleCount < filtered.length
+        ? widget.visibleCount
+        : filtered.length;
     final List<TranscriptItemView> visible = filtered.sublist(0, shown);
     final bool hasMore = filtered.length > shown;
+    _lastFiltered = filtered;
+    _lastShown = shown;
 
     return ScreenFrame(
       // 只滚动转写列表：顶栏 / 信息条 / 筛选 / 命中条固定（自行管理滚动）。
@@ -125,11 +220,13 @@ class TranscriptScreen extends StatelessWidget {
             child: AppGhostPillButton(
               label: '复制全文',
               icon: Icons.copy_all_rounded,
-              onTap: onCopyAll,
+              onTap: widget.onCopyAll,
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(child: AppPillButton(label: '导出 Markdown', onTap: onExportMarkdown)),
+          Expanded(
+            child: AppPillButton(label: '导出 Markdown', onTap: widget.onExportMarkdown),
+          ),
         ],
       ),
       body: Column(
@@ -138,28 +235,28 @@ class TranscriptScreen extends StatelessWidget {
           // 固定 header：顶栏 / 信息条 / 筛选 chips / 命中条不随列表滚动。
           AppTopBar(
             title: '完整转写',
-            subtitle: meetingName,
+            subtitle: widget.meetingName,
             leadingIcon: Icons.chevron_left_rounded,
-            onLeading: onBack,
+            onLeading: widget.onBack,
             actionIcon: Icons.search_rounded,
-            onAction: onSearch,
+            onAction: widget.onSearch,
           ),
-          _InfoBar(left: infoText, right: charCountText),
+          _InfoBar(left: widget.infoText, right: widget.charCountText),
           FilterChipRow(
-            items: filters,
-            onTap: onFilterChanged,
+            items: widget.filters,
+            onTap: widget.onFilterChanged,
             scrollable: true,
           ),
           // 筛选组与列表之间的呼吸间距（避免 chips 与卡片贴在一起）。
           const SizedBox(height: 16),
-          if (hit != null)
+          if (widget.hit != null)
             HitBar(
-              total: hit!.total,
-              current: hit!.current,
-              keyword: hit!.keyword,
-              onPrev: hit!.onPrev,
-              onNext: hit!.onNext,
-              onClose: hit!.onClose,
+              total: widget.hit!.total,
+              current: widget.hit!.current,
+              keyword: widget.hit!.keyword,
+              onPrev: widget.hit!.onPrev,
+              onNext: widget.hit!.onNext,
+              onClose: widget.hit!.onClose,
             ),
           // 仅转写列表滚动（底部留白避开 CTA：手势条 inset + CTA 高度 + 余量）。
           // ListView.builder 虚拟化：只构建/布局可见条目——超长转写（数千段）
@@ -168,15 +265,16 @@ class TranscriptScreen extends StatelessWidget {
             child: NotificationListener<ScrollNotification>(
               onNotification: (ScrollNotification notification) {
                 // 触底预加载：距底部不足阈值即扩窗（hasMore 时）。
-                if (onLoadMore == null ||
+                if (widget.onLoadMore == null ||
                     !hasMore ||
                     notification.metrics.extentAfter >= _kLoadMoreTriggerExtent) {
                   return false;
                 }
-                onLoadMore!();
+                widget.onLoadMore!();
                 return false;
               },
               child: ListView.builder(
+                controller: _scrollController,
                 padding: EdgeInsets.fromLTRB(
                   22,
                   8,
@@ -185,7 +283,7 @@ class TranscriptScreen extends StatelessWidget {
                 ),
                 itemCount: visible.isEmpty
                     ? 1
-                    : visible.length + (segmentLoadingText != null ? 1 : 0),
+                    : visible.length + (widget.segmentLoadingText != null ? 1 : 0),
                 itemBuilder: (BuildContext context, int index) {
                   if (visible.isEmpty) {
                     return Padding(
@@ -199,22 +297,20 @@ class TranscriptScreen extends StatelessWidget {
                   }
                   // 末尾：加载进度胶囊（窗口未满时才出现，全部加载完即消失）。
                   if (index >= visible.length) {
-                    return AppSegmentedLoadingPill(text: segmentLoadingText!);
+                    return AppSegmentedLoadingPill(text: widget.segmentLoadingText!);
                   }
                   return TranscriptTile(
-                    // 稳定 key：段由「segmentId + 起点」唯一定位。
+                    // GlobalKey：命中定位锚点（segmentId+起点唯一定位）。
                     // 不用 index：列表重排/过滤后 index 会变，会让 Flutter 按位置
                     // 错误复用元素，进度组件就可能渲染到别的条目上。
-                    key: ValueKey<String>(
-                      '${visible[index].segmentId}@${visible[index].startTimeMs}',
-                    ),
+                    key: _keyFor(visible[index]),
                     item: visible[index],
-                    onExpand: onExpandSegment == null
+                    onExpand: widget.onExpandSegment == null
                         ? null
-                        : () => onExpandSegment!(index),
-                    onPlay: onPlaySegment == null
+                        : () => widget.onExpandSegment!(index),
+                    onPlay: widget.onPlaySegment == null
                         ? null
-                        : () => onPlaySegment!(visible[index]),
+                        : () => widget.onPlaySegment!(visible[index]),
                   );
                 },
               ),

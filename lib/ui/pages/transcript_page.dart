@@ -74,7 +74,10 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
   /// 每段说话人序号缓存（segments/speakers 变化时重算，避免每次 build O(n) 查询）。
   List<int> _ordinals = const <int>[];
 
-  /// 过滤后的总段数（跟随 _filter / _segments）。
+  /// 过滤后的段下标列表（跟随 _filter / _segments；命中定位换算用）。
+  List<int> _filteredIndices = const <int>[];
+
+  /// 过滤后的总段数（= [_filteredIndices].length）。
   int _filteredTotal = 0;
 
   /// 全文字数缓存（原实现在每次 build 对全文跑正则——播放位置 tick 下 O(总字数)）。
@@ -83,10 +86,13 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
   /// 说话人 chips 缓存。
   List<SpeakerChipView> _chips = const <SpeakerChipView>[];
 
+  /// 命中定位递增戳（onPrev/onNext 时 bump，Screen 端据此滚动定位）。
+  int _hitNavStamp = 0;
+
   /// 触底扩窗节流戳。
   DateTime _lastLoadMoreAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 重算派生数据（segments / speakers 变化时调用；绝不放进 build）。
+  /// 重算派生数据（segments / speakers / filter 变化时调用；绝不放进 build）。
   ///
   /// ⚠️ 不 clamp 窗口：`_load` 完成时段落可能尚未从 watchSegments 流到达
   /// （此时 filteredTotal=0），若在此收缩窗口会把渲染窗口永久压成 0 ——
@@ -96,7 +102,11 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       for (final TranscriptSegment segment in _segments)
         speakerViewFor(speakerId: segment.speakerId, speakers: _speakers).ordinal,
     ];
-    _filteredTotal = _countFiltered();
+    _filteredIndices = <int>[
+      for (int i = 0; i < _segments.length; i++)
+        if (_filter == 0 || _ordinals[i] == _filter) i,
+    ];
+    _filteredTotal = _filteredIndices.length;
     _chips = _computeChips();
     _charCount = _segments.fold<int>(
       0,
@@ -105,13 +115,19 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
     );
   }
 
-  int _countFiltered() {
-    if (_filter == 0) return _segments.length;
-    int count = 0;
-    for (final int ordinal in _ordinals) {
-      if (ordinal == _filter) count++;
+  /// 命中定位（用户反馈：点上一处/下一处列表没有滚到对应位置）。
+  ///
+  /// ① 命中的全量下标换算为「过滤后列表」中的位置；② 位置超出当前渲染窗口
+  /// 时扩窗；③ bump 时间戳，Screen 端监听后滚动定位。
+  void _jumpToCurrentHit() {
+    if (_hits.isEmpty) return;
+    final int globalIdx = _hits[_hitCursor - 1];
+    final int pos = _filteredIndices.indexOf(globalIdx);
+    if (pos < 0) return; // 命中段被说话人过滤隐藏：不定位
+    if (pos >= _visibleCount) {
+      _visibleCount = (pos + kTranscriptPageSize).clamp(0, _filteredTotal);
     }
-    return count;
+    _hitNavStamp++;
   }
 
   /// 触底扩窗（节流：滚动事件连续触发，200ms 内只受理一次）。
@@ -263,7 +279,6 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       playProgress: segDuration > 0 ? played / segDuration : 0,
       playPositionLabel: formatClock(played),
       playDurationLabel: formatClock(segDuration),
-      expandNote: highlight ? '展开这段 · ${formatCharCount(segment.text.length)}' : null,
     );
   }
 
@@ -311,9 +326,9 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
       selectedFilter: _filter,
       onFilterChanged: (int index) => setState(() {
         _filter = index == 0 ? 0 : _chips[index - 1].ordinal;
-        // 切换说话人 → 窗口重置，从第一页重新开始。
+        // 切换说话人 → 重算过滤下标 + 窗口重置，从第一页重新开始。
         _visibleCount = kTranscriptPageSize;
-        _filteredTotal = _countFiltered();
+        _recomputeDerived();
       }),
       items: items,
       hit: _hits.isEmpty
@@ -322,12 +337,14 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
               total: _hits.length,
               current: _hitCursor,
               keyword: _keyword,
-              onPrev: () => setState(
-                () => _hitCursor = _hitCursor > 1 ? _hitCursor - 1 : _hits.length,
-              ),
-              onNext: () => setState(
-                () => _hitCursor = _hitCursor < _hits.length ? _hitCursor + 1 : 1,
-              ),
+              onPrev: () => setState(() {
+                _hitCursor = _hitCursor > 1 ? _hitCursor - 1 : _hits.length;
+                _jumpToCurrentHit();
+              }),
+              onNext: () => setState(() {
+                _hitCursor = _hitCursor < _hits.length ? _hitCursor + 1 : 1;
+                _jumpToCurrentHit();
+              }),
               onClose: () => setState(() {
                 _keyword = '';
                 _hits = const <int>[];
@@ -341,7 +358,12 @@ class _TranscriptPageState extends ConsumerState<TranscriptPage>
           : null,
       visibleCount: _visibleCount,
       onLoadMore: hasMore ? _onLoadMore : null,
-      onExpandSegment: (int index) => _toast('展开第 ${index + 1} 段'),
+      // 命中定位（用户反馈：搜索后点上一处/下一处要滚到命中段）。
+      hitTargetId: _hits.isEmpty
+          ? null
+          : '${_segments[_hits[_hitCursor - 1]].segmentId}'
+              '@${_segments[_hits[_hitCursor - 1]].startTime}',
+      hitNavStamp: _hitNavStamp,
       onPlaySegment: (TranscriptItemView item) => _onPlaySegment(item),
       // 返回 = 压栈 pop 回纪要页；无栈（深链冷启动）时兜底 go。
       onBack: () => context.canPop()

@@ -18,6 +18,7 @@ class AppTopBar extends StatelessWidget {
     required this.actionIcon,
     required this.onAction,
     this.dimTitle = false,
+    this.actionTooltip = '更多',
   });
 
   /// 标题。
@@ -41,6 +42,9 @@ class AppTopBar extends StatelessWidget {
   /// 标题是否半透明（断线态 s06 的「录音中」opacity .28）。
   final bool dimTitle;
 
+  /// 右侧按钮语义文案。
+  final String actionTooltip;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -60,7 +64,7 @@ class AppTopBar extends StatelessWidget {
               ],
             ),
           ),
-          AppCircleButton(icon: actionIcon, onTap: onAction, tooltip: '更多'),
+          AppCircleButton(icon: actionIcon, onTap: onAction, tooltip: actionTooltip),
         ],
       ),
     );
