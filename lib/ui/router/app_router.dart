@@ -17,6 +17,7 @@ import '../../domain/meeting.dart';
 import '../providers/recorder_controller.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
+import '../pages/data_export_page.dart';
 import '../pages/import_page.dart';
 import '../pages/meeting_page.dart';
 import '../pages/profile_page.dart';
@@ -102,6 +103,14 @@ final GoRouter appRouter = GoRouter(
           initialMeeting: state.extra is Meeting ? state.extra! as Meeting : null,
         ),
       ),
+    ),
+    GoRoute(
+      path: '/data-export',
+      name: 'dataExport',
+      // 屏 05「数据库」点入：列出全部会议，支持勾选 + 单条 / 批量 / 全部导出
+      // （压栈页，系统返回键回到设置页）。
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _pushPage(state, const DataExportPage()),
     ),
     if (kDebugMode) ...<RouteBase>[
       GoRoute(
