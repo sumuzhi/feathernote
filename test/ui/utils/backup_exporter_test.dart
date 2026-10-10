@@ -89,7 +89,7 @@ void main() {
   );
 
   test(
-    'buildLocalBackupFiles：写 backup.json 与每场会议单独的 md（文件夹模式阶段一）',
+    'buildLocalBackupFiles：backup.json + 每场会议一个「会议名」文件夹（含 md）',
     () async {
       final Directory workDir =
           Directory(p.join(base.path, 'files-stage'));
@@ -108,12 +108,34 @@ void main() {
       // 首个是 backup.json 且真实落盘。
       expect(p.basename(files[0].$1), 'backup.json');
       expect(File(files[0].$1).existsSync(), isTrue);
-      // 每场会议一个 md，相对路径在 minutes/ 下。
-      expect(files[1].$2, startsWith('minutes/1-'));
-      expect(files[2].$2, startsWith('minutes/2-'));
+      // 每场会议一个「会议名」文件夹，内含同名 md。
+      expect(files[1].$2, '回归测试会议 f1/回归测试会议 f1.md');
+      expect(files[2].$2, '回归测试会议 f2/回归测试会议 f2.md');
       expect(File(files[1].$1).existsSync(), isTrue);
-      // md 内容与会找人映射一致（含标题）。
+      // md 内容与会议映射一致（含标题）。
       expect(File(files[1].$1).readAsStringSync(), contains('回归测试会议 f1'));
+    },
+  );
+
+  test(
+    'buildLocalBackupFiles：重名会议文件夹去重（追加 -2 / -3）',
+    () async {
+      final Directory workDir =
+          Directory(p.join(base.path, 'files-stage-dup'));
+      final Meeting dup = _meeting('d1').copyWith(title: '同名会议');
+      final List<(String, String)> files = await buildLocalBackupFiles(
+        backupMap: buildBackupJson(
+          meetings: <Meeting>[dup, dup.copyWith(id: 'd2')],
+          schemaVersion: 1,
+          exportedAt: DateTime(2026, 10, 10),
+        ),
+        workDirPath: workDir.path,
+        onProgress: (double _, String __) {},
+        isCancelled: () => false,
+      );
+
+      expect(files[1].$2, '同名会议/同名会议.md');
+      expect(files[2].$2, '同名会议-2/同名会议-2.md');
     },
   );
 

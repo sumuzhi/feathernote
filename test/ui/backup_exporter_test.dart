@@ -244,11 +244,15 @@ void main() {
       ) as Map<String, dynamic>;
       expect(actualJson, backupMap);
 
-      // 每场会议一个 md（文件名含标题，这里只校验数量与扩展名）。
+      // 每场会议一个「会议名」文件夹，内含同名 md（<会议名>/<会议名>.md）。
       final List<String> mdNames = byName.keys
-          .where((String n) => n.startsWith('minutes/') && n.endsWith('.md'))
+          .where((String n) => n.endsWith('.md') && n.contains('/'))
           .toList();
       expect(mdNames.length, 2);
+      for (final String name in mdNames) {
+        final String folder = p.posix.dirname(name);
+        expect(p.posix.basename(name), '$folder.md');
+      }
 
       // 进度从 0 单调递增到 1.0（无音频时最后一步 audioCount=1，done=0→0.5）。
       expect(fractions, isNotEmpty);
