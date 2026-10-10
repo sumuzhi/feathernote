@@ -1,6 +1,7 @@
 /// 应用根组件：主题 + 路由 + 全局 Toast 浮层。
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -63,9 +64,10 @@ class SmartMinutesApp extends StatelessWidget {
 
 /// 启动期版本更新检查封装。
 ///
-/// 包裹在 Toast 层之外、MaterialApp.builder 之内，因此拥有 Overlay 环境可弹窗。
+/// 包裹在 Toast 层之外、MaterialApp.builder 之内——注意该位置在 Navigator
+/// **之外**，弹窗必须借路由根 Navigator 的 context（见 [_UpdatePromptState._check]）。
 /// 仅在每次启动（widget 首次挂载）检查一次：拉取远端 manifest 与本地 versionCode
-/// 比较，发现更高版本则弹窗；任何失败静默忽略，不阻断启动。
+/// 比较，发现更高版本则弹窗；任何失败静默忽略，不阻断启动。debug 构建跳过。
 class _UpdatePrompt extends ConsumerStatefulWidget {
   /// 构造检查封装。
   const _UpdatePrompt({required this.child});
@@ -88,6 +90,14 @@ class _UpdatePromptState extends ConsumerState<_UpdatePrompt> {
   Future<void> _check() async {
     if (_checked) return;
     _checked = true;
+    // ⚠️ debug 构建跳过：debug 的 versionCode 是裸 buildNumber（无
+    // split-per-abi 的 2000× ABI 偏移），与线上远端比较必然「有更新」→
+    // 每次调试启动都误弹更新框（真机实测连带暴露下方 Navigator 崩溃）。
+    // 更新提示只在 release 构建启用。
+    if (kDebugMode) {
+      logDebug('update', 'debug 构建跳过启动期更新检查');
+      return;
+    }
     final String url = ref.read(appConfigProvider).updateManifestUrl;
     final AppUpdateChecker checker = AppUpdateChecker(manifestUrl: url);
     logDebug('update', '启动期更新检查开始', <String, Object?>{'manifest': url});
@@ -107,7 +117,17 @@ class _UpdatePromptState extends ConsumerState<_UpdatePrompt> {
     }
     if (!mounted) return;
     if (decision.available && decision.remote != null) {
-      await showAppUpdateDialog(context, decision.remote!);
+      // ⚠️ 本 State 位于 MaterialApp.builder 内、Navigator **之外**——用它自己
+      // 的 context 弹窗会抛「Navigator operation requested with a context that
+      // does not include a Navigator」（真机实测崩溃）。改用路由的根 Navigator
+      // context；尚未挂载（极早启动失败）则本次跳过，下次启动自然重试。
+      final BuildContext? navContext =
+          appRouter.routerDelegate.navigatorKey.currentContext;
+      if (navContext == null) {
+        logWarn('update', '根 Navigator 尚未挂载，跳过本次更新提示');
+        return;
+      }
+      await showAppUpdateDialog(navContext, decision.remote!);
     }
   }
 

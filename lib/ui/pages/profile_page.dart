@@ -5,6 +5,7 @@
 /// `export_destination.dart`）。
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -193,6 +194,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   /// 网络失败 → toast 可读错误（绝不把故障伪装成「已是最新」）。
   Future<void> _checkUpdateManually() async {
     if (_checkingUpdate) return;
+    // debug 构建的 versionCode 是裸 buildNumber（无 split-per-abi 的 2000×
+    // ABI 偏移），与线上远端比较必然误报「有更新」→ 调试构建不检查更新。
+    if (kDebugMode) {
+      _toast('调试构建不检查更新');
+      return;
+    }
     setState(() => _checkingUpdate = true);
     try {
       final UpdateDecision decision = await AppUpdateChecker(
