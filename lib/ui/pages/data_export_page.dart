@@ -50,6 +50,9 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
   /// 是否正在导出（禁用勾选 / 并发）。
   bool _exporting = false;
 
+  /// 正在单条导出的会议 ID（行内图标转 loading 用；批量导出为 null）。
+  String? _exportingId;
+
   /// 导出进度（0–1）。
   double _progress = 0;
 
@@ -126,6 +129,8 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     if (_exporting || summaries.isEmpty) return;
     setState(() {
       _exporting = true;
+      // 单条导出：行内图标转 loading（用户要求）；批量导出无单行归属。
+      _exportingId = summaries.length == 1 ? summaries.first.id : null;
       _progress = 0;
       _phase = '准备导出';
     });
@@ -187,6 +192,7 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
       if (mounted) {
         setState(() {
           _exporting = false;
+          _exportingId = null;
           _progress = 0;
           _phase = '';
           _cancel = null;
@@ -356,6 +362,7 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
             selecting: _selecting,
             selected: _selected.contains(all[i].id),
             exporting: _exporting,
+            loading: _exportingId == all[i].id,
             onToggle: () => _toggle(all[i].id),
             onExport: () => _exportSingle(all[i]),
           ),
@@ -435,6 +442,7 @@ class _ExportRow extends StatelessWidget {
     required this.selecting,
     required this.selected,
     required this.exporting,
+    required this.loading,
     required this.onToggle,
     required this.onExport,
   });
@@ -453,6 +461,9 @@ class _ExportRow extends StatelessWidget {
 
   /// 是否正在导出（禁用单条按钮）。
   final bool exporting;
+
+  /// 本行是否正在单条导出（下载图标转 loading）。
+  final bool loading;
 
   /// 勾选切换。
   final VoidCallback onToggle;
@@ -517,11 +528,24 @@ class _ExportRow extends StatelessWidget {
                   width: 40,
                   height: 40,
                   alignment: Alignment.center,
-                  child: Icon(
-                    Icons.download_rounded,
-                    size: 19,
-                    color: exporting ? AppColors.faint : AppColors.orange,
-                  ),
+                  // 单条导出中：图标转 loading（用户要求）。
+                  child: loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppColors.orange,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          Icons.download_rounded,
+                          size: 19,
+                          color:
+                              exporting ? AppColors.faint : AppColors.orange,
+                        ),
                 ),
               ),
             ),
