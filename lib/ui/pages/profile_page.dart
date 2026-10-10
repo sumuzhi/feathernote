@@ -11,10 +11,12 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../backend/backend_api.dart' show HealthStatus;
+import '../../core/platform/recording_foreground_service.dart';
 import '../../core/update/app_update.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
 import '../screens/profile_screen.dart';
+import '../theme/app_theme.dart';
 import '../utils/backup_exporter.dart';
 import '../utils/export_destination.dart';
 import '../utils/exporter.dart' show ExportCancelledException;
@@ -36,6 +38,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   ExportDestination _destination = ExportDestination.appDownload;
   bool _checkingUpdate = false;
   bool _exportingBackup = false;
+  double _exportProgress = 0;
+  BackupCancelToken? _exportCancel;
 
   /// 真实版本号（来自 `package_info_plus`，随 pubspec bump 自动更新）。
   ///
@@ -138,7 +142,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               title: '数据库',
               subtitle:
                   'SQLite · schema ${health?.schemaVersion ?? '—'} · $summarized 场已总结 · 点击导出备份',
-              value: _exportingBackup ? '导出中…' : '${meetings.length} 条',
+              value: _exportingBackup ? null : '${meetings.length} 条',
+              trailingOverride:
+                  _exportingBackup ? _buildExportTrailing() : null,
               onTap: _exportBackup,
             ),
           ],
@@ -218,13 +224,58 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     }
   }
 
-  /// 数据备份（用户确认的内容：含音频全量 ZIP = backup.json + summary.md + 各会议音频）。
+  /// 导出进度 / 取消的自定义右侧组件（导出中显示）。
+  Widget _buildExportTrailing() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        SizedBox(
+          width: 84,
+          height: 6,
+          child: LinearProgressIndicator(
+            value: _exportProgress,
+            backgroundColor: AppColors.line,
+            valueColor:
+                const AlwaysStoppedAnimation<Color>(AppColors.orange),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${(_exportProgress * 100).round()}%',
+          style: AppTextStyles.metaSmall,
+        ),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () => _exportCancel?.cancel(),
+          behavior: HitTestBehavior.opaque,
+          child: const Icon(
+            Icons.close_rounded,
+            size: 18,
+            color: AppColors.muted,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 数据备份（用户确认的内容：含音频全量 ZIP = backup.json + 各会议 md + 音频）。
   ///
-  /// 点击「数据库」行触发；导出中防重入，行 value 显示「导出中…」。
+  /// 点击「数据库」行触发；重活在**后台 isolate** 执行，UI 不阻塞；导出中显示
+  /// 进度条 + 取消；并借前台服务保活，切后台 / 锁屏不被系统回收。
   Future<void> _exportBackup() async {
     if (_exportingBackup) return;
-    setState(() => _exportingBackup = true);
-    _toast('正在导出数据备份…');
+    setState(() {
+      _exportingBackup = true;
+      _exportProgress = 0;
+    });
+    final BackupCancelToken token = BackupCancelToken();
+    _exportCancel = token;
+    // 前台服务保活：导出（含可能的数分钟 ZIP 打包）期间进程不被系统回收。
+    await RecordingForegroundService.instance.acquire(
+      'export',
+      notificationText: '正在导出数据备份，点击回到应用',
+    );
     try {
       final api = await ref.read(backendProvider.future);
       final int? schemaVersion =
@@ -236,19 +287,31 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         final Meeting? meeting = await api.getMeeting(summary.id);
         if (meeting != null) meetings.add(meeting);
       }
-      final String path = await exportBackup(
+      final ({String location, BackupCancelToken handle}) result =
+          await exportBackup(
         meetings: meetings,
         destination: _destination,
         schemaVersion: schemaVersion,
         audioPathResolver: (Meeting meeting) => api.getAudioPath(meeting.id),
+        cancelToken: token,
+        onProgress: (double fraction, String phase) {
+          if (!mounted) return;
+          setState(() {
+            _exportProgress = fraction;
+          });
+        },
       );
       if (!mounted) return;
       // 位置标签是短文案（如 Download/SmartMinutes 或文件名），绝不含应用
       // 内部绝对路径——那既撑爆 toast 也对用户无意义（无法访问 /data）。
       ref
           .read(toastProvider.notifier)
-          .show('备份已导出到 $path', tone: ToastTone.success);
+          .show('备份已导出到 ${result.location}', tone: ToastTone.success);
     } on ExportCancelledException {
+      if (!mounted) return;
+      ref
+          .read(toastProvider.notifier)
+          .show('已取消导出', tone: ToastTone.info);
       return;
     } catch (error) {
       if (!mounted) return;
@@ -256,7 +319,13 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           .read(toastProvider.notifier)
           .show('备份导出失败：$error', tone: ToastTone.warning);
     } finally {
-      if (mounted) setState(() => _exportingBackup = false);
+      await RecordingForegroundService.instance.release('export');
+      if (mounted) {
+        setState(() {
+          _exportingBackup = false;
+          _exportCancel = null;
+        });
+      }
     }
   }
 

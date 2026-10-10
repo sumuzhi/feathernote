@@ -1,7 +1,13 @@
-/// 数据备份构建器单测（纯函数：JSON / Markdown；不含 IO 落盘）。
+/// 数据备份构建器单测：纯函数（JSON / Markdown / 流式 / 本地 ZIP）。
 library;
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
+
+import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:smart_minutes_flutter/domain/enums.dart';
 import 'package:smart_minutes_flutter/domain/meeting.dart';
 import 'package:smart_minutes_flutter/domain/segment.dart';
@@ -117,6 +123,168 @@ void main() {
       );
       expect(md, contains('# 会议 m2'));
       expect(md, isNot(contains('## AI 纪要')));
+    });
+  });
+
+  group('writeBackupJsonStreaming（流式写，卡死修复）', () {
+    test('流式输出解码后与 buildBackupJson 全量编码完全等价', () async {
+      final List<Meeting> meetings = <Meeting>[
+        _meeting('m1', minutesMd: '# 核心观点\n- 结论 A', segmentCount: 3),
+        _meeting('m2', minutesMd: null, segmentCount: 1),
+      ];
+      final Map<String, dynamic> expected = buildBackupJson(
+        meetings: meetings,
+        schemaVersion: 7,
+        exportedAt: exportedAt,
+      );
+
+      final File tmp = File(p.join(
+        Directory.systemTemp.path,
+        'bk_json_${math.Random().nextInt(1 << 30)}.json',
+      ));
+      await tmp.create(recursive: true);
+      await writeBackupJsonStreaming(
+        tmp.path,
+        expected,
+        (_, _) {},
+        () => false,
+      );
+
+      final Map<String, dynamic> actual =
+          jsonDecode(await tmp.readAsString()) as Map<String, dynamic>;
+      // 解码后逐字段相等（排版差异被忽略）。
+      expect(actual, expected);
+      await tmp.delete();
+    });
+
+    test('取消信号：首场即中止，不产出完整文件', () async {
+      final Map<String, dynamic> root = buildBackupJson(
+        meetings: <Meeting>[_meeting('m1'), _meeting('m2')],
+        exportedAt: exportedAt,
+      );
+      final File tmp = File(p.join(
+        Directory.systemTemp.path,
+        'bk_json_cancel_${math.Random().nextInt(1 << 30)}.json',
+      ));
+      await tmp.create(recursive: true);
+      bool threw = false;
+      try {
+        await writeBackupJsonStreaming(
+          tmp.path,
+          root,
+          (_, _) {},
+          () => true, // 立即取消
+        );
+      } catch (_) {
+        threw = true;
+      }
+      expect(threw, isTrue);
+      // 文件可能留了半截头部，但绝不包含第二个会议（取消在首场前触发）。
+      final String content = await tmp.readAsString();
+      expect(content, isNot(contains('"id": "m2"')));
+      await tmp.delete();
+    });
+  });
+
+  group('meetingMapToMarkdown（isolate 内重建，与 buildMeetingMarkdown 一致）', () {
+    test('含纪要会议：输出逐字符等于 buildMeetingMarkdown', () {
+      final Meeting m = _meeting('m1', minutesMd: '## 核心观点\n- 结论 A');
+      final Map<String, dynamic> mMap =
+          (buildBackupJson(meetings: <Meeting>[m], exportedAt: exportedAt)
+              ['meetings'] as List<dynamic>)[0] as Map<String, dynamic>;
+      expect(meetingMapToMarkdown(mMap), buildMeetingMarkdown(m));
+    });
+
+    test('无纪要会议：输出逐字符等于 buildMeetingMarkdown', () {
+      final Meeting m = _meeting('m2', minutesMd: null);
+      final Map<String, dynamic> mMap =
+          (buildBackupJson(meetings: <Meeting>[m], exportedAt: exportedAt)
+              ['meetings'] as List<dynamic>)[0] as Map<String, dynamic>;
+      expect(meetingMapToMarkdown(mMap), buildMeetingMarkdown(m));
+    });
+  });
+
+  group('buildLocalBackupZip（本地 ZIP 构建，无插件）', () {
+    test('产出合规 ZIP：backup.json 等价 + 每场一个 md + 进度递增', () async {
+      final List<Meeting> meetings = <Meeting>[
+        _meeting('m1', minutesMd: '# 核心观点\n- 结论 A', segmentCount: 2),
+        _meeting('m2', minutesMd: null, segmentCount: 1),
+      ];
+      final Map<String, dynamic> backupMap = buildBackupJson(
+        meetings: meetings,
+        schemaVersion: 7,
+        exportedAt: exportedAt,
+      );
+
+      final Directory workDir = Directory(p.join(
+        Directory.systemTemp.path,
+        'bk_zip_${math.Random().nextInt(1 << 30)}',
+      ));
+      final String zipPath = p.join(workDir.path, 'out.zip');
+      final List<double> fractions = <double>[];
+      await buildLocalBackupZip(
+        backupMap: backupMap,
+        audioPaths: const <String?>[null, null],
+        workDirPath: workDir.path,
+        zipPath: zipPath,
+        onProgress: (double f, _) => fractions.add(f),
+        isCancelled: () => false,
+      );
+
+      // ZIP 存在且可解。
+      expect(File(zipPath).existsSync(), isTrue);
+      final Archive archive =
+          ZipDecoder().decodeBytes(File(zipPath).readAsBytesSync());
+      final Map<String, ArchiveFile> byName = <String, ArchiveFile>{
+        for (final ArchiveFile f in archive.files) f.name: f,
+      };
+      expect(byName.containsKey('backup.json'), isTrue);
+      final Map<String, dynamic> actualJson = jsonDecode(
+        const Utf8Decoder().convert(byName['backup.json']!.content as List<int>),
+      ) as Map<String, dynamic>;
+      expect(actualJson, backupMap);
+
+      // 每场会议一个 md（文件名含标题，这里只校验数量与扩展名）。
+      final List<String> mdNames = byName.keys
+          .where((String n) => n.startsWith('minutes/') && n.endsWith('.md'))
+          .toList();
+      expect(mdNames.length, 2);
+
+      // 进度从 0 单调递增到 1.0（无音频时最后一步 audioCount=1，done=0→0.5）。
+      expect(fractions, isNotEmpty);
+      for (int i = 1; i < fractions.length; i++) {
+        expect(fractions[i], greaterThanOrEqualTo(fractions[i - 1]));
+      }
+
+      await workDir.delete(recursive: true);
+    });
+
+    test('取消：ZIP 不会被创建（及时中止 + 释放资源）', () async {
+      final Map<String, dynamic> backupMap = buildBackupJson(
+        meetings: <Meeting>[_meeting('m1'), _meeting('m2')],
+        exportedAt: exportedAt,
+      );
+      final Directory workDir = Directory(p.join(
+        Directory.systemTemp.path,
+        'bk_zip_cancel_${math.Random().nextInt(1 << 30)}',
+      ));
+      final String zipPath = p.join(workDir.path, 'out.zip');
+      bool threw = false;
+      try {
+        await buildLocalBackupZip(
+          backupMap: backupMap,
+          audioPaths: const <String?>[null, null],
+          workDirPath: workDir.path,
+          zipPath: zipPath,
+          onProgress: (_, _) {},
+          isCancelled: () => true, // 立即取消
+        );
+      } catch (_) {
+        threw = true;
+      }
+      expect(threw, isTrue);
+      expect(File(zipPath).existsSync(), isFalse);
+      if (workDir.existsSync()) await workDir.delete(recursive: true);
     });
   });
 }

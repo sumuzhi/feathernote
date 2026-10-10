@@ -34,6 +34,7 @@ class ProfileSettingView {
     this.onTap,
     this.onToggle,
     this.switchLabel,
+    this.trailingOverride,
   });
 
   /// 左侧图标。
@@ -62,6 +63,10 @@ class ProfileSettingView {
 
   /// 开关无障碍标签。
   final String? switchLabel;
+
+  /// 自定义右侧组件（如导出进度条 + 取消按钮）；提供时替代默认的「值 + 箭头」，
+  /// 且整行点击被禁用（避免与进度/取消交互冲突）。
+  final Widget? trailingOverride;
 }
 
 /// 设置分组。
@@ -204,7 +209,9 @@ class _SettingRow extends StatelessWidget {
             final double maxValueWidth = budget * 0.5;
 
             final Widget trailing;
-            if (row.toggle) {
+            if (row.trailingOverride != null) {
+              trailing = row.trailingOverride!;
+            } else if (row.toggle) {
               trailing = AppSwitch(
                 value: row.toggleValue,
                 onChanged: row.onToggle ?? (_) {},
@@ -240,8 +247,10 @@ class _SettingRow extends StatelessWidget {
 
             return GestureDetector(
               // 整行可点：选择类点行即编辑/查看（原仅右侧 value 可点）。
-              // 开关行不接管——开关自身响应，避免双触发。
-              onTap: row.toggle ? null : row.onTap,
+              // 开关行 / 自定义右侧组件（如导出进度）不接管——开关或组件自身响应。
+              onTap: row.toggle || row.trailingOverride != null
+                  ? null
+                  : row.onTap,
               behavior: HitTestBehavior.opaque,
               child: Row(
                 children: <Widget>[
