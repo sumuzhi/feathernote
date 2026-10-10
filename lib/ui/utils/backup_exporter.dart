@@ -57,6 +57,10 @@ const String _kDone = 'done';
 /// isolate → 主线程消息：失败（附错误信息）。
 const String _kError = 'error';
 
+/// 取消哨兵：isolate 内的 [_CancelledException] 以该标记跨 isolate 传递
+/// （异常对象 stringify 后类型信息丢失，主线程无法区分「用户取消」与真失败）。
+const String _kCancelledSentinel = '__cancelled__';
+
 /// 进度回调（主线程，可安全 `setState`）。
 typedef BackupProgressCallback = void Function(double fraction, String phase);
 
@@ -377,7 +381,10 @@ Future<void> _exportEntry(dynamic message) async {
     );
     report.send(<dynamic>[_kDone, zipPath]);
   } catch (error) {
-    report.send(<dynamic>[_kError, error.toString()]);
+    report.send(<dynamic>[
+      _kError,
+      error is _CancelledException ? _kCancelledSentinel : error.toString(),
+    ]);
   } finally {
     control.close();
   }
@@ -468,13 +475,20 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
       continue;
     }
     final List<dynamic> m = msg as List<dynamic>;
-    switch (m[0] as String) {
-      case _kProgress:
-        onProgress?.call(m[1] as double, m[2] as String);
-      case _kDone:
-        break;
-      case _kError:
-        error = m[1];
+    final String kind = m[0] as String;
+    if (kind == _kProgress) {
+      onProgress?.call(m[1] as double, m[2] as String);
+    } else if (kind == _kDone) {
+      // 完成 / 失败都要 break 循环体本身。⚠️ 历史缺陷：这里曾是 switch +
+      // `break`——Dart 的 break 只跳出 switch 跳不出 await for，而后台
+      // isolate 发完消息即退出、没人关闭 report 端口 → 主线程在 100% 处
+      // 永久挂起（真机实测「导出卡在 100%」的根因）。
+      break;
+    } else if (kind == _kError) {
+      final Object payload = m[1] as Object;
+      // 取消哨兵还原为异常对象：让调用方区分「用户取消」与真失败。
+      error = payload == _kCancelledSentinel ? const _CancelledException() : payload;
+      break;
     }
   }
   report.close();
@@ -489,6 +503,8 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
   }
 
   // 平台落盘（主线程；MediaStore 原生拷贝不占 Dart 堆，SAF 用户主动选择）。
+  // 大 ZIP 拷贝可达数秒，先报一阶段文案，避免 UI 停在 100% 无反馈。
+  onProgress?.call(1.0, '正在保存文件');
   String location;
   if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
     final Uint8List bytes = await File(zipPath).readAsBytes();
