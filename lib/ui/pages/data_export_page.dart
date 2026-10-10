@@ -43,6 +43,10 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
   /// 导出位置（同设置页持久化，本页可就地切换）。
   ExportDestination _destination = ExportDestination.appDownload;
 
+  /// 是否处于「选择模式」（用户要求：默认不带复选框，点「选择」后才出现
+  /// 复选框与底部导出条）。
+  bool _selecting = false;
+
   /// 是否正在导出（禁用勾选 / 并发）。
   bool _exporting = false;
 
@@ -77,6 +81,17 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
       } else {
         _selected.add(id);
       }
+    });
+  }
+
+  /// 进入 / 退出选择模式（顶栏「选择」按钮）。
+  ///
+  /// 退出时清空已选；导出中与空列表不允许进入。
+  void _toggleSelecting(List<MeetingSummary> all) {
+    if (_exporting || all.isEmpty) return;
+    setState(() {
+      _selecting = !_selecting;
+      if (!_selecting) _selected.clear();
     });
   }
 
@@ -175,6 +190,9 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
           _progress = 0;
           _phase = '';
           _cancel = null;
+          // 导出完成 / 取消 / 失败后退出选择模式（用户要求的选择流闭环）。
+          _selecting = false;
+          _selected.clear();
         });
       }
     }
@@ -207,8 +225,9 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     final List<MeetingSummary> all =
         asyncMeetings.value ?? const <MeetingSummary>[];
     final DateTime now = DateTime.now();
-    final bool allSelected =
-        all.isNotEmpty && _selected.length == all.length;
+    final bool allSelected = _selecting &&
+        all.isNotEmpty &&
+        _selected.length == all.length;
 
     return ScreenFrame(
       scrollable: true,
@@ -219,12 +238,17 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     );
   }
 
-  /// 内容底部留白：必须盖住悬浮的操作条（按钮高 56 + 上下 padding 28 +
-  /// [AppSpacing.ctaBottom] + 系统底边距），否则最后一条被遮。
-  double _bottomSpacer(BuildContext context) =>
-      120 + MediaQuery.viewPaddingOf(context).bottom;
+  /// 内容底部留白：选择模式 / 导出中有悬浮操作条（按钮高 56 + 上下 padding 28 +
+  /// [AppSpacing.ctaBottom] + 系统底边距），必须留够否则最后一条被遮；
+  /// 默认模式无操作条，只留常规间距。
+  double _bottomSpacer(BuildContext context) {
+    if (_selecting || _exporting) {
+      return 120 + MediaQuery.viewPaddingOf(context).bottom;
+    }
+    return 32 + MediaQuery.viewPaddingOf(context).bottom;
+  }
 
-  /// 固定头部：顶栏（返回 + 计数）+ 全选 / 导出位置控制行。
+  /// 固定头部：顶栏（返回 + 计数 + 「选择」动作）+ 控制行。
   Widget _buildHeader(List<MeetingSummary> all, bool allSelected) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -233,11 +257,14 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
         const SizedBox(height: 4),
         AppTopBar(
           title: '数据导出',
-          subtitle: all.isEmpty
-              ? '暂无数据'
-              : '共 ${all.length} 条 · 已选 ${_selected.length} 条',
+          subtitle: _selecting
+              ? '已选 ${_selected.length} / ${all.length} 条'
+              : (all.isEmpty ? '暂无数据' : '共 ${all.length} 条'),
           leadingIcon: Icons.chevron_left_rounded,
           onLeading: () => context.pop(),
+          actionIcon: _selecting ? Icons.close_rounded : Icons.checklist_rounded,
+          onAction: () => _toggleSelecting(all),
+          actionTooltip: _selecting ? '退出选择' : '选择',
         ),
         const SizedBox(height: 8),
         _buildControlRow(all, allSelected),
@@ -246,31 +273,33 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     );
   }
 
-  /// 控制行：全选切换（左）+ 导出位置（右，可切换）。
+  /// 控制行：选择模式下显示「全选」（左）+ 导出位置 chip 常驻（右，可切换）。
   Widget _buildControlRow(List<MeetingSummary> all, bool allSelected) {
     final String destLabel = exportDestinationLabel(_destination);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
       child: Row(
         children: <Widget>[
-          GestureDetector(
-            onTap: () => _toggleAll(all),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                _CheckBox(
-                  value: allSelected,
-                  onChanged: (_) => _toggleAll(all),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  allSelected ? '取消全选' : '全选',
-                  style: AppTextStyles.body15,
-                ),
-              ],
+          if (_selecting) ...<Widget>[
+            GestureDetector(
+              onTap: () => _toggleAll(all),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _CheckBox(
+                    value: allSelected,
+                    onChanged: (_) => _toggleAll(all),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    allSelected ? '取消全选' : '全选',
+                    style: AppTextStyles.body15,
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
           const Spacer(),
           GestureDetector(
             onTap: _pickDestination,
@@ -327,6 +356,7 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
           _ExportRow(
             item: all[i],
             now: now,
+            selecting: _selecting,
             selected: _selected.contains(all[i].id),
             exporting: _exporting,
             onToggle: () => _toggle(all[i].id),
@@ -368,8 +398,9 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     );
   }
 
-  /// 底部操作条：导出中显示进度 + 取消；否则显示「导出选中 / 导出全部」。
-  Widget _buildActionBar(List<MeetingSummary> all) {
+  /// 底部操作条：导出中显示进度 + 取消；选择模式显示「导出选中 / 导出全部」；
+  /// 默认模式无操作条（用户要求：点「选择」后才出现下方的导出）。
+  Widget? _buildActionBar(List<MeetingSummary> all) {
     if (_exporting) {
       return _ExportProgressCard(
         progress: _progress,
@@ -377,6 +408,7 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
         onCancel: () => _cancel?.cancel(),
       );
     }
+    if (!_selecting) return null;
     final int count = _selected.length;
     final bool hasAny = all.isNotEmpty;
     return Container(
@@ -411,12 +443,13 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
   }
 }
 
-/// 列表项：checkbox + 标题 + 元信息 + 单条导出图标。
+/// 列表项：checkbox（仅选择模式）+ 标题 + 元信息 + 单条导出图标。
 class _ExportRow extends StatelessWidget {
   /// 构造列表项。
   const _ExportRow({
     required this.item,
     required this.now,
+    required this.selecting,
     required this.selected,
     required this.exporting,
     required this.onToggle,
@@ -428,6 +461,9 @@ class _ExportRow extends StatelessWidget {
 
   /// 当前时刻（用于相对日期）。
   final DateTime now;
+
+  /// 是否处于选择模式（显示复选框、整行可点勾选）。
+  final bool selecting;
 
   /// 是否被勾选。
   final bool selected;
@@ -446,23 +482,28 @@ class _ExportRow extends StatelessWidget {
     final String meta =
         '${formatDurationCn(item.durationMs)} · ${formatDayTime(item.createdAt, now: now)} · ${formatPeople(item.speakerCount)}';
     return GestureDetector(
-      onTap: onToggle,
+      // 仅选择模式下整行点击勾选；默认模式行点击无动作（单条导出走右侧图标）。
+      onTap: selecting ? onToggle : null,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.only(top: 12),
+        // 水平边距对齐 [AppSpacing.page]：此前铺满屏宽，选中边框顶到屏幕
+        // 两侧，观感像「边框占据整个屏幕」（用户反馈）。
+        margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
         padding: const EdgeInsets.fromLTRB(16, 15, 12, 15),
         decoration: BoxDecoration(
           color: AppColors.card,
           borderRadius: BorderRadius.circular(AppRadius.card2),
           boxShadow: AppShadow.card,
-          border: selected
+          border: selecting && selected
               ? Border.all(color: AppColors.orange, width: 1.5)
               : null,
         ),
         child: Row(
           children: <Widget>[
-            _CheckBox(value: selected, onChanged: (_) => onToggle()),
-            const SizedBox(width: 12),
+            if (selecting) ...<Widget>[
+              _CheckBox(value: selected, onChanged: (_) => onToggle()),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
