@@ -1,14 +1,19 @@
 /// 数据备份导出（用户要求：「设置 → 数据库」点击导出，内容经主理人确认）。
 ///
-/// 备份 = **含音频全量 ZIP**，并按每条数据分类（用户要求：每场会议单独一个
-/// md，不把多个总结写进同一个文档）：
+/// 备份内容按每条数据分类（用户要求：每场会议单独一个 md，不把多个总结写进
+/// 同一个文档），**两种落盘形态**：
+///
+/// 1. **文件夹模式**（Android + 默认 Download 位置，用户要求：导出按文件分类、
+///    文件夹中含 md / 音频等数据）—— 逐文件推 MediaStore：
 /// ```
-/// feathernote-backup-<stamp>.zip
+/// Download/SmartMinutes/feathernote-backup-<stamp>/
 ///   ├─ backup.json          —— 全量结构化数据（会议元信息 + 逐字稿 + AI 纪要），
 ///                              未来「数据恢复」功能的数据源；
 ///   ├─ minutes/<序号>-<标题>.md —— 每场会议单独一个 Markdown；
-///   └─ audio/<key>          —— 各会议本地音频原文件（存在才打包）。
+///   └─ audio/<音频文件名>    —— 各会议本地音频原文件（存在才推）。
 /// ```
+/// 2. **ZIP 模式**（SAF「每次导出时选择」/ 非 Android）—— 单个
+///    `feathernote-backup-<stamp>.zip`，内部布局与上相同（便于整包分享）。
 ///
 /// ## 卡死修复（2026-10-10）
 /// 原实现把所有重活在**主（UI）线程**完成：一次性 `JsonEncoder` 把全量数据编码成
@@ -34,6 +39,7 @@ import 'dart:isolate';
 import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart' show FilePicker;
 import 'package:flutter/foundation.dart' show Uint8List;
+import 'package:media_store_plus/media_store_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -75,6 +81,9 @@ class BackupCancelToken {
     _controlSendPort = port;
     if (_requested) port.send('cancel');
   }
+
+  /// 是否已请求取消（文件夹模式主线程逐文件推送间检查用）。
+  bool get isCancelled => _requested;
 
   /// 请求取消（幂等）。
   void cancel() {
@@ -277,6 +286,50 @@ Future<void> writeBackupJsonStreaming(
 
 /// 在本地临时目录构建备份 ZIP（**不含平台落盘**）。
 ///
+/// （isolate 内）阶段一：写 `backup.json` 与每场会议单独的 md 到 [workDirPath]，
+/// 返回 (绝对路径, 备份内相对路径) 列表。
+///
+/// ZIP 模式与文件夹模式共用：文件夹模式直接把这些文件 + 音频逐个推 MediaStore；
+/// ZIP 模式在此之上继续打包。进度约定：json 0→0.4，md 0.4→0.5。
+Future<List<(String, String)>> buildLocalBackupFiles({
+  required Map<String, dynamic> backupMap,
+  required String workDirPath,
+  required BackupProgressCallback onProgress,
+  required bool Function() isCancelled,
+}) async {
+  final Directory workDir = Directory(workDirPath);
+  final Directory minutesDir = Directory(p.join(workDir.path, 'minutes'));
+  if (!minutesDir.existsSync()) await minutesDir.create(recursive: true);
+
+  final List<dynamic> meetings =
+      (backupMap['meetings'] as List<dynamic>?) ?? const <dynamic>[];
+  final List<(String, String)> files = <(String, String)>[];
+
+  final File jsonFile = File(p.join(workDir.path, 'backup.json'));
+  await writeBackupJsonStreaming(
+    jsonFile.path,
+    backupMap,
+    onProgress,
+    isCancelled,
+  );
+  files.add((jsonFile.path, 'backup.json'));
+
+  for (int i = 0; i < meetings.length; i++) {
+    if (isCancelled()) throw const _CancelledException();
+    final Map<String, dynamic> m = meetings[i] as Map<String, dynamic>;
+    final String title = (m['title'] as String?) ?? 'meeting';
+    final String fileName = '${i + 1}-${sanitizeFileName(title)}.md';
+    final File mdFile = File(p.join(minutesDir.path, fileName));
+    await mdFile.writeAsString(meetingMapToMarkdown(m), flush: true);
+    files.add((mdFile.path, 'minutes/$fileName'));
+    onProgress(0.4 + (i + 1) / (meetings.isEmpty ? 1 : meetings.length) * 0.1,
+        '正在写入会议纪要文档');
+  }
+  return files;
+}
+
+/// 在本地临时目录构建备份 ZIP（**不含平台落盘**）。
+///
 /// 纯函数、无插件依赖，可在后台 isolate 中运行；也便于单测直接调用。
 /// 三步全部流式，ZIP 与音频不整体驻留内存：
 /// 1. 流式写 `backup.json`；
@@ -292,32 +345,14 @@ Future<String> buildLocalBackupZip({
   required BackupProgressCallback onProgress,
   required bool Function() isCancelled,
 }) async {
-  final Directory workDir = Directory(workDirPath);
-  final Directory minutesDir = Directory(p.join(workDir.path, 'minutes'));
-  if (!minutesDir.existsSync()) await minutesDir.create(recursive: true);
-
-  final File jsonFile = File(p.join(workDir.path, 'backup.json'));
-  await writeBackupJsonStreaming(
-    jsonFile.path,
-    backupMap,
-    onProgress,
-    isCancelled,
+  final List<(String, String)> files = await buildLocalBackupFiles(
+    backupMap: backupMap,
+    workDirPath: workDirPath,
+    onProgress: onProgress,
+    isCancelled: isCancelled,
   );
-
-  final List<dynamic> meetings =
-      (backupMap['meetings'] as List<dynamic>?) ?? const <dynamic>[];
-  final List<(String, String)> mdRel = <(String, String)>[];
-  for (int i = 0; i < meetings.length; i++) {
-    if (isCancelled()) throw const _CancelledException();
-    final Map<String, dynamic> m = meetings[i] as Map<String, dynamic>;
-    final String title = (m['title'] as String?) ?? 'meeting';
-    final String fileName = '${i + 1}-${sanitizeFileName(title)}.md';
-    final File mdFile = File(p.join(minutesDir.path, fileName));
-    await mdFile.writeAsString(meetingMapToMarkdown(m), flush: true);
-    mdRel.add((mdFile.path, 'minutes/$fileName'));
-    onProgress(0.4 + (i + 1) / (meetings.isEmpty ? 1 : meetings.length) * 0.1,
-        '正在写入会议纪要文档');
-  }
+  final File jsonFile = File(files.first.$1);
+  final List<(String, String)> mdRel = files.sublist(1);
 
   final ZipFileEncoder encoder = ZipFileEncoder();
   encoder.create(zipPath);
@@ -371,15 +406,32 @@ Future<void> _exportEntry(dynamic message) async {
       report.send(<dynamic>[_kProgress, fraction, phase]);
 
   try {
-    final String zipPath = await buildLocalBackupZip(
-      backupMap: p['backupMap'] as Map<String, dynamic>,
-      audioPaths: (p['audioPaths'] as List<dynamic>).cast<String?>(),
-      workDirPath: p['workDir'] as String,
-      zipPath: p['zipPath'] as String,
-      onProgress: onProgress,
-      isCancelled: () => cancelled,
-    );
-    report.send(<dynamic>[_kDone, zipPath]);
+    final String mode = (p['mode'] as String?) ?? 'zip';
+    if (mode == 'files') {
+      // 文件夹模式：只写 backup.json + minutes/*.md（音频由主线程原位直推，
+      // 不进临时目录），done 回传 (绝对路径, 相对路径) 对。
+      final List<(String, String)> files = await buildLocalBackupFiles(
+        backupMap: p['backupMap'] as Map<String, dynamic>,
+        workDirPath: p['workDir'] as String,
+        onProgress: onProgress,
+        isCancelled: () => cancelled,
+      );
+      report.send(<dynamic>[_kDone,
+        <List<String>>[
+          for (final (String path, String rel) in files) <String>[path, rel],
+        ],
+      ]);
+    } else {
+      final String zipPath = await buildLocalBackupZip(
+        backupMap: p['backupMap'] as Map<String, dynamic>,
+        audioPaths: (p['audioPaths'] as List<dynamic>).cast<String?>(),
+        workDirPath: p['workDir'] as String,
+        zipPath: p['zipPath'] as String,
+        onProgress: onProgress,
+        isCancelled: () => cancelled,
+      );
+      report.send(<dynamic>[_kDone, zipPath]);
+    }
   } catch (error) {
     report.send(<dynamic>[
       _kError,
@@ -391,13 +443,15 @@ Future<void> _exportEntry(dynamic message) async {
 }
 
 /// 清理临时工作目录与临时 ZIP（导出成功落盘后 / 取消 / 失败时使用）。
-void _cleanup(String workDirPath, String zipPath) {
+/// [zipPath] 为 null 表示文件夹模式（无临时 ZIP）。
+void _cleanup(String workDirPath, String? zipPath) {
   try {
     final Directory workDir = Directory(workDirPath);
     if (workDir.existsSync()) workDir.deleteSync(recursive: true);
   } catch (_) {
     // 临时目录清理失败不阻断主流程（下次导出用新 stamp 目录，不会无限堆积）。
   }
+  if (zipPath == null) return;
   try {
     final File zip = File(zipPath);
     if (zip.existsSync()) zip.deleteSync();
@@ -450,13 +504,17 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
     exportedAt: now,
   );
 
-  // 派发后台 isolate。
+  // 派发后台 isolate。文件夹模式只写 json+md（音频主线程原位直推）；
+  // ZIP 模式在 isolate 内完成打包。
+  final bool folderMode =
+      Platform.isAndroid && destination == ExportDestination.appDownload;
   final ReceivePort report = ReceivePort();
   final Isolate isolate = await Isolate.spawn(
     _exportEntry,
     <dynamic>[
       report.sendPort,
       <String, dynamic>{
+        'mode': folderMode ? 'files' : 'zip',
         'backupMap': backupMap,
         'audioPaths': audioPaths,
         'workDir': workDir.path,
@@ -468,6 +526,7 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
 
   SendPort? controlSendPort;
   Object? error;
+  List<List<String>>? folderFiles;
   await for (final dynamic msg in report) {
     if (msg is SendPort) {
       controlSendPort = msg;
@@ -479,6 +538,10 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
     if (kind == _kProgress) {
       onProgress?.call(m[1] as double, m[2] as String);
     } else if (kind == _kDone) {
+      if (folderMode) {
+        folderFiles =
+            (m[1] as List<dynamic>).cast<List<String>>();
+      }
       // 完成 / 失败都要 break 循环体本身。⚠️ 历史缺陷：这里曾是 switch +
       // `break`——Dart 的 break 只跳出 switch 跳不出 await for，而后台
       // isolate 发完消息即退出、没人关闭 report 端口 → 主线程在 100% 处
@@ -494,7 +557,7 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
   report.close();
 
   if (error != null) {
-    _cleanup(workDir.path, zipPath);
+    _cleanup(workDir.path, folderMode ? null : zipPath);
     isolate.kill();
     if (error is _CancelledException) {
       throw const ExportCancelledException();
@@ -504,9 +567,21 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
 
   // 平台落盘（主线程；MediaStore 原生拷贝不占 Dart 堆，SAF 用户主动选择）。
   // 大 ZIP 拷贝可达数秒，先报一阶段文案，避免 UI 停在 100% 无反馈。
-  onProgress?.call(1.0, '正在保存文件');
+  onProgress?.call(folderMode ? 0.5 : 1.0, '正在保存文件');
   String location;
-  if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
+  if (folderMode) {
+    // 文件夹模式（用户要求：导出按文件分类——文件夹里含 backup.json /
+    // minutes/*.md / audio/*）：逐文件推 MediaStore 的对应子目录。
+    return _saveFolderToMediaStore(
+      files: folderFiles ?? const <List<String>>[],
+      audioPaths: audioPaths,
+      backupName: zipName,
+      workDirPath: workDir.path,
+      isolate: isolate,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  } else if (destination == ExportDestination.askEachTime && Platform.isAndroid) {
     final Uint8List bytes = await File(zipPath).readAsBytes();
     final String? pickedPath = await FilePicker.platform.saveFile(
       fileName: '$zipName.zip',
@@ -533,6 +608,89 @@ Future<({String location, BackupCancelToken handle})> exportBackup({
   }
   isolate.kill();
   return (location: location, handle: cancelToken ?? BackupCancelToken());
+}
+
+/// 文件夹模式落盘：把 [files]（backup.json + minutes/*.md）与 [audioPaths]
+/// 逐文件推入公共下载目录的 `<backupName>/` 子目录（MediaStore 按相对路径
+/// 建子目录），返回展示位置 `Download/SmartMinutes/<backupName>`。
+///
+/// 结构（对齐 ZIP 内部布局）：
+/// ```
+/// Download/SmartMinutes/feathernote-backup-<stamp>/
+///   ├─ backup.json
+///   ├─ minutes/<序号>-<标题>.md
+///   └─ audio/<音频文件名>
+/// ```
+///
+/// 进度：0.5→1.0 按推送完成数递增（isolate 侧 json+md 已占 0→0.5）。
+/// 音频**从原路径直推**，不在 Dart 堆 / 临时目录中转。
+Future<({String location, BackupCancelToken handle})> _saveFolderToMediaStore({
+  required List<List<String>> files,
+  required List<String?> audioPaths,
+  required String backupName,
+  required String workDirPath,
+  required Isolate isolate,
+  required BackupCancelToken? cancelToken,
+  required BackupProgressCallback? onProgress,
+}) async {
+  final int audioTotal = audioPaths
+      .where((String? e) => e != null && e.isNotEmpty)
+      .length;
+  final int total = files.length + audioTotal;
+  int pushed = 0;
+
+  Future<void> put(String path, String relInBackup) async {
+    final String sub = p.posix.dirname(relInBackup);
+    final String relativePath = (sub == '.' || sub == '')
+        ? '${MediaStore.appFolder}/$backupName'
+        : '${MediaStore.appFolder}/$backupName/$sub';
+    await MediaStore().saveFile(
+      tempFilePath: path,
+      dirType: DirType.download,
+      dirName: DirName.download,
+      relativePath: relativePath,
+    );
+    pushed++;
+    onProgress?.call(
+      0.5 + 0.5 * (pushed / (total == 0 ? 1 : total)),
+      '正在保存文件',
+    );
+  }
+
+  try {
+    for (final List<String> f in files) {
+      if (cancelToken?.isCancelled ?? false) {
+        throw const ExportCancelledException();
+      }
+      await put(f[0], f[1]);
+    }
+    for (final String? ap in audioPaths) {
+      if (ap == null || ap.isEmpty) continue;
+      final File audioFile = File(ap);
+      if (!audioFile.existsSync()) continue;
+      if (cancelToken?.isCancelled ?? false) {
+        throw const ExportCancelledException();
+      }
+      await put(audioFile.path, 'audio/${p.basename(ap)}');
+    }
+  } on ExportCancelledException {
+    // 中途取消：已推送的文件散落在公共目录，无法在此批量回收（需逐条 URI
+    // 删除）；清理临时目录后如实上报取消，半成品文件夹留待用户自行处理。
+    _cleanup(workDirPath, null);
+    isolate.kill();
+    rethrow;
+  } catch (e) {
+    _cleanup(workDirPath, null);
+    isolate.kill();
+    throw Exception('备份导出失败：$e');
+  }
+  // 全部推送完成，清理临时工作目录（json/md 已在公共目录有正本）。
+  _cleanup(workDirPath, null);
+  isolate.kill();
+  return (
+    location: 'Download/SmartMinutes/$backupName',
+    handle: cancelToken ?? BackupCancelToken(),
+  );
 }
 
 String _stamp(DateTime now) =>

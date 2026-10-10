@@ -14,6 +14,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:smart_minutes_flutter/domain/enums.dart';
 import 'package:smart_minutes_flutter/domain/meeting.dart';
@@ -84,6 +85,35 @@ void main() {
       // 序列化 / 纪要写入 / 落盘各阶段都应回报过进度（含最终 1.0）。
       expect(progress, isNotEmpty);
       expect(progress.last, 1.0);
+    },
+  );
+
+  test(
+    'buildLocalBackupFiles：写 backup.json 与每场会议单独的 md（文件夹模式阶段一）',
+    () async {
+      final Directory workDir =
+          Directory(p.join(base.path, 'files-stage'));
+      final List<(String, String)> files = await buildLocalBackupFiles(
+        backupMap: buildBackupJson(
+          meetings: <Meeting>[_meeting('f1'), _meeting('f2')],
+          schemaVersion: 1,
+          exportedAt: DateTime(2026, 10, 10),
+        ),
+        workDirPath: workDir.path,
+        onProgress: (double _, String __) {},
+        isCancelled: () => false,
+      );
+
+      expect(files.length, 3);
+      // 首个是 backup.json 且真实落盘。
+      expect(p.basename(files[0].$1), 'backup.json');
+      expect(File(files[0].$1).existsSync(), isTrue);
+      // 每场会议一个 md，相对路径在 minutes/ 下。
+      expect(files[1].$2, startsWith('minutes/1-'));
+      expect(files[2].$2, startsWith('minutes/2-'));
+      expect(File(files[1].$1).existsSync(), isTrue);
+      // md 内容与会找人映射一致（含标题）。
+      expect(File(files[1].$1).readAsStringSync(), contains('回归测试会议 f1'));
     },
   );
 
