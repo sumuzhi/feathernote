@@ -8,5 +8,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         // 导入音视频平台通道（feathernote/media_import）。
         MediaImportPlugin.register(flutterEngine)
+        // App 内 APK 安装通道（com.feathernote.app/apk_installer）。
+        ApkInstallerPlugin.register(flutterEngine, this)
     }
 }

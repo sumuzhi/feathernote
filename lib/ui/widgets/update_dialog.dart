@@ -9,9 +9,9 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/update/app_update.dart';
+import '../../core/update/app_update_installer.dart';
 
 /// 弹出版本更新提示。返回时用户已做出选择（更新或稍后）。
 Future<void> showAppUpdateDialog(BuildContext context, RemoteVersion remote) async {
@@ -45,10 +45,7 @@ Future<void> showAppUpdateDialog(BuildContext context, RemoteVersion remote) asy
         FilledButton(
           onPressed: () async {
             Navigator.of(ctx).pop();
-            final Uri uri = Uri.parse(remote.downloadUrl);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            }
+            await downloadAndInstallUpdate(context, remote);
           },
           child: const Text('立即更新'),
         ),

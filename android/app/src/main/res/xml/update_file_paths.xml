@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 授权：仅暴露应用私有 files/updates/ 给系统包安装器读取 APK。 -->
+<paths>
+    <files-path
+        name="updates"
+        path="updates/" />
+</paths>
