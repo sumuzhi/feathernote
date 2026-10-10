@@ -82,6 +82,17 @@ class FinalizePoller {
   /// 可变字段：[ImportService] 构造时注入（di 不感知，零装配改动）。
   void Function(String meetingId, String taskId)? onTaskSubmitted;
 
+  /// 终稿成功落盘后**自动生成纪要**回调（可变字段，di 装配后注入
+  /// `minutesService.startBackground`）。
+  ///
+  /// 2026-10-10 起「结束录音 → 立即录下一段」：纪要生成不能再依赖详情页存活
+  /// （用户可能早已退出详情页）。只在**录音路径**（[start]，source='wav'）触发；
+  /// 导入链路有自己的 step4 编排，不在此触发。
+  void Function(String meetingId)? onAutoMinutes;
+
+  /// 需要自动生成纪要的会议集合（录音路径标记，终稿落盘后消费）。
+  final Set<String> _autoMinutes = <String>{};
+
   final Map<String, FinalizeTask> _tasks = <String, FinalizeTask>{};
   final Map<String, Future<String>> _inflight = <String, Future<String>>{};
 
@@ -122,6 +133,9 @@ class FinalizePoller {
     if (existing != null) return existing;
     // 重试场景：清除上一次的放弃标志。
     _abandoned.remove(meetingId);
+    // 录音路径（source='wav'）标记「终稿成功后自动生成纪要」；导入链路
+    // （oss / resume）有自己的 step4 编排，不标记。
+    if (source == 'wav') _autoMinutes.add(meetingId);
 
     final Completer<String> accepted = Completer<String>();
     final Future<String> submitted = accepted.future;
@@ -288,12 +302,19 @@ class FinalizePoller {
     logInfo('finalize', '终稿已落盘 meeting=$meetingId 句数=${result.segments.length}');
     onProgress?.call(meetingId, 'done', taskId);
     if (onComplete != null) await onComplete!(meetingId, result.segments);
+    // 3) 录音路径 → 自动触发后台纪要生成（与页面解耦；详情页随后订阅会
+    //    附着同一 per-meeting 单飞流）。空逐字稿时 MinutesService 自有守卫拒绝。
+    if (_autoMinutes.remove(meetingId) == true) {
+      logInfo('finalize', '终稿完成，自动触发后台纪要生成 meeting=$meetingId');
+      onAutoMinutes?.call(meetingId);
+    }
   }
 
   /// 统一失败处理：置内存态 + 落 failed + 回调（[start] / [resumeWithTaskId] 共用）。
   Future<void> _handleRunFailure(String meetingId, String taskId, Object error) async {
     final String message = error.toString();
     logWarn('finalize', '终稿失败 meeting=$meetingId：$message');
+    _autoMinutes.remove(meetingId); // 失败不自动生成（重试成功后会重新标记）
     _tasks[meetingId] = FinalizeTask(taskId: taskId, status: 'failed', error: message);
     await _persistFailed(meetingId, message);
     onProgress?.call(meetingId, 'failed', null);

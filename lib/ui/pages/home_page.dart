@@ -50,8 +50,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _start() async {
     if (_starting) return;
-    // 上一段仍在生成纪要 / 终稿时不允许再开一段（按钮本身也已禁用，这里兜底）。
-    if (ref.read(generationInProgressProvider) != null) return;
+    // 2026-10-10 起：上一段的终稿 / 纪要生成全部在后台与首页解耦
+    // （终稿完成后由 finalize_poller 自动触发纪要，见 finalize_poller.dart），
+    // 首页不再因「上一段仍在生成」禁录——随时可以开始下一段录音。
     setState(() => _starting = true);
     try {
       await ref.read(recorderProvider.notifier).startRecording();
@@ -91,8 +92,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
     if (meetingId != null) {
-      // 上锁：从详情页返回首页时，若本会话仍在生成，开始录音保持禁用。
-      ref.read(generationInProgressProvider.notifier).begin(meetingId);
+      // 不再上生成锁：本会话的终稿 / 纪要全部后台进行，用户可立即开始下一段
+      // 录音（跳详情页只是「观看」生成进度，退出不影响后台生成）。
       // 压栈式跳转：系统返回键从纪要页原生 pop 回首页。
       unawaited(context.push('/meeting/$meetingId'));
       return;
@@ -165,9 +166,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     ];
     // App 不区分录音场景：模式选择已移除，recorder 恒为默认模式（会议）。
     //
-    // ⚠️ 生成纪要 / 终稿是**异步后台任务**（generationInProgressProvider 仅由
-    // 纪要页自身消费以展示进度），**不阻塞首页**：回主页后可直接开始下一段录音，
-    // hero 恒为「待机中」，不再出现「上一段正在生成纪要…」的长 loading。
+    // 生成纪要 / 终稿是**后台任务**（终稿完成后由 finalize_poller 自动触发纪要），
+    // 与首页完全解耦：hero 恒为「待机中」，随时可开始下一段录音。
     final bool busy = _starting || _stopping;
     final String? busyHint = _starting
         ? '正在启动录音…'

@@ -88,8 +88,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       if (meeting != null && !meeting.hasMinutes) {
         await _ensureTranscriptThenGenerate();
       } else {
-        // 已有纪要（含异常兜底）→ 解除首页的生成锁。
-        ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
+        // 已有纪要（含异常兜底）：无需再触发生成。
       }
     } catch (error) {
       if (!mounted) return;
@@ -144,7 +143,6 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
       return;
     }
     // 逐字稿仍为空：
-    ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
     if (m.finalizeStatus == FinalizeStatus.failed) {
       setState(() => _finalizeError = m.finalizeError ?? '终稿处理失败');
     }
@@ -189,8 +187,7 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
     final Meeting? after = _meeting;
     if (!mounted || after == null) return;
     if (after.hasMinutes || after.segments.isEmpty) {
-      // 已有纪要或确实无内容：只解锁，不生成无源纪要。
-      ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
+      // 已有纪要或确实无内容：不生成无源纪要。
       return;
     }
     logInfo(
@@ -230,9 +227,6 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
           .show('纪要生成失败：$message', tone: ToastTone.warning);
     }
     await _refresh();
-    // 生成结束（成功或失败都算结束）→ 解除首页「本会话生成中」锁，
-    // 让用户返回首页后可以立刻开始下一段录音。
-    ref.read(generationInProgressProvider.notifier).end(widget.meetingId);
     if (!mounted) return;
     setState(() => _generating = false);
   }

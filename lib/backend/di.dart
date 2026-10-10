@@ -115,6 +115,10 @@ Future<BackendBundle> createBackend({AppConfig? config}) async {
     cfg: cfg,
   );
 
+  // 终稿成功 → 自动触发后台纪要生成（2026-10-10：结束录音后立即可录下一段，
+  // 纪要不再依赖详情页存活；minutesService 在 poller 之后装配，故延后接线）。
+  finalizePoller.onAutoMinutes = minutesService.startBackground;
+
   // 导入链路：filetrans 客户端独立实例（无状态，仅复用 cfg/dio 配置语义）。
   final BailianFiletrans filetrans = BailianFiletrans(cfg);
   final ImportService importService = ImportService(

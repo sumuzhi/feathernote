@@ -280,6 +280,23 @@ class MinutesService {
     return buffer.toString();
   }
 
+  /// **后台静默生成**（终稿完成自动触发，2026-10-10）。
+  ///
+  /// 用户可在终稿跑完后立刻去录下一段、甚至早已退出详情页——纪要生成必须
+  /// 不依赖任何页面存活，跑完即落盘（结局语义见 [generateStream]）。失败仅
+  /// 告警不上抛（后台无人消费）。与详情页的手动生成共享 per-meeting 单飞：
+  /// 页面随后订阅只是**附着**同一流，绝不重复调 LLM。
+  void startBackground(String meetingId) {
+    unawaited(() async {
+      try {
+        await generate(meetingId);
+        logInfo('minutes', '后台纪要生成完成 meeting=$meetingId');
+      } catch (error) {
+        logWarn('minutes', '后台纪要生成失败 meeting=$meetingId：$error');
+      }
+    }());
+  }
+
   /// 静默**窄更新**纪要列（失败仅告警，不抛出，避免掩盖生成错误）。
   ///
   /// 只写 `minutes_md` / `status` / `minutes_partial` / `minutes_error`，
