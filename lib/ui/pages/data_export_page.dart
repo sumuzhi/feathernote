@@ -198,9 +198,6 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     }
   }
 
-  /// 底部「导出全部」。
-  void _exportAll(List<MeetingSummary> all) => _runExport(all);
-
   /// 底部「导出选中」。
   void _exportSelected(List<MeetingSummary> all) {
     final List<MeetingSummary> chosen =
@@ -410,7 +407,7 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
     }
     if (!_selecting) return null;
     final int count = _selected.length;
-    final bool hasAny = all.isNotEmpty;
+    // 用户要求：底部只保留「导出选中」一个操作（导出全部 = 全选 + 导出选中）。
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
@@ -418,26 +415,12 @@ class _DataExportPageState extends ConsumerState<DataExportPage> {
         borderRadius: BorderRadius.circular(AppRadius.card),
         boxShadow: AppShadow.card,
       ),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Opacity(
-              opacity: count == 0 ? 0.5 : 1,
-              child: _ActionButton(
-                label: count == 0 ? '导出选中' : '导出选中 ($count)',
-                ghost: true,
-                onTap: count == 0 ? null : () => _exportSelected(all),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _ActionButton(
-              label: '导出全部',
-              onTap: hasAny ? () => _exportAll(all) : null,
-            ),
-          ),
-        ],
+      child: Opacity(
+        opacity: count == 0 ? 0.5 : 1,
+        child: _ActionButton(
+          label: count == 0 ? '导出选中' : '导出选中 ($count)',
+          onTap: count == 0 ? null : () => _exportSelected(all),
+        ),
       ),
     );
   }
@@ -490,13 +473,12 @@ class _ExportRow extends StatelessWidget {
         // 两侧，观感像「边框占据整个屏幕」（用户反馈）。
         margin: const EdgeInsets.fromLTRB(AppSpacing.page, 12, AppSpacing.page, 0),
         padding: const EdgeInsets.fromLTRB(16, 15, 12, 15),
+        // 选中态只变**背景色**（用户要求：点击时 item 不发生位移）——
+        // 此前用 Border.all 指示选中，边框参与装饰绘制导致卡片视觉下沉/位移。
         decoration: BoxDecoration(
-          color: AppColors.card,
+          color: selecting && selected ? AppColors.orangeSoft : AppColors.card,
           borderRadius: BorderRadius.circular(AppRadius.card2),
           boxShadow: AppShadow.card,
-          border: selecting && selected
-              ? Border.all(color: AppColors.orange, width: 1.5)
-              : null,
         ),
         child: Row(
           children: <Widget>[
