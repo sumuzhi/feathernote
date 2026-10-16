@@ -38,6 +38,24 @@ android {
         resValues = true
     }
 
+    signingConfigs {
+        // 共享 debug keystore（提交在仓库内：android/app/debug.keystore）。
+        //
+        // 为什么提交：release 包沿用 debug 签名（自用侧载，无需正式签名），
+        // 而 debug keystore 若依赖 `~/.android/debug.keystore` 自动生成，本机与
+        // CI 的签名会互不相同、且可能随环境丢失（2026-10-16 实测丢失过一次），
+        // 覆盖安装会因签名不一致被拒。提交后本地与 GitHub Actions 恒同签名。
+        //
+        // Trade-off（刻意取舍）：公开仓库包含 debug 密钥——debug keystore 无
+        // 保密性（密码恒为 android，仅用于侧载签名，不用于任何正式发布）。
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // Debug 包名加 .debug 后缀：与 Release 版可并存安装、互不覆盖。
@@ -48,8 +66,8 @@ android {
         release {
             // Release 图标背景：主题橙。
             resValue("color", "ic_launcher_background", "#F0783C")
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Debug 签名（共享 keystore，见上方 signingConfigs 注释）：
+            // 自用侧载 + CI 与本地同签名，覆盖安装稳定。
             signingConfig = signingConfigs.getByName("debug")
         }
     }

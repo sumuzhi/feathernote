@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# 例外：共享 debug keystore 刻意提交（无保密性，密码恒为 android）——
+# 保证本地与 GitHub Actions 构建签名一致、覆盖安装稳定（见 app/build.gradle.kts）。
+!app/debug.keystore
