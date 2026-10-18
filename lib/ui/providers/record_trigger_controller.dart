@@ -16,7 +16,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/log/log.dart';
 import '../../core/platform/runtime_mode.dart';
 import '../../platform/record_trigger_channel.dart';
-import 'app_providers.dart';
 import 'recorder_controller.dart';
 
 /// 重复触发的最小间隔（防抖窗口）。

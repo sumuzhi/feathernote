@@ -155,7 +155,11 @@ MeetingMeta metaOf(Meeting meeting) => MeetingMeta(
   ),
 );
 
-/// 组装纪要对话消息：`[system, user]`（system 提示词与知识萃取取向一致）。
+/// 组装纪要对话消息：`[system, user]`。
+///
+/// [templateOverride] 为 null → 既有资产模板（knowledge-extract）+ 其专属
+/// knowledge 管家 system 消息；非 null → 用户自定义模板 + 通用 system 消息
+/// （自定义模板自带角色设定与输出结构，system 只负责「严格按格式输出」）。
 Future<List<LlmMessage>> buildMinutesMessages(
   Meeting meeting, {
   String? templateOverride,
@@ -167,13 +171,18 @@ Future<List<LlmMessage>> buildMinutesMessages(
   logDebug(
     'minutes',
     'Prompt 已组装',
-    <String, Object?>{'meeting': meeting.id, 'chars': filled.length},
+    <String, Object?>{
+      'meeting': meeting.id,
+      'chars': filled.length,
+      'custom': templateOverride != null,
+    },
   );
   return <LlmMessage>[
-    const LlmMessage(
+    LlmMessage(
       role: 'system',
-      content:
-          '你是一名资深知识管理专家、培训内容编辑和经验萃取顾问，严格按用户给定的 Markdown 格式输出结构化知识文档。',
+      content: templateOverride == null
+          ? '你是一名资深知识管理专家、培训内容编辑和经验萃取顾问，严格按用户给定的 Markdown 格式输出结构化知识文档。'
+          : '你是一名专业的记录整理助手，严格按用户给定的格式与要求输出，不虚构逐字稿中不存在的内容。',
     ),
     LlmMessage(role: 'user', content: filled),
   ];

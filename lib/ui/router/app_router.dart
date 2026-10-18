@@ -18,6 +18,7 @@ import '../providers/recorder_controller.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
 import '../pages/data_export_page.dart';
+import '../pages/summary_prompt_page.dart';
 import '../pages/import_page.dart';
 import '../pages/meeting_page.dart';
 import '../pages/profile_page.dart';
@@ -111,6 +112,14 @@ final GoRouter appRouter = GoRouter(
       // （压栈页，系统返回键回到设置页）。
       pageBuilder: (BuildContext context, GoRouterState state) =>
           _pushPage(state, const DataExportPage()),
+    ),
+    GoRoute(
+      path: '/summary-prompt',
+      name: 'summaryPrompt',
+      // 「总结风格」：预置 3 个 + 自定义 N 个总结 Prompt，选其一下次总结生效
+      // （压栈页，系统返回键回到设置页）。
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _pushPage(state, const SummaryPromptPage()),
     ),
     if (kDebugMode) ...<RouteBase>[
       GoRoute(

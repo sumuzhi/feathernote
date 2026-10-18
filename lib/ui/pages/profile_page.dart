@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../backend/backend_api.dart' show HealthStatus;
+import '../../backend/services/summary_prompts.dart' show loadSelectedPrompt;
 import '../../core/update/app_update.dart';
 import '../../domain/meeting.dart';
 import '../providers/app_providers.dart';
@@ -32,6 +33,7 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _diarization = true;
+  String? _summaryPromptName;
   ExportDestination _destination = ExportDestination.appDownload;
   bool _checkingUpdate = false;
 
@@ -47,6 +49,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     super.initState();
     _loadDestination();
     _loadPackageVersion();
+    _loadSummaryPromptName();
+  }
+
+  /// 当前选中的总结 Prompt 名（进页与从「总结风格」页返回后刷新）。
+  Future<void> _loadSummaryPromptName() async {
+    final (String name, _) = await loadSelectedPrompt();
+    if (!mounted) return;
+    setState(() => _summaryPromptName = name);
   }
 
   Future<void> _loadPackageVersion() async {
@@ -127,11 +137,23 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             ),
           ],
         ),
-        ProfileSectionView(
-          title: '数据与存储',
-          rows: <ProfileSettingView>[
-            // 用户要求：移除「音频留存」开关——音频一律留存于本地归档。
-            ProfileSettingView(
+          ProfileSectionView(
+            title: '数据与存储',
+            rows: <ProfileSettingView>[
+              // 用户要求：总结 Prompt 可自定义（预置 3 个 + 自定义 N 个），
+              // 选其一生效、仅影响下一次总结。
+              ProfileSettingView(
+                icon: Icons.auto_awesome_rounded,
+                title: '总结风格',
+                subtitle: '预置 3 个 + 自定义 · 选择后下一次总结生效',
+                value: _summaryPromptName ?? '…',
+                onTap: () async {
+                  await context.push('/summary-prompt');
+                  _loadSummaryPromptName();
+                },
+              ),
+              // 用户要求：移除「音频留存」开关——音频一律留存于本地归档。
+              ProfileSettingView(
               icon: Icons.storage_rounded,
               title: '数据库',
               subtitle:

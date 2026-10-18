@@ -21,6 +21,7 @@ import '../../domain/meeting.dart';
 import '../engine/engine.dart';
 import '../storage/meeting_repository.dart';
 import 'prompts.dart';
+import 'summary_prompts.dart';
 
 /// 进行中的生成任务（**per-meeting 单飞**的运行态）。
 class _ActiveGeneration {
@@ -170,7 +171,14 @@ class MinutesService {
         throw const AppError(ErrorCode.badRequest, '逐字稿为空，暂无法生成纪要');
       }
 
-      final List<LlmMessage> messages = await buildMinutesMessages(meeting);
+      // 用户要求：总结 Prompt 可自定义、选其一生效、**仅影响下一次总结**。
+      // 在生成启动瞬间读取当前选择（此后换选不影响本次）。
+      final (String promptName, String? templateOverride) =
+          await loadSelectedPrompt();
+      final List<LlmMessage> messages = await buildMinutesMessages(
+        meeting,
+        templateOverride: templateOverride,
+      );
       hadComplete = meeting.minutesMd != null && !meeting.minutesPartial;
       int promptChars = 0;
       for (final LlmMessage message in messages) {
@@ -182,6 +190,7 @@ class MinutesService {
         <String, Object?>{
           'model': cfg.llmModel,
           'strategy': cfg.summaryStrategy,
+          'prompt': promptName,
           'promptChars': promptChars,
           'messages': messages.length,
           'force': force,
