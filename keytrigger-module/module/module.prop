@@ -1,0 +1,6 @@
+id=feathernote-keytrigger
+name=FeatherNote 智能按键长按录音
+version=1.0.0
+versionCode=1
+author=FeatherNote
+description=长按一加智能键 3 秒静默开始/停止录音（息屏可用）。读 /dev/input/event0（不独占、不影响现有按键功能），触发时拉起 app 的透明 Activity 以取得麦克风权限。阈值可在模块目录 config 中调整。
