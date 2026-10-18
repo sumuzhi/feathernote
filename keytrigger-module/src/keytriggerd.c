@@ -368,11 +368,28 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
  * 振幅 200：明显但不刺耳。
  * ────────────────────────────────────────────────────────────────────── */
 
-#define VIB_MS 45
-#define VIB_AMP 200
-#define GAP_INNER 110 /* 触发阶段内、两记震动之间的间隔（够数清但利落） */
+/* ── 震动参数 ────────────────────────────────────────────────────────────
+ *
+ * 设计原则：**触发震动与预提示使用完全相同的参数**（30ms / 振幅 120），
+ * 因此「触发」在体感上就等于「把预提示重放 2 遍或 3 遍」—— 一致性带来
+ * 直观的可预期性，用户不需要学习两种不同的震动语言。
+ *
+ *   开始录音：⋯ 预提示【1 下】 ⋯ 触发【2 下】
+ *   结束录音：⋯ 预提示【1 下】 ⋯ 触发【3 下】
+ *
+ * 区分依据：触发阶段的震动次数（2 vs 3）。
+ *
+ * 参数说明：
+ * - 30ms 短促轻点，连续多下也不会糊成一片；
+ * - 振幅 120 偏轻，深夜使用不突兀，但连续几下仍清晰可数；
+ * - 段内间隔 110ms：足以分辨单次，又不会显得拖沓。
+ * ────────────────────────────────────────────────────────────────────── */
 
-/* 开始录音：震 2 下。 */
+#define VIB_MS 30      /* 与预提示一致 */
+#define VIB_AMP 120    /* 与预提示一致 */
+#define GAP_INNER 110  /* 多记之间的间隔 */
+
+/* 开始录音：震 2 下（等于预提示连震 2 次）。 */
 static void vibrate_feedback_start(void)
 {
     static const struct vib_step steps[] = {
@@ -382,7 +399,7 @@ static void vibrate_feedback_start(void)
     vibrate_pattern(steps, (int)(sizeof(steps) / sizeof(steps[0])), VIB_AMP);
 }
 
-/* 结束录音：震 3 下。 */
+/* 结束录音：震 3 下（等于预提示连震 3 次）。 */
 static void vibrate_feedback_stop(void)
 {
     static const struct vib_step steps[] = {
@@ -673,8 +690,9 @@ int main(void)
                 hint_given = 1;
                 log_line("预提示：已按住 %lldms（阈值 %lldms）", held, g_long_press_ms);
                 {
-                    static const struct vib_step hint[] = {{30, 0}};
-                    vibrate_pattern(hint, 1, 120);
+                    /* 用与触发反馈完全相同的参数，确保体感一致。 */
+                    static const struct vib_step hint[] = {{VIB_MS, 0}};
+                    vibrate_pattern(hint, 1, VIB_AMP);
                 }
             }
 
