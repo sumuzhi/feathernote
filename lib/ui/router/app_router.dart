@@ -18,7 +18,9 @@ import '../providers/recorder_controller.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
 import '../pages/data_export_page.dart';
+import '../pages/summary_prompt_edit_page.dart';
 import '../pages/summary_prompt_page.dart';
+import '../../backend/services/summary_prompts.dart' show SummaryPrompt;
 import '../pages/import_page.dart';
 import '../pages/meeting_page.dart';
 import '../pages/profile_page.dart';
@@ -120,6 +122,21 @@ final GoRouter appRouter = GoRouter(
       // （压栈页，系统返回键回到设置页）。
       pageBuilder: (BuildContext context, GoRouterState state) =>
           _pushPage(state, const SummaryPromptPage()),
+    ),
+    GoRoute(
+      path: '/summary-prompt/edit',
+      name: 'summaryPromptEdit',
+      // 新建/编辑 Prompt 的**全页编辑器**（用户要求弃用弹窗：键盘压缩溢出）；
+      // extra 传 SummaryPrompt?（null = 新建）。
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _pushPage(
+            state,
+            SummaryPromptEditPage(
+              existing: state.extra is SummaryPrompt
+                  ? state.extra! as SummaryPrompt
+                  : null,
+            ),
+          ),
     ),
     if (kDebugMode) ...<RouteBase>[
       GoRoute(
