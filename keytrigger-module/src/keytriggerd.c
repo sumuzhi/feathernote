@@ -126,32 +126,118 @@ static void log_line(const char *fmt, ...)
     fclose(f);
 }
 
-/* 执行命令并返回退出码（-1 表示启动失败）。
- * 用 popen 是为了拿到 rc：`am` 出错时返回非 0，据此给出失败震动。 */
-static int run_cmd(const char *cmd)
+/* ============================================================================
+ * 子进程执行：**异步、绝不阻塞主循环**
+ * ============================================================================
+ * 为什么必须异步（这是「第一记震动有、第二记没有」的根因）：
+ *
+ * 旧实现用 popen()/pclose() 同步等待子进程退出。而
+ *   `cmd vibrator_manager synced oneshot <ms> <amp>`
+ * 里的 `synced` 语义是「执行到震动结束才返回」，于是一次 vibrate() 会阻塞
+ * 整整 <ms> 毫秒；「开始录音」的震动序列是 45ms + sleep 90ms + 45ms，
+ * 合计约 180ms。这段时间主循环完全停止 poll 按键，表现为：
+ *   - 第二记震动与 am start 的时序互相挤压，偶发丢失；
+ *   - 这期间发生的按键（松手/再按）被延迟处理，长按时长计算出错。
+ *
+ * 因此所有子进程一律 fork 后立即返回，父进程不等待。子进程用
+ * exec 直接替换自身（不经过 shell，省一次 fork），并把输出丢弃。
+ * ========================================================================= */
+
+/* 启动一个后台子进程执行 argv（argv[0] 必须是绝对路径）。
+ * 立即返回：不等待子进程结束，也不关心其退出码。
+ * 用双重 fork 让子进程被 init 收养，避免留下僵尸进程（守护进程不 wait）。 */
+static void spawn_detached(char *const argv[])
 {
-    FILE *p = popen(cmd, "r");
-    if (!p) return -1;
-    char buf[256];
-    while (fgets(buf, sizeof(buf), p)) {
-        /* 丢弃输出，避免僵尸；内容另有 logcat 可查。 */
+    pid_t pid = fork();
+    if (pid < 0) {
+        log_line("fork 失败：%s", strerror(errno));
+        return;
     }
-    int status = pclose(p);
-    if (status == -1) return -1;
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    return -1;
+    if (pid > 0) {
+        /* 父进程：不等待。子进程会被 init 收养，不会变僵尸。 */
+        return;
+    }
+
+    /* 第一层子进程：再 fork 一次后立即退出，让孙子进程脱离父进程。 */
+    pid_t grandchild = fork();
+    if (grandchild < 0) _exit(127);
+    if (grandchild > 0) _exit(0);
+
+    /* 孙进程：真正的执行者。丢弃所有输出，避免阻塞或污染。 */
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        if (devnull > STDERR_FILENO) close(devnull);
+    }
+
+    execv(argv[0], argv);
+    _exit(127);
 }
 
-/* 震动反馈：走 cmd vibrator_manager（root 可用；无需 app 进程存在）。
- *   ms  = 持续毫秒
- *   amp = 振幅 1..255（0 会被系统忽略）
- */
-static void vibrate(int ms, int amp)
+/* 触发 app 的透明 Activity（异步，不等待 am 结果）。
+ *
+ * 注意：不再检查 am 的退出码。原因：
+ * 1) 异步执行拿不到退出码，而 UI 卡顿比拿不到退出码更糟；
+ * 2) am 失败时系统会有 logcat 记录，震动语义由「是否真的开始录音」决定
+ *    （见主循环里对 trigger_state 的读取）。
+ * 若需要失败提示，由 app 侧写状态文件反映真实结果。 */
+static void start_trigger_activity(const char *command)
 {
-    char cmd[160];
-    snprintf(cmd, sizeof(cmd),
-             "cmd vibrator_manager synced oneshot %d %d", ms, amp);
-    run_cmd(cmd);
+    static char component[] = TARGET_COMPONENT;
+    static char user_arg[] = "--user";
+    static char user_val[] = "0";
+    static char n_arg[] = "-n";
+    static char es_arg[] = "--es";
+    static char key_arg[] = "cmd";
+    static char cmd_start[] = "start";
+    static char cmd_stop[] = "stop";
+
+    char *argv[] = {
+        (char *)"/system/bin/am",
+        (char *)"start",
+        user_arg,
+        user_val,
+        n_arg,
+        component,
+        es_arg,
+        key_arg,
+        (strcmp(command, "stop") == 0) ? cmd_stop : cmd_start,
+        NULL,
+    };
+    spawn_detached(argv);
+}
+
+/* 震动反馈（异步，不等待震动结束）。
+ *
+ * ms  = 持续毫秒
+ * amp = 振幅 1..255
+ *
+ * 关键：不使用 `synced`（那是同步语义），但保留它也能工作——因为我们
+ * 已经不等待子进程。这里仍用 synced 以保持「同一时刻只排一个震动」
+ * 的语义，避免两个震动请求互相打断。 */
+static void vibrate_async(int ms, int amp)
+{
+    static char path[] = "/system/bin/cmd";
+    static char group[] = "vibrator_manager";
+    static char sync_kw[] = "synced";
+    static char oneshot_kw[] = "oneshot";
+    char ms_buf[16];
+    char amp_buf[16];
+    snprintf(ms_buf, sizeof(ms_buf), "%d", ms);
+    snprintf(amp_buf, sizeof(amp_buf), "%d", amp);
+
+    char *argv[] = {
+        path,
+        group,
+        sync_kw,
+        oneshot_kw,
+        ms_buf,
+        amp_buf,
+        NULL,
+    };
+    spawn_detached(argv);
 }
 
 /* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知。 */
@@ -221,41 +307,46 @@ static void load_config(void)
  * 语义由 app 侧状态决定：未在录音 → 开始（双短震）；正在录音 → 停止（一长震）。
  * 为什么由状态决定而不是每次 toggle：用户需要「盲操作」时靠震动区分当前动作。
  */
+/* 双短震：开始录音的反馈。
+ *
+ * 关键：不再用「vibrate + usleep + vibrate」串联。
+ * 那会产生两个问题：
+ * 1) 旧 vibrate 内部同步等待震动结束，第二记被延迟、甚至偶发丢失
+ *    （用户反馈的「只触发第一段」）；
+ * 2) usleep 期间主循环停止 poll，按键事件被延迟。
+ *
+ * 现在两次 vibrate_async 连发，由系统震动服务自行排队，父进程立即返回。 */
+static void vibrate_start_feedback(void)
+{
+    vibrate_async(45, 190);
+    vibrate_async(45, 190);
+}
+
+/* 执行一次录音触发（开始 / 停止）。
+ *
+ * ⚠️ **整个函数不含任何阻塞调用**：am 与震动全部异步派发后立即返回，
+ * 保证主循环尽快回到 poll()，不丢失后续按键事件。 */
 static void trigger_recording(void)
 {
     int recording = app_is_recording();
+    const char *command = recording ? "stop" : "start";
+
     log_line("触发：%s录音 -> am start 透明 Activity",
              recording ? "停止" : "开始");
 
-    /* am start 而不是 am start-foreground-service：
-     * 必须先让进程出现（不可见的）Activity，才能拿到麦克风权限。
-     * 命令放进 Activity，由它转交前台服务。 */
-    char cmd[320];
-    snprintf(cmd, sizeof(cmd),
-             "am start --user 0 -n %s --es cmd %s",
-             TARGET_COMPONENT, recording ? "stop" : "start");
-
-    int rc = run_cmd(cmd);
-    if (rc != 0) {
-        log_line("触发失败：am rc=%d，已给出失败震动", rc);
-        /* 三连短震：明确告知用户「没成功」（如 app 被卸载/被禁用）。 */
-        vibrate(40, 200);
-        usleep(80 * 1000);
-        vibrate(40, 200);
-        usleep(80 * 1000);
-        vibrate(40, 200);
-        return;
-    }
-
+    /* 先发震动反馈（异步，立即返回），再派发 am。
+     * 顺序上先震动能让用户更早感知到「按键生效了」，
+     * 而 am 本身耗时不确定（84ms ~ 数秒），不该挡在前面。 */
     if (recording) {
-        /* 停止：一记长震（用户明确知道「已经停了」）。 */
-        vibrate(260, 220);
+        /* 停止：一记长震。 */
+        vibrate_async(260, 220);
     } else {
-        /* 开始：两记短震。 */
-        vibrate(45, 190);
-        usleep(90 * 1000);
-        vibrate(45, 190);
+        vibrate_start_feedback();
     }
+
+    /* 拉起透明 Activity（异步）：让进程「变成使用中」，
+     * 随后由它启动麦克风前台服务 —— 这是解除 while-in-use 限制的关键。 */
+    start_trigger_activity(command);
 }
 
 /* ── 信号处理 ───────────────────────────────────────────────────────────── */
@@ -367,7 +458,7 @@ int main(void)
             if (!hint_given && held >= g_pre_hint_ms) {
                 hint_given = 1;
                 log_line("预提示：已按住 %lldms（阈值 %lldms）", held, g_long_press_ms);
-                vibrate(25, 120);
+                vibrate_async(25, 120);
             }
 
             /* 触发：按下满阈值即执行，无需等松手。 */

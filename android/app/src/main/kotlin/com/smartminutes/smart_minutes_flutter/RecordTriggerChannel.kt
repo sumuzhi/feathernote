@@ -37,6 +37,14 @@ object RecordTriggerChannel {
     @Volatile
     private var pendingCommand: String? = null
 
+    /** 待处理命令的序号（与 pendingCommand 配对，用于幂等去重）。 */
+    @Volatile
+    private var pendingSeq: Long = 0
+
+    /** 命令全局递增序号（防止同一条命令被投递两次）。 */
+    @Volatile
+    private var commandSeq: Long = 0
+
     /** 注册通道（幂等；重复注册会替换 handler，避免多引擎串台）。 */
     fun register(engine: FlutterEngine, context: Context) {
         val ch = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL)
@@ -83,31 +91,62 @@ object RecordTriggerChannel {
      * 若引擎尚未跑起 Dart 入口，命令落盘并等待 Dart 侧启动后主动拉取。
      */
     fun deliver(engine: FlutterEngine, context: Context, command: String) {
+        // 每条命令带一个单调递增序号（Dart 侧据此幂等去重）。
+        val seq = ++commandSeq
         pendingCommand = command
-        writePendingFile(context, command)
+        pendingSeq = seq
+        writePendingFile(context, command, seq)
 
         val ch = channel ?: return
-        ch.invokeMethod("onTrigger", mapOf("command" to command), object : MethodChannel.Result {
-            override fun success(result: Any?) {
-                clearPending(context)
-            }
+        ch.invokeMethod(
+            "onTrigger",
+            mapOf("command" to command, "seq" to seq),
+            object : MethodChannel.Result {
+                override fun success(result: Any?) {
+                    // ⚠️ 关键修复：投递成功后必须同时清掉**内存里**的 pendingCommand。
+                    // 旧实现只清文件，导致紧接着的 consumePending() 又把同一条命令
+                    // 返回一次 → Dart 侧收到重复命令（日志「补取到冷启动遗留命令」）。
+                    // 虽然当时有 3 秒防抖兜住，但防抖失效时会导致
+                    // 「开始后立刻停止」这类诡异行为。
+                    if (pendingSeq == seq) {
+                        pendingCommand = null
+                        pendingSeq = 0
+                    }
+                    clearPending(context)
+                }
 
-            override fun error(code: String, message: String?, details: Any?) {
-                // 保留落盘，等 Dart 侧 consumePending。
-            }
+                override fun error(code: String, message: String?, details: Any?) {
+                    // 保留落盘，等 Dart 侧 consumePending 补取。
+                }
 
-            override fun notImplemented() {
-                // 同上。
-            }
-        })
+                override fun notImplemented() {
+                    // 同上。
+                }
+            },
+        )
     }
 
-    /** Dart 侧启动后拉取一次未消费的命令（冷启动补投）。 */
-    private fun consumePending(context: Context): String? {
-        val cmd = pendingCommand ?: readPendingFile(context)
+    /** Dart 侧启动后拉取一次未消费的命令（冷启动补投）。
+     *
+     * 返回 Map（command + seq），Dart 侧据 seq 做幂等去重 —— 避免
+     * 「实时投递」与「补取」把同一条命令送两次。 */
+    private fun consumePending(context: Context): Map<String, Any>? {
+        val inMemory = pendingCommand
+        val cmd: String?
+        val seq: Long
+        if (inMemory != null) {
+            cmd = inMemory
+            seq = pendingSeq
+        } else {
+            val fromFile = readPendingFile(context)
+            cmd = fromFile?.first
+            seq = fromFile?.second ?: 0
+        }
         pendingCommand = null
+        pendingSeq = 0
         clearPending(context)
-        return cmd
+        if (cmd == null) return null
+        return mapOf("command" to cmd, "seq" to seq)
     }
 
     /**
@@ -129,17 +168,35 @@ object RecordTriggerChannel {
 
     private fun pendingFile(context: Context): File = File(context.filesDir, PENDING_FILE)
 
-    private fun writePendingFile(context: Context, command: String) {
+    /** 落盘格式：`<seq>:<command>`（带序号，供 Dart 侧幂等去重）。 */
+    private fun writePendingFile(context: Context, command: String, seq: Long) {
         try {
-            pendingFile(context).writeText(command)
+            pendingFile(context).writeText("$seq:$command")
         } catch (_: Throwable) {
             // 落盘失败仍尝试直接投递（尽力而为）。
         }
     }
 
-    private fun readPendingFile(context: Context): String? = try {
+    /** 读回落盘命令，返回 (command, seq)。兼容旧格式（纯命令、无序号）。 */
+    private fun readPendingFile(context: Context): Pair<String, Long>? = try {
         val f = pendingFile(context)
-        if (f.exists()) f.readText().trim().ifEmpty { null } else null
+        if (!f.exists()) {
+            null
+        } else {
+            val raw = f.readText().trim()
+            if (raw.isEmpty()) {
+                null
+            } else {
+                val idx = raw.indexOf(':', 1)
+                if (idx > 0) {
+                    val seq = raw.substring(0, idx).toLongOrNull()
+                    val cmd = raw.substring(idx + 1)
+                    if (seq != null && cmd.isNotEmpty()) cmd to seq else raw to 0L
+                } else {
+                    raw to 0L // 旧格式：只有命令
+                }
+            }
+        }
     } catch (_: Throwable) {
         null
     }

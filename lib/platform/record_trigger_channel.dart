@@ -60,6 +60,9 @@ class RecordTriggerChannel {
 
   bool _attached = false;
 
+  /// 已处理的最大命令序号（原生侧递增分配，用于幂等去重）。
+  int _lastHandledSeq = 0;
+
   /// 原生投递的触发命令流。
   Stream<TriggerCommand> get commands => _commands.stream;
 
@@ -77,10 +80,21 @@ class RecordTriggerChannel {
   Future<Object?> _handle(MethodCall call) async {
     switch (call.method) {
       case 'onTrigger':
-        final String? raw =
-            (call.arguments as Map<Object?, Object?>?)?['command'] as String?;
+        final Map<Object?, Object?>? args =
+            call.arguments as Map<Object?, Object?>?;
+        final String? raw = args?['command'] as String?;
+        final int seq = (args?['seq'] as int?) ?? 0;
         final TriggerCommand cmd = TriggerCommand.parse(raw);
-        logInfo('trigger', '收到触发命令 command=${cmd.name}（原生 raw=$raw）');
+        // 幂等去重：同一条命令可能既走实时投递、又被 consumePending 补取。
+        // 用原生侧递增 seq 精确识别「是不是同一条」，比按时间窗口防抖可靠。
+        if (seq > 0) {
+          if (seq <= _lastHandledSeq) {
+            logInfo('trigger', '忽略重复命令 seq=$seq（已处理过 ${_lastHandledSeq}）');
+            return true;
+          }
+          _lastHandledSeq = seq;
+        }
+        logInfo('trigger', '收到触发命令 command=${cmd.name} seq=$seq（raw=$raw）');
         if (!_commands.isClosed) _commands.add(cmd);
         return true;
       case 'onUiAttached':
@@ -98,11 +112,19 @@ class RecordTriggerChannel {
   /// 启动完成后调用本方法补取，避免「第一次长按没反应」。
   Future<TriggerCommand?> consumePending() async {
     try {
-      final String? raw =
-          await _channel.invokeMethod<String>('consumePending');
+      final Map<Object?, Object?>? result =
+          await _channel.invokeMethod<Map<Object?, Object?>>('consumePending');
+      if (result == null) return null;
+      final String? raw = result['command'] as String?;
       if (raw == null || raw.isEmpty) return null;
+      final int seq = (result['seq'] as int?) ?? 0;
+      if (seq > 0 && seq <= _lastHandledSeq) {
+        logInfo('trigger', '补取到已处理的命令 seq=$seq，忽略');
+        return null;
+      }
+      if (seq > 0) _lastHandledSeq = seq;
       final TriggerCommand cmd = TriggerCommand.parse(raw);
-      logInfo('trigger', '补取到冷启动遗留命令 command=${cmd.name}');
+      logInfo('trigger', '补取到冷启动遗留命令 command=${cmd.name} seq=$seq');
       return cmd;
     } catch (error) {
       logWarn('trigger', '拉取遗留命令失败（忽略）：$error');

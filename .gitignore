@@ -57,3 +57,6 @@ app.*.map.json
 .env
 .env.*
 apk-share/
+
+# KernelSU 模块编译产物（由 keytrigger-module/build.sh 生成，不入库）
+keytrigger-module/module/keytriggerd
