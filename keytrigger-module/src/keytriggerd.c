@@ -39,6 +39,7 @@
  * RecordTriggerActivity（1×1 全透明、肉眼不可见），由它去启动服务。
  */
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
@@ -74,6 +75,9 @@
 #define DEFAULT_COOLDOWN_MS 2000
 
 /* 目标组件：透明触发 Activity（exported，供 am 调用）。 */
+/* app 包名（用于判断进程是否存活，见 app_process_alive）。 */
+#define APP_PACKAGE "com.feathernote.app"
+
 #define TARGET_COMPONENT \
     "com.feathernote.app/com.smartminutes.smart_minutes_flutter.RecordTriggerActivity"
 
@@ -154,11 +158,13 @@ static void spawn_detached(char *const argv[])
         return;
     }
     if (pid > 0) {
-        /* 父进程：不等待。子进程会被 init 收养，不会变僵尸。 */
+        /* 父进程：立即返回。
+         * ⚠️ 子进程的回收由 main() 里设置的 SIGCHLD=SIG_IGN 负责
+         * （内核自动 reap，不留僵尸）。见 reap_children() 的注释。 */
         return;
     }
 
-    /* 第一层子进程：再 fork 一次后立即退出，让孙子进程脱离父进程。 */
+    /* 第一层子进程：再 fork 一次后立即退出，让孙子进程被 init 收养。 */
     pid_t grandchild = fork();
     if (grandchild < 0) _exit(127);
     if (grandchild > 0) _exit(0);
@@ -174,6 +180,30 @@ static void spawn_detached(char *const argv[])
 
     execv(argv[0], argv);
     _exit(127);
+}
+
+/* 回收所有已退出的子进程（防僵尸）。
+ *
+ * 为什么需要：spawn_detached() 的第一层子进程 fork 后立即 _exit(0)，
+ * 若不回收就会变成僵尸（状态 Z），每次触发留下一个 —— 实测累积到
+ * 21 个。虽然僵尸不占 CPU，但会消耗 PID 与内核 task 结构，
+ * 长期运行（设备可开机数周）会不断累积。
+ *
+ * 两种回收方式同时用，互为兜底：
+ * 1) main() 里 signal(SIGCHLD, SIG_IGN) —— 内核自动 reap，
+ *    这是最彻底的方式（连 wait 都不用调用）；
+ * 2) 本函数在每次 spawn 前主动 waitpid(WNOHANG) 扫一遍，
+ *    覆盖 SIGCHLD 被其他代码意外改写的情况。
+ *
+ * 注意：不能阻塞式 waitpid()，否则会卡住主循环，反而引入新问题。 */
+static void reap_children(void)
+{
+    /* 循环回收，直到没有已退出的子进程为止。
+     * waitpid 返回 0 表示「有子进程但都还在跑」；-1 表示没有子进程。 */
+    for (;;) {
+        pid_t r = waitpid(-1, NULL, WNOHANG);
+        if (r <= 0) break;
+    }
 }
 
 /* 触发 app 的透明 Activity（异步，不等待 am 结果）。
@@ -241,8 +271,72 @@ static void vibrate_async(int ms, int amp)
 }
 
 /* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知。 */
+/* app 进程是否存活（决定状态文件是否可信）。
+ *
+ * 为什么需要：`trigger_state` 是 app 写的普通文件，**进程被杀死、app 被更新、
+ * 强制停止后不会自动清理**。若守护进程盲信它，会出现：
+ *
+ *   残留 "recording" + app 实际没在跑
+ *     → 长按被判定为「停止」
+ *     → 命令投给一个不存在的录音，等于什么也没发生
+ *     → 用户看到的现象：「长按没反应 / 无法激活录音」
+ *
+ * 因此判定录音状态前，先确认 app 进程活着；进程不在则忽略残留状态。
+ *
+ * 用 /proc/<pid>/cmdline 匹配包名：app 可能有多个进程（:remote 等），
+ * 扫描所有 /proc 数字目录最可靠（不依赖 pidof 命令是否可用）。 */
+static int app_process_alive(void)
+{
+    DIR *proc = opendir("/proc");
+    if (!proc) return 1; /* 拿不到 /proc 时保守视为存活，避免误清状态 */
+
+    struct dirent *ent;
+    char path[64];
+    char buf[512];
+    int alive = 0;
+
+    while ((ent = readdir(proc)) != NULL) {
+        /* 只要纯数字目录（PID）。 */
+        char *p = ent->d_name;
+        if (*p < '1' || *p > '9') continue;
+        int all_digits = 1;
+        for (char *q = p; *q; q++) {
+            if (*q < '0' || *q > '9') { all_digits = 0; break; }
+        }
+        if (!all_digits) continue;
+
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", p);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        if (n == 0) continue;
+        buf[n] = '\0';
+        /* cmdline 用 '\0' 分隔，首个参数通常是可执行路径：
+         * Android app 进程形如 "com.feathernote.app" 或
+         * "/system/bin/app_process... com.feathernote.app"。 */
+        if (strstr(buf, APP_PACKAGE) != NULL) {
+            alive = 1;
+            break;
+        }
+    }
+    closedir(proc);
+    return alive;
+}
+
+/* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知/进程不在。 */
 static int app_is_recording(void)
 {
+    /* 进程不在 → 状态文件不可信，一律视为空闲（走「开始录音」）。
+     * 这一步同时顺手清掉残留文件，避免下次再被误导。 */
+    if (!app_process_alive()) {
+        if (access(STATE_PATH, F_OK) == 0) {
+            log_line("app 进程不在，忽略并清理残留状态文件");
+            unlink(STATE_PATH);
+        }
+        return 0;
+    }
+
     FILE *f = fopen(STATE_PATH, "r");
     if (!f) return 0;
     char buf[32] = {0};
@@ -373,6 +467,16 @@ int main(void)
     sa.sa_handler = on_signal;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
+
+    /* 子进程自动回收：spawn_detached() 会频繁 fork，若不自理会累积僵尸。
+     * SIG_IGN 让内核在子进程退出时直接 reap，不产生僵尸。 */
+    struct sigaction sa_chld;
+    memset(&sa_chld, 0, sizeof(sa_chld));
+    sa_chld.sa_handler = SIG_IGN;
+    sigaction(SIGCHLD, &sa_chld, NULL);
+
+    /* 启动时先扫一遍历史僵尸（上一次运行可能留下的）。 */
+    reap_children();
 
     load_config();
     log_line("守护进程启动 pid=%d 长按=%lldms 预提示=%lldms 冷却=%lldms 按键=%s code=%d",
