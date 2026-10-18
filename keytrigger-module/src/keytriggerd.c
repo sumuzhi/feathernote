@@ -339,34 +339,41 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
 
 /* ── 震动模式常量 ────────────────────────────────────────────────────────
  *
- * 时长选 45ms：短促干脆，连续多下时不会糊成一片（80ms 以上容易听感连成一条）。
- * 停顿选：段间 140ms（两段分明）、段内 90ms（同段连击）。
+ * 整体节奏（与长按判定时刻绑定，用户靠手感就能确认「按键被识别」和
+ * 「动作已执行」两件事）：
+ *
+ *   t=2000ms  预提示：震 1 下（轻）—— 告知「快触发了」
+ *   t=3000ms  开始录音：震 2 下
+ *   t=3000ms  结束录音：震 3 下
+ *
+ * 因此「触发之后的震动次数」是唯一区分依据：2 下=开始，3 下=停止。
+ * 两次之间留足够停顿（GAP_INNER），保证能数清。
+ *
+ * 时长选 45ms：短促干脆，连续多下不会糊成一片（80ms 以上容易连成一条）。
+ * 振幅 200：明显但不刺耳。
  * ────────────────────────────────────────────────────────────────────── */
 
 #define VIB_MS 45
 #define VIB_AMP 200
-#define GAP_INNER 90   /* 同一段内、两记之间 */
-#define GAP_SEGMENT 140 /* 两段之间（更长的停顿，用于划分段落） */
+#define GAP_INNER 110 /* 触发阶段内、两记震动之间的间隔（够数清但利落） */
 
-/* 开始录音：1 下，停顿，2 下。 */
+/* 开始录音：震 2 下。 */
 static void vibrate_feedback_start(void)
 {
     static const struct vib_step steps[] = {
-        {VIB_MS, GAP_SEGMENT},       /* 段1：确认按键 */
-        {VIB_MS, GAP_INNER},         /* 段2：第1下 */
-        {VIB_MS, 0},                 /* 段2：第2下 */
+        {VIB_MS, GAP_INNER},
+        {VIB_MS, 0},
     };
     vibrate_pattern(steps, (int)(sizeof(steps) / sizeof(steps[0])), VIB_AMP);
 }
 
-/* 停止录音：1 下，停顿，3 下。 */
+/* 结束录音：震 3 下。 */
 static void vibrate_feedback_stop(void)
 {
     static const struct vib_step steps[] = {
-        {VIB_MS, GAP_SEGMENT},       /* 段1：确认按键 */
-        {VIB_MS, GAP_INNER},         /* 段2：第1下 */
-        {VIB_MS, GAP_INNER},         /* 段2：第2下 */
-        {VIB_MS, 0},                 /* 段2：第3下 */
+        {VIB_MS, GAP_INNER},
+        {VIB_MS, GAP_INNER},
+        {VIB_MS, 0},
     };
     vibrate_pattern(steps, (int)(sizeof(steps) / sizeof(steps[0])), VIB_AMP);
 }
@@ -519,10 +526,10 @@ static void trigger_recording(void)
      * 顺序上先震动能让用户更早感知到「按键生效了」，
      * 而 am 本身耗时不确定（84ms ~ 数秒），不该挡在前面。 */
     if (recording) {
-        /* 停止录音：1 下 + 停顿 + 3 下（共 4 下）。 */
+        /* 结束录音：震 3 下（配合 t=2s 的 1 下预提示，共 4 下）。 */
         vibrate_feedback_stop();
     } else {
-        /* 开始录音：1 下 + 停顿 + 2 下（共 3 下）。 */
+        /* 开始录音：震 2 下（配合 t=2s 的 1 下预提示，共 3 下）。 */
         vibrate_feedback_start();
     }
 
