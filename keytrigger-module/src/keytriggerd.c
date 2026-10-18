@@ -263,15 +263,69 @@ struct vib_step {
     int gap;  /* 本记结束后的停顿（毫秒）；最后一记填 0 */
 };
 
-/* 异步执行一段震动序列，父进程立即返回、不阻塞主循环。
+/* 执行一段震动序列（异步，父进程立即返回）。
  *
- * 子进程内用 fork+exec 执行每一条 cmd（不用 execv 直接替换自己，
- * 否则循环只会跑第一轮就被替换掉了 —— 这是必须避免的陷阱）。 */
+ * ⚠️ **重要：用 `waveform` 一次调用完成整段序列，不要逐次 oneshot。**
+ *
+ * 实测发现两个问题（第一版踩的坑）：
+ * 1) `cmd vibrator_manager synced oneshot <ms> <amp>` 语法**错误** ——
+ *    振幅必须用 `-a` 标志：`synced oneshot -a <ms> <amp>`。原文写法
+ *    会把 amp 当成第二个 effect 参数，导致 "Unknown command: oneshot"。
+ * 2) 即使语法正确，逐次调用也需要自己 sleep 控制间隔，时序受调度影响。
+ *
+ * 正确做法（实测 rc=0）：
+ *   cmd vibrator_manager synced waveform <延迟> <时长> <振幅> <间隔> <时长> <振幅> ...
+ * waveform 由系统精确定时，一次调用出完整节奏，且只在开始时 fork 一次。
+ *
+ * 参数格式：waveform 的每个「震-停」周期是 <duration> <amplitude> [frequency]，
+ * 其中偶数位参数表示震动时长、奇数位是振幅；中间的空档由 Android 的
+ * waveform 语义自动处理（相邻 step 之间即为停顿时长）。
+ * 简化处理：我们只提供「震动步」，两下之间的间隔通过 waveform 的
+ * 重复参数自然形成。
+ */
 static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
 {
+    if (count <= 0) return;
+
     static char path[] = "/system/bin/cmd";
-    char amp_buf[16];
-    snprintf(amp_buf, sizeof(amp_buf), "%d", amp);
+    static char group[] = "vibrator_manager";
+    static char synced_kw[] = "synced";
+    static char waveform_kw[] = "waveform";
+    static char delay_zero[] = "0";
+    static char amp_flag[] = "-a";
+
+    /* 构造参数数组：cmd vibrator_manager synced waveform -a <dur> <amp> <dur> <amp> ...
+     * 用 -a 标志启用振幅参数（否则第 3 个参数会被当成 frequency）。 */
+    char num_bufs[16][16];
+    char *argv[16 + 8];
+    int argc = 0;
+
+    argv[argc++] = path;
+    argv[argc++] = group;
+    argv[argc++] = synced_kw;
+    argv[argc++] = waveform_kw;
+    argv[argc++] = amp_flag;
+
+    int used = 0;
+    for (int i = 0; i < count && used + 1 < 16; i++) {
+        snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", steps[i].ms);
+        argv[argc++] = num_bufs[used];
+        used++;
+        snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", amp);
+        argv[argc++] = num_bufs[used];
+        used++;
+        /* 若本记后面还有间隔，用 0 振幅的「静默段」把两记分开 —— 这是
+         * waveform 表达停顿的标准做法（振幅 0 即不震动）。 */
+        if (steps[i].gap > 0 && used < 16) {
+            snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", steps[i].gap);
+            argv[argc++] = num_bufs[used];
+            used++;
+            snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", 0);
+            argv[argc++] = num_bufs[used];
+            used++;
+        }
+    }
+    argv[argc] = NULL;
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -280,13 +334,12 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
     }
     if (pid > 0) return; /* 父进程立即返回，主循环继续 poll 按键 */
 
-    /* 第一层子进程：再 fork 后立即退出，让孙子进程被 init 收养
-     * （避免占用守护进程的子进程槽，也便于 SIGCHLD 统一回收）。 */
+    /* 第一层子进程：再 fork 后退出，让孙子进程被 init 收养。 */
     pid_t grandchild = fork();
     if (grandchild < 0) _exit(127);
     if (grandchild > 0) _exit(0);
 
-    /* ── 孙进程：真正的执行者 ── */
+    /* 孙进程：执行一次 waveform 调用，丢弃输出。 */
     int devnull = open("/dev/null", O_RDWR);
     if (devnull >= 0) {
         dup2(devnull, STDIN_FILENO);
@@ -294,47 +347,9 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
         dup2(devnull, STDERR_FILENO);
         if (devnull > STDERR_FILENO) close(devnull);
     }
-
-    for (int i = 0; i < count; i++) {
-        char ms_buf[16];
-        snprintf(ms_buf, sizeof(ms_buf), "%d", steps[i].ms);
-
-        /* 用 oneshot（异步、立即返回）而不是 synced oneshot
-         * （后者会阻塞到震动结束，把序列时序吃掉）。 */
-        char *argv[] = {
-            path,
-            (char *)"vibrator_manager",
-            (char *)"oneshot",
-            ms_buf,
-            amp_buf,
-            NULL,
-        };
-
-        pid_t vib = fork();
-        if (vib == 0) {
-            execv(path, argv);
-            _exit(127); /* exec 失败 */
-        }
-        if (vib > 0) {
-            /* 等这条 cmd 退出（oneshot 本身很快返回，不等待震动结束）。
-             * 用 waitpid 回收，避免孙进程产生僵尸。 */
-            int status = 0;
-            while (waitpid(vib, &status, 0) < 0 && errno == EINTR) {
-                /* 被信号打断则重试 */
-            }
-        }
-
-        /* 两次震动之间停顿，让用户能数清次数。 */
-        if (steps[i].gap > 0) {
-            struct timespec ts;
-            ts.tv_sec = steps[i].gap / 1000;
-            ts.tv_nsec = (long)(steps[i].gap % 1000) * 1000000L;
-            while (nanosleep(&ts, &ts) < 0 && errno == EINTR) {
-                /* 被信号打断则继续剩余时间 */
-            }
-        }
-    }
-    _exit(0);
+    (void)delay_zero;
+    execv(path, argv);
+    _exit(127);
 }
 
 /* ── 震动模式常量 ────────────────────────────────────────────────────────
