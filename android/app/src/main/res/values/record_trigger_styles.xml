@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ========================================================================
+         透明启动主题（智能按键息屏静默录音专用）
+         ========================================================================
+         用途：RecordTriggerActivity 使用。它是一个**肉眼不可见**的 Activity，
+         唯一职责是让系统把本进程判定为「正在使用中」，从而满足 Android 11+
+         的 while-in-use 麦克风限制（RECORD_AUDIO 只在 app 处于使用中时可用）。
+
+         为什么必须这样做（实测结论，非猜测）：
+         - Android 15 的 RECORD_AUDIO 是 while-in-use 权限，且**无法**通过
+           appops / root 改成 allow（实测命令返回成功但系统静默忽略）；
+         - 从后台直接 startForegroundService(microphone) 会被系统拒绝，日志：
+           Foreground service started from background can not have
+           location/camera/microphone access
+           随后 AudioRecord 采集到全零；
+         - 厂商自带录音机（com.coloros.soundrecorder）的智能键入口正是
+           TransparentActivity，且实测息屏下能正常录音 —— 证明这条路可行。
+
+         视觉上必须完全不可见：全透明背景、无标题、无动画、无预览。
+    ========================================================================= -->
+    <style name="TransparentLaunchTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

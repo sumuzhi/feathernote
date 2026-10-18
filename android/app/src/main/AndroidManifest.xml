@@ -23,7 +23,7 @@
         android:maxSdkVersion="29" />
     <application
         android:label="声羽"
-        android:name="${applicationName}"
+        android:name=".FeatherNoteApplication"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
         <activity
@@ -56,6 +56,44 @@
             android:foregroundServiceType="microphone|dataSync"
             android:stopWithTask="false"
             android:exported="false" />
+        <!-- ================================================================
+             智能按键「息屏静默录音」相关组件
+             ================================================================
+             设计要点（真机实测结论驱动，勿随意改动）：
+
+             1) RecordTriggerActivity 是**肉眼完全不可见**的透明 Activity。
+                它存在的唯一理由：Android 11+ 的 RECORD_AUDIO 是 while-in-use
+                权限，进程必须被系统判定为「使用中」才允许采集麦克风。从后台
+                直接 startForegroundService(microphone) 会被拒绝并静默静音：
+                  W ActivityManager: Foreground service started from background
+                    can not have location/camera/microphone access
+                先拉起一个（不可见的）Activity，进程即为前台，随后启动的 FGS
+                就不再算「后台启动」——厂商自带录音机的 TransparentActivity
+                用的是同一手法（实测息屏可用）。
+
+             2) exported=true 是必需的：root 守护进程以 shell uid(2000) 通过
+                `am start` 调用；exported=false 会被系统直接拒绝
+                （Requires permission not exported from uid 2000）。
+                服务内部自行校验调用方 UID（见 RecordTriggerService）。
+
+             3) excludeFromRecents + noHistory：不进入最近任务、不留返回栈，
+                用户完全无感知。
+             ================================================================ -->
+        <activity
+            android:name=".RecordTriggerActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:theme="@style/TransparentLaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true" />
+        <service
+            android:name=".RecordTriggerService"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"
+            android:exported="true" />
         <!-- App 内安装更新包：暴露 files/updates/ 给系统包安装器（content:// URI）。
              authority 唯一，避免与其它插件声明的 FileProvider 冲突。 -->
         <provider

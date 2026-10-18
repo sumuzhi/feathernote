@@ -11,6 +11,9 @@ import 'dart:typed_data';
 
 import 'package:record/record.dart';
 
+import '../../platform/record_trigger_channel.dart';
+import 'runtime_mode.dart';
+
 import '../log/log.dart';
 
 /// 麦克风来源。
@@ -48,7 +51,20 @@ class RecordMicSource implements MicSource {
 
   @override
   Future<bool> hasPermission() async {
-    // `record` 的 hasPermission() 默认 request=true：权限缺失时会主动弹窗申请。
+    // ⚠️ headless（无界面）路径必须绕开插件默认实现：
+    // `record` 的 hasPermission() 在 activity == null 时**直接返回 false**
+    // （它内部要先拿 Activity 才能申请权限，拿不到就短路）。
+    // 那会导致「长按触发录音」被误判为无权限而静默失败。
+    // 因此 headless 下改为直接查询系统权限态（原生通道）。
+    if (isHeadlessMode) {
+      final bool granted =
+          await RecordTriggerChannel.instance.hasRecordPermission();
+      logInfo('mic', '权限询问（headless 直查）结果=$granted');
+      return granted;
+    }
+
+    // 有界面路径：`record` 的 hasPermission() 默认 request=true，权限缺失时
+    // 会主动弹窗申请 —— 这正是用户首次录音时想要的行为。
     final bool granted = await _recorder.hasPermission();
     logInfo('mic', '权限询问 hasPermission(request=默认true) 结果=$granted');
     return granted;

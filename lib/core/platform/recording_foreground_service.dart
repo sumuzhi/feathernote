@@ -27,6 +27,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../log/log.dart';
 
+import 'runtime_mode.dart';
+
 /// 保活前台服务（进程内单例）。
 class RecordingForegroundService {
   RecordingForegroundService._();
@@ -129,6 +131,12 @@ class RecordingForegroundService {
   Future<void> _requestIgnoreBatteryOnce() async {
     if (_batteryPrompted) return;
     _batteryPrompted = true;
+    // headless 下没有 Activity，弹不出系统对话框（会抛异常）。
+    // 跳到白名单属于「有界面时的一次性引导」，后台路径直接跳过。
+    if (isHeadlessMode) {
+      logInfo('foreground', 'headless 模式：跳过电池优化白名单请求');
+      return;
+    }
     try {
       final bool ignored = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
       if (ignored) {
@@ -145,7 +153,15 @@ class RecordingForegroundService {
   Future<void> _start({required String notificationText}) async {
     final Stopwatch watch = Stopwatch()..start();
     try {
-      await FlutterForegroundTask.requestNotificationPermission();
+      // ⚠️ headless（无界面）下不能调用 requestNotificationPermission：
+      // 它内部要拿 Activity 弹系统对话框，拿不到会抛
+      // ActivityNotAttachedException，进而**整个录音启动失败**。
+      // 通知权限在用户正常打开 app 时早已申请过，此处跳过即可。
+      if (!isHeadlessMode) {
+        await FlutterForegroundTask.requestNotificationPermission();
+      } else {
+        logInfo('foreground', 'headless 模式：跳过通知权限申请（无 Activity 可弹窗）');
+      }
       if (!_initialized) {
         FlutterForegroundTask.init(
           androidNotificationOptions: AndroidNotificationOptions(
