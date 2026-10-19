@@ -257,73 +257,65 @@ static void start_trigger_activity(const char *command)
  * 两次之间用 nanosleep 精确控制间隔 —— 不受父进程调度影响，时序稳定。
  * ========================================================================= */
 
-/* 单记震动的描述。 */
-struct vib_step {
-    int ms;   /* 震动时长 */
-    int gap;  /* 本记结束后的停顿（毫秒）；最后一记填 0 */
-};
+/* ============================================================================
+ * 震动反馈：使用**厂商预调触感效果**（prebaked effect）
+ * ============================================================================
+ * 为什么不再自己拼 waveform：
+ * 自己用「时长 + 振幅」拼出来的短震，线性马达还没结束起转就被切断，
+ * 边界模糊、且带"嗡"的尾音，连续多下容易糊成一片、数不清。
+ *
+ * 而系统内置了厂商（OPPO/高通）针对这颗马达**专门调校**的触感效果，
+ * 定义在 /vendor/etc/Hapticsconfig.xml 与 /odm/etc/vibrator/。
+ * 其中 TICK（effect-id=2）的参数是 pulse_sharpness=0，即最锐利的脉冲 ——
+ * 物理上就是干脆的一声「嗒」，远比手拼波形精准。
+ *
+ * 本机实测可用的预调效果（0..5）：
+ *   0 CLICK        标准点击
+ *   1 DOUBLE_CLICK 双击感
+ *   2 TICK         最轻最脆的嗒  ← 本项目使用
+ *   3 THUD         沉闷
+ *   4 POP          轻弹
+ *   5 HEAVY_CLICK  重点击
+ *   （6..12 为 OPLUS 自定义波形，未公开命名）
+ *
+ * 调用方式（实测 rc=0）：
+ *   cmd vibrator_manager sequential -v 0 prebaked <id> -v 0 prebaked <id> ...
+ * sequential 让多个效果**依次**播放（前一个播完再播下一个），
+ * 天然带出「嗒、嗒、嗒」的节奏，无需自己计算间隔。
+ * ========================================================================= */
 
-/* 执行一段震动序列（异步，父进程立即返回）。
- *
- * ⚠️ **重要：用 `waveform` 一次调用完成整段序列，不要逐次 oneshot。**
- *
- * 实测发现两个问题（第一版踩的坑）：
- * 1) `cmd vibrator_manager synced oneshot <ms> <amp>` 语法**错误** ——
- *    振幅必须用 `-a` 标志：`synced oneshot -a <ms> <amp>`。原文写法
- *    会把 amp 当成第二个 effect 参数，导致 "Unknown command: oneshot"。
- * 2) 即使语法正确，逐次调用也需要自己 sleep 控制间隔，时序受调度影响。
- *
- * 正确做法（实测 rc=0）：
- *   cmd vibrator_manager synced waveform <延迟> <时长> <振幅> <间隔> <时长> <振幅> ...
- * waveform 由系统精确定时，一次调用出完整节奏，且只在开始时 fork 一次。
- *
- * 参数格式：waveform 的每个「震-停」周期是 <duration> <amplitude> [frequency]，
- * 其中偶数位参数表示震动时长、奇数位是振幅；中间的空档由 Android 的
- * waveform 语义自动处理（相邻 step 之间即为停顿时长）。
- * 简化处理：我们只提供「震动步」，两下之间的间隔通过 waveform 的
- * 重复参数自然形成。
- */
-static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
+#define HAPTIC_EFFECT_TICK 2 /* 厂商预调：最锐利的短点击 */
+#define HAPTIC_EFFECT_CLICK 0 /* 备选：标准点击 */
+
+/* 播放 n 次厂商预调触感（异步，父进程立即返回）。 */
+static void vibrate_ticks(int times, int effect_id)
 {
-    if (count <= 0) return;
+    if (times <= 0) return;
 
     static char path[] = "/system/bin/cmd";
     static char group[] = "vibrator_manager";
-    static char synced_kw[] = "synced";
-    static char waveform_kw[] = "waveform";
-    static char delay_zero[] = "0";
-    static char amp_flag[] = "-a";
+    static char seq_kw[] = "sequential";
+    static char v_flag[] = "-v";
+    static char vid[] = "0";
+    static char prebaked_kw[] = "prebaked";
 
-    /* 构造参数数组：cmd vibrator_manager synced waveform -a <dur> <amp> <dur> <amp> ...
-     * 用 -a 标志启用振幅参数（否则第 3 个参数会被当成 frequency）。 */
-    char num_bufs[16][16];
-    char *argv[16 + 8];
+    /* 每次效果占两个参数（-v 0 指定 vibrator id，然后 prebaked <id>），
+     * 实际是 4 个参数一组：-v 0 prebaked <id>。 */
+    char id_bufs[12][8];
+    char *argv[12 * 4 + 6];
     int argc = 0;
 
     argv[argc++] = path;
     argv[argc++] = group;
-    argv[argc++] = synced_kw;
-    argv[argc++] = waveform_kw;
-    argv[argc++] = amp_flag;
+    argv[argc++] = seq_kw;
 
-    int used = 0;
-    for (int i = 0; i < count && used + 1 < 16; i++) {
-        snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", steps[i].ms);
-        argv[argc++] = num_bufs[used];
-        used++;
-        snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", amp);
-        argv[argc++] = num_bufs[used];
-        used++;
-        /* 若本记后面还有间隔，用 0 振幅的「静默段」把两记分开 —— 这是
-         * waveform 表达停顿的标准做法（振幅 0 即不震动）。 */
-        if (steps[i].gap > 0 && used < 16) {
-            snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", steps[i].gap);
-            argv[argc++] = num_bufs[used];
-            used++;
-            snprintf(num_bufs[used], sizeof(num_bufs[0]), "%d", 0);
-            argv[argc++] = num_bufs[used];
-            used++;
-        }
+    int times_capped = times > 12 ? 12 : times;
+    for (int i = 0; i < times_capped; i++) {
+        snprintf(id_bufs[i], sizeof(id_bufs[0]), "%d", effect_id);
+        argv[argc++] = v_flag;
+        argv[argc++] = vid;
+        argv[argc++] = prebaked_kw;
+        argv[argc++] = id_bufs[i];
     }
     argv[argc] = NULL;
 
@@ -339,7 +331,7 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
     if (grandchild < 0) _exit(127);
     if (grandchild > 0) _exit(0);
 
-    /* 孙进程：执行一次 waveform 调用，丢弃输出。 */
+    /* 孙进程：真正执行，丢弃输出。 */
     int devnull = open("/dev/null", O_RDWR);
     if (devnull >= 0) {
         dup2(devnull, STDIN_FILENO);
@@ -347,7 +339,6 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
         dup2(devnull, STDERR_FILENO);
         if (devnull > STDERR_FILENO) close(devnull);
     }
-    (void)delay_zero;
     execv(path, argv);
     _exit(127);
 }
@@ -368,46 +359,34 @@ static void vibrate_pattern(const struct vib_step *steps, int count, int amp)
  * 振幅 200：明显但不刺耳。
  * ────────────────────────────────────────────────────────────────────── */
 
-/* ── 震动参数 ────────────────────────────────────────────────────────────
+/* ── 震动反馈的对外接口 ────────────────────────────────────────────────
  *
- * 设计原则：**触发震动与预提示使用完全相同的参数**（30ms / 振幅 120），
- * 因此「触发」在体感上就等于「把预提示重放 2 遍或 3 遍」—— 一致性带来
- * 直观的可预期性，用户不需要学习两种不同的震动语言。
+ * 整体节奏：
  *
- *   开始录音：⋯ 预提示【1 下】 ⋯ 触发【2 下】
- *   结束录音：⋯ 预提示【1 下】 ⋯ 触发【3 下】
+ *   按住到 2s  预提示：1 下（轻）——「快触发了」
+ *   按住到 3s  开始录音：再 2 下    ← 总计 1 + 2
+ *   按住到 3s  结束录音：再 3 下    ← 总计 1 + 3
  *
- * 区分依据：触发阶段的震动次数（2 vs 3）。
- *
- * 参数说明：
- * - 30ms 短促轻点，连续多下也不会糊成一片；
- * - 振幅 120 偏轻，深夜使用不突兀，但连续几下仍清晰可数；
- * - 段内间隔 110ms：足以分辨单次，又不会显得拖沓。
+ * 触发阶段的震动**次数**（2 vs 3）是唯一区分依据。
+ * 每一下都用厂商调校的 TICK 效果，保证是清脆的「嗒」而非拖长的「嗡」。
  * ────────────────────────────────────────────────────────────────────── */
 
-#define VIB_MS 30      /* 与预提示一致 */
-#define VIB_AMP 120    /* 与预提示一致 */
-#define GAP_INNER 110  /* 多记之间的间隔 */
-
-/* 开始录音：震 2 下（等于预提示连震 2 次）。 */
+/* 开始录音：2 下「嗒」。 */
 static void vibrate_feedback_start(void)
 {
-    static const struct vib_step steps[] = {
-        {VIB_MS, GAP_INNER},
-        {VIB_MS, 0},
-    };
-    vibrate_pattern(steps, (int)(sizeof(steps) / sizeof(steps[0])), VIB_AMP);
+    vibrate_ticks(2, HAPTIC_EFFECT_TICK);
 }
 
-/* 结束录音：震 3 下（等于预提示连震 3 次）。 */
+/* 结束录音：3 下「嗒」。 */
 static void vibrate_feedback_stop(void)
 {
-    static const struct vib_step steps[] = {
-        {VIB_MS, GAP_INNER},
-        {VIB_MS, GAP_INNER},
-        {VIB_MS, 0},
-    };
-    vibrate_pattern(steps, (int)(sizeof(steps) / sizeof(steps[0])), VIB_AMP);
+    vibrate_ticks(3, HAPTIC_EFFECT_TICK);
+}
+
+/* 预提示：1 下「嗒」（与触发阶段同一种触感，保证手感一致）。 */
+static void vibrate_feedback_hint(void)
+{
+    vibrate_ticks(1, HAPTIC_EFFECT_TICK);
 }
 
 /* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知。 */
@@ -690,9 +669,8 @@ int main(void)
                 hint_given = 1;
                 log_line("预提示：已按住 %lldms（阈值 %lldms）", held, g_long_press_ms);
                 {
-                    /* 用与触发反馈完全相同的参数，确保体感一致。 */
-                    static const struct vib_step hint[] = {{VIB_MS, 0}};
-                    vibrate_pattern(hint, 1, VIB_AMP);
+                    /* 与触发阶段同一种触感（TICK），仅 1 下。 */
+                    vibrate_feedback_hint();
                 }
             }
 
