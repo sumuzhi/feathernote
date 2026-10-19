@@ -284,8 +284,15 @@ static void start_trigger_activity(const char *command)
  * 天然带出「嗒、嗒、嗒」的节奏，无需自己计算间隔。
  * ========================================================================= */
 
-#define HAPTIC_EFFECT_TICK 2 /* 厂商预调：最锐利的短点击 */
-#define HAPTIC_EFFECT_CLICK 0 /* 备选：标准点击 */
+/* 统一使用的厂商预调效果。
+ *
+ * HEAVY_CLICK（id=5）：所有震动点（预提示 / 开始 / 结束）都用它，
+ * 用户只需数次数，不需要适应不同触感。
+ *
+ * 编号映射来自 /vendor/etc/HapticsPolicy.xml：
+ *   0 CLICK / 1 DOUBLE_CLICK / 2 TICK / 3 THUD / 4 POP / 5 HEAVY_CLICK
+ */
+#define HAPTIC_EFFECT_ID 5 /* HEAVY_CLICK */
 
 /* 播放 n 次厂商预调触感（异步，父进程立即返回）。 */
 static void vibrate_ticks(int times, int effect_id)
@@ -368,25 +375,25 @@ static void vibrate_ticks(int times, int effect_id)
  *   按住到 3s  结束录音：再 3 下    ← 总计 1 + 3
  *
  * 触发阶段的震动**次数**（2 vs 3）是唯一区分依据。
- * 每一下都用厂商调校的 TICK 效果，保证是清脆的「嗒」而非拖长的「嗡」。
+ * 每一下都用厂商调校的 HEAVY_CLICK 效果。
  * ────────────────────────────────────────────────────────────────────── */
 
-/* 开始录音：2 下「嗒」。 */
+/* 开始录音：2 下。 */
 static void vibrate_feedback_start(void)
 {
-    vibrate_ticks(2, HAPTIC_EFFECT_TICK);
+    vibrate_ticks(2, HAPTIC_EFFECT_ID);
 }
 
-/* 结束录音：3 下「嗒」。 */
+/* 结束录音：3 下。 */
 static void vibrate_feedback_stop(void)
 {
-    vibrate_ticks(3, HAPTIC_EFFECT_TICK);
+    vibrate_ticks(3, HAPTIC_EFFECT_ID);
 }
 
-/* 预提示：1 下「嗒」（与触发阶段同一种触感，保证手感一致）。 */
+/* 预提示：1 下（与触发阶段同一种触感，保证手感一致）。 */
 static void vibrate_feedback_hint(void)
 {
-    vibrate_ticks(1, HAPTIC_EFFECT_TICK);
+    vibrate_ticks(1, HAPTIC_EFFECT_ID);
 }
 
 /* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知。 */
