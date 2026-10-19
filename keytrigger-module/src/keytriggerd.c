@@ -384,16 +384,26 @@ static void vibrate_feedback_start(void)
     vibrate_ticks(2, HAPTIC_EFFECT_ID);
 }
 
-/* 结束录音：3 下。 */
+/* 结束录音：4 下。 */
 static void vibrate_feedback_stop(void)
 {
-    vibrate_ticks(3, HAPTIC_EFFECT_ID);
+    vibrate_ticks(4, HAPTIC_EFFECT_ID);
 }
 
-/* 预提示：1 下（与触发阶段同一种触感，保证手感一致）。 */
-static void vibrate_feedback_hint(void)
+/* 预提示：震动次数由「本次长按将执行什么动作」决定。
+ *
+ *   will_stop = false（将开始录音）→ 1 下
+ *   will_stop = true （将结束录音）→ 2 下
+ *
+ * 这样用户在松手/触发之前的 1 秒就能预知接下来会发生什么，
+ * 而不是触发后才发现动作不对。配合触发阶段（2 下 / 4 下）：
+ *
+ *   开始录音：预提示 1 下 → 触发 2 下
+ *   结束录音：预提示 2 下 → 触发 4 下
+ */
+static void vibrate_feedback_hint(int will_stop)
 {
-    vibrate_ticks(1, HAPTIC_EFFECT_ID);
+    vibrate_ticks(will_stop ? 2 : 1, HAPTIC_EFFECT_ID);
 }
 
 /* 读取 app 侧写入的录音状态：1=录音中，0=空闲/未知。 */
@@ -671,14 +681,17 @@ int main(void)
         if (down_at > 0 && !fired) {
             long long held = now - down_at;
 
-            /* 预提示：快到 3 秒时轻震一下，让用户知道「快触发了」。 */
+            /* 预提示：快到 3 秒时给震动，让用户知道「快触发了」。
+             *
+             * 震动次数按「本次将执行什么动作」区分（1 下=将开始，2 下=将结束），
+             * 让用户在触发前 1 秒就能预知，而不是触发后才发现动作不对。
+             * 状态读取与 trigger_recording() 用同一函数，保证判定一致。 */
             if (!hint_given && held >= g_pre_hint_ms) {
                 hint_given = 1;
-                log_line("预提示：已按住 %lldms（阈值 %lldms）", held, g_long_press_ms);
-                {
-                    /* 与触发阶段同一种触感（TICK），仅 1 下。 */
-                    vibrate_feedback_hint();
-                }
+                int will_stop = app_is_recording();
+                log_line("预提示：已按住 %lldms（阈值 %lldms），将%s录音",
+                         held, g_long_press_ms, will_stop ? "结束" : "开始");
+                vibrate_feedback_hint(will_stop);
             }
 
             /* 触发：按下满阈值即执行，无需等松手。 */
