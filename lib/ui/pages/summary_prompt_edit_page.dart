@@ -1,7 +1,12 @@
-/// 总结 Prompt 编辑页（路由页；ScreenFrame 设计语言对齐「数据库」导出页）。
+/// 总结 Prompt 编辑页（路由页；设计语言对齐「数据库」导出页）。
 ///
-/// 键盘适配：表单在 ScreenFrame 的滚动区里，底部留白计入 `viewInsets`——
-/// 输入法弹出时内容可整体滚过键盘，保存按钮在滚动内容末尾（不悬浮、不被遮挡）。
+/// 布局（用户要求）：
+/// - **编辑区默认撑满**：内容输入框用 `Expanded` 占满 header 与保存按钮之间的
+///   全部空间（文字多时框内自行滚动）；
+/// - **创建按钮固定在最底部**：不随内容滚动；
+/// - **键盘适配**：整列以 `viewInsets.bottom` 垫底——输入法弹出时可用高度收窄，
+///   编辑区（Expanded）随之收缩、按钮始终浮在键盘上沿可见；
+/// - **header 与 content 保持间距**：顶栏下方 8px。
 library;
 
 import 'package:flutter/material.dart';
@@ -11,7 +16,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../backend/services/summary_prompts.dart';
 import '../providers/app_providers.dart';
-import '../screens/screen_frame.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_toast.dart';
@@ -94,78 +98,97 @@ class _SummaryPromptEditPageState extends ConsumerState<SummaryPromptEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ScreenFrame(
-      scrollable: true,
-      // 底部留白计入键盘高度：输入法弹出时内容可整体滚过键盘。
-      bottomSpacer: 24 +
-          MediaQuery.viewPaddingOf(context).bottom +
-          MediaQuery.viewInsetsOf(context).bottom,
-      header: AppTopBar(
-        title: _editing ? '编辑 Prompt' : '新建 Prompt',
-        subtitle: _editing ? '保存后自动设为下次总结使用' : '创建后自动设为下次总结使用',
-        leadingIcon: Icons.chevron_left_rounded,
-        onLeading: () => context.pop(),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
+    final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return Material(
+      color: AppColors.bg,
+      child: SafeArea(
+        bottom: false,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const SizedBox(height: 8),
-            Text('名称', style: AppTextStyles.settingTitle),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _nameCtrl,
-              maxLength: 20,
-              buildCounter: (
-                BuildContext context, {
-                required int currentLength,
-                required int? maxLength,
-                required bool isFocused,
-              }) =>
-                  null, // 隐藏字数角标（上限短到无需提示，保持视觉干净）
-              cursorColor: AppColors.orange,
-              style: AppTextStyles.body15,
-              decoration: _inputDecoration('如：周会要点、客户访谈'),
+            // 固定头部：顶栏（返回 + 标题/副标题）。
+            AppTopBar(
+              title: _editing ? '编辑 Prompt' : '新建 Prompt',
+              subtitle: _editing ? '保存后自动设为下次总结使用' : '创建后自动设为下次总结使用',
+              leadingIcon: Icons.chevron_left_rounded,
+              onLeading: () => context.pop(),
             ),
-            const SizedBox(height: 16),
-            Text(
-              '模板内容（必须包含 {{meeting_content}} 占位符）',
-              style: AppTextStyles.settingTitle,
-            ),
+            // header 与 content 保持一点距离（用户要求）。
             const SizedBox(height: 8),
-            TextField(
-              controller: _contentCtrl,
-              maxLines: null,
-              minLines: 12,
-              keyboardType: TextInputType.multiline,
-              textAlignVertical: TextAlignVertical.top,
-              cursorColor: AppColors.orange,
-              inputFormatters: <TextInputFormatter>[
-                LengthLimitingTextInputFormatter(20000),
-              ],
-              style: AppTextStyles.metaSmall.copyWith(height: 1.5),
-              decoration: _inputDecoration(
-                '写下你希望 AI 按什么结构总结逐字稿…\n\n'
-                '例：请总结出待办清单，格式：\n# 待办\n| 事项 | 负责人 | 期限 |\n\n'
-                '【逐字稿】\n{{meeting_content}}',
+            // 主体：以键盘高度垫底——输入法弹出时可用高度收窄、编辑区收缩，
+            // 保存按钮始终浮在键盘上沿（用户要求：注意输入法弹窗位置）。
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: keyboard),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text('名称', style: AppTextStyles.settingTitle),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _nameCtrl,
+                        maxLength: 20,
+                        buildCounter: (
+                          BuildContext context, {
+                          required int currentLength,
+                          required int? maxLength,
+                          required bool isFocused,
+                        }) =>
+                            null, // 隐藏字数角标（上限短到无需提示，保持视觉干净）
+                        cursorColor: AppColors.orange,
+                        style: AppTextStyles.body15,
+                        decoration: _inputDecoration('如：周会要点、客户访谈'),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        '模板内容（必须包含 {{meeting_content}} 占位符）',
+                        style: AppTextStyles.settingTitle,
+                      ),
+                      const SizedBox(height: 8),
+                      // 编辑区默认撑满剩余空间（用户要求）；文字多时框内自行滚动。
+                      Expanded(
+                        child: TextField(
+                          controller: _contentCtrl,
+                          maxLines: null,
+                          expands: true,
+                          keyboardType: TextInputType.multiline,
+                          textAlignVertical: TextAlignVertical.top,
+                          cursorColor: AppColors.orange,
+                          inputFormatters: <TextInputFormatter>[
+                            LengthLimitingTextInputFormatter(20000),
+                          ],
+                          style: AppTextStyles.metaSmall.copyWith(height: 1.5),
+                          decoration: _inputDecoration(
+                            '写下你希望 AI 按什么结构总结逐字稿…\n\n'
+                            '例：请总结出待办清单，格式：\n# 待办\n| 事项 | 负责人 | 期限 |\n\n'
+                            '【逐字稿】\n{{meeting_content}}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '可选占位符：{{meeting_title}} / {{meeting_date}} / {{duration}} / '
+                        '{{speaker_count}} / {{speaker_roster}} / {{transcript}}',
+                        style: AppTextStyles.metaSmall,
+                      ),
+                      const SizedBox(height: 14),
+                      // 创建/保存按钮固定在最底部（用户要求）。
+                      Opacity(
+                        opacity: _saving ? 0.6 : 1,
+                        child: AppPillButton(
+                          label: _saving ? '保存中…' : (_editing ? '保存' : '创建'),
+                          onTap: _saving ? () {} : _submit,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              '可选占位符：{{meeting_title}} / {{meeting_date}} / {{duration}} / '
-              '{{speaker_count}} / {{speaker_roster}} / {{transcript}}',
-              style: AppTextStyles.metaSmall,
-            ),
-            const SizedBox(height: 20),
-            // 保存按钮在滚动内容末尾（不悬浮）：键盘弹出时随内容滚过键盘。
-            Opacity(
-              opacity: _saving ? 0.6 : 1,
-              child: AppPillButton(
-                label: _saving ? '保存中…' : (_editing ? '保存' : '创建'),
-                onTap: _saving ? () {} : _submit,
-              ),
-            ),
+            // 底部安全区（键盘垫底已在上方 Expanded 内处理，这里只管手势条）。
+            SizedBox(height: MediaQuery.viewPaddingOf(context).bottom),
           ],
         ),
       ),
