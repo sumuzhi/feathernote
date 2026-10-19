@@ -1,7 +1,7 @@
-/// 总结 Prompt 编辑页（路由页，用户要求：弹窗操作区域太小）。
+/// 总结 Prompt 编辑页（路由页；ScreenFrame 设计语言对齐「数据库」导出页）。
 ///
-/// 键盘适配：内容包在 [SingleChildScrollView] 里 + 底部 `viewInsets` 垫底，
-/// 输入法弹出时**内容区滚动**而不是把保存按钮顶出去造成溢出。
+/// 键盘适配：表单在 ScreenFrame 的滚动区里，底部留白计入 `viewInsets`——
+/// 输入法弹出时内容可整体滚过键盘，保存按钮在滚动内容末尾（不悬浮、不被遮挡）。
 library;
 
 import 'package:flutter/material.dart';
@@ -11,8 +11,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../backend/services/summary_prompts.dart';
 import '../providers/app_providers.dart';
+import '../screens/screen_frame.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_button.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/app_top_bar.dart';
 
 /// 全页编辑器。`extra` 传 [SummaryPrompt]（编辑既有项）；null = 新建。
 class SummaryPromptEditPage extends ConsumerStatefulWidget {
@@ -91,100 +94,103 @@ class _SummaryPromptEditPageState extends ConsumerState<SummaryPromptEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        backgroundColor: AppColors.bg,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.chevron_left_rounded, size: 28),
-          onPressed: () => context.pop(),
-        ),
-        title: Text(_editing ? '编辑 Prompt' : '新建 Prompt', style: AppTextStyles.subHead),
+    return ScreenFrame(
+      scrollable: true,
+      // 底部留白计入键盘高度：输入法弹出时内容可整体滚过键盘。
+      bottomSpacer: 24 +
+          MediaQuery.viewPaddingOf(context).bottom +
+          MediaQuery.viewInsetsOf(context).bottom,
+      header: AppTopBar(
+        title: _editing ? '编辑 Prompt' : '新建 Prompt',
+        subtitle: _editing ? '保存后自动设为下次总结使用' : '创建后自动设为下次总结使用',
+        leadingIcon: Icons.chevron_left_rounded,
+        onLeading: () => context.pop(),
       ),
-      body: SafeArea(
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Expanded(
-              // 键盘弹出时整体滚动（bottom inset 垫底），不压缩出不溢出的死区。
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    TextField(
-                      controller: _nameCtrl,
-                      maxLength: 20,
-                      decoration: const InputDecoration(
-                        labelText: '名称',
-                        hintText: '如：周会要点、客户访谈',
-                      ),
-                      style: AppTextStyles.body15,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '模板内容（必须包含 {{meeting_content}} 占位符）',
-                      style: AppTextStyles.metaSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _contentCtrl,
-                      maxLines: null,
-                      minLines: 14,
-                      keyboardType: TextInputType.multiline,
-                      inputFormatters: <TextInputFormatter>[
-                        LengthLimitingTextInputFormatter(20000),
-                      ],
-                      decoration: const InputDecoration(
-                        hintText: '写下你希望 AI 按什么结构总结逐字稿…\n\n'
-                            '例：请总结出待办清单，格式：\n# 待办\n| 事项 | 负责人 | 期限 |\n\n'
-                            '【逐字稿】\n{{meeting_content}}',
-                        border: OutlineInputBorder(),
-                      ),
-                      style: AppTextStyles.metaSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '可选占位符：{{meeting_title}} / {{meeting_date}} / {{duration}} / '
-                      '{{speaker_count}} / {{speaker_roster}} / {{transcript}}',
-                      style: AppTextStyles.metaSmall,
-                    ),
-                  ],
-                ),
+            const SizedBox(height: 8),
+            Text('名称', style: AppTextStyles.settingTitle),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _nameCtrl,
+              maxLength: 20,
+              buildCounter: (
+                BuildContext context, {
+                required int currentLength,
+                required int? maxLength,
+                required bool isFocused,
+              }) =>
+                  null, // 隐藏字数角标（上限短到无需提示，保持视觉干净）
+              cursorColor: AppColors.orange,
+              style: AppTextStyles.body15,
+              decoration: _inputDecoration('如：周会要点、客户访谈'),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '模板内容（必须包含 {{meeting_content}} 占位符）',
+              style: AppTextStyles.settingTitle,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _contentCtrl,
+              maxLines: null,
+              minLines: 12,
+              keyboardType: TextInputType.multiline,
+              textAlignVertical: TextAlignVertical.top,
+              cursorColor: AppColors.orange,
+              inputFormatters: <TextInputFormatter>[
+                LengthLimitingTextInputFormatter(20000),
+              ],
+              style: AppTextStyles.metaSmall.copyWith(height: 1.5),
+              decoration: _inputDecoration(
+                '写下你希望 AI 按什么结构总结逐字稿…\n\n'
+                '例：请总结出待办清单，格式：\n# 待办\n| 事项 | 负责人 | 期限 |\n\n'
+                '【逐字稿】\n{{meeting_content}}',
               ),
             ),
-            // 保存按钮固定底部：键盘弹出时随 SafeArea 上移，内容区滚动消化。
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-              child: SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.orange,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                  ),
-                  onPressed: _saving ? null : _submit,
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(_editing ? '保存' : '创建', style: AppTextStyles.settingTitle),
-                ),
+            const SizedBox(height: 10),
+            Text(
+              '可选占位符：{{meeting_title}} / {{meeting_date}} / {{duration}} / '
+              '{{speaker_count}} / {{speaker_roster}} / {{transcript}}',
+              style: AppTextStyles.metaSmall,
+            ),
+            const SizedBox(height: 20),
+            // 保存按钮在滚动内容末尾（不悬浮）：键盘弹出时随内容滚过键盘。
+            Opacity(
+              opacity: _saving ? 0.6 : 1,
+              child: AppPillButton(
+                label: _saving ? '保存中…' : (_editing ? '保存' : '创建'),
+                onTap: _saving ? () {} : _submit,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// App 风格输入装饰：白底卡片 + 浅棕描边 + 小卡片圆角（对齐卡片语言）。
+  InputDecoration _inputDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: AppTextStyles.metaSmall,
+      filled: true,
+      fillColor: AppColors.card,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: const BorderSide(color: AppColors.line, width: 1.2),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: const BorderSide(color: AppColors.orange, width: 1.4),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: const BorderSide(color: AppColors.line, width: 1.2),
       ),
     );
   }

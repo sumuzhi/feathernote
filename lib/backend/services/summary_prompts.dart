@@ -25,8 +25,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import 'prompts.dart';
-
 /// 一条总结 Prompt。
 class SummaryPrompt {
   /// 构造。
