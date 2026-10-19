@@ -1,0 +1,56 @@
+{
+  "_comment": "总结模板目录。预置模板只读；用户自定义项另存于应用文档目录的 summary_prompts.json。",
+  "_placeholders": [
+    "{{meeting_content}} 会议信息头 + 逐字稿（首选，一次性拿全）",
+    "{{transcript}} 纯逐字稿（不含会议信息头）",
+    "{{meeting_title}} 会议标题",
+    "{{meeting_date}} 会议时间",
+    "{{duration}} 时长",
+    "{{speaker_count}} 参与人数",
+    "{{speaker_roster}} 参会人对照表"
+  ],
+  "prompts": [
+    {
+      "id": "builtin-current",
+      "name": "标准会议纪要",
+      "description": "通用会议记录：结论、决议、待办、风险",
+      "file": "minutes-standard.md",
+      "order": 0
+    },
+    {
+      "id": "builtin-knowledge",
+      "name": "知识萃取",
+      "description": "培训/分享会：提炼方法论与可沉淀的知识",
+      "file": "minutes.md",
+      "order": 1
+    },
+    {
+      "id": "builtin-interview",
+      "name": "面试复盘",
+      "description": "记录提问，复盘未答上的问题",
+      "file": "interview-review.md",
+      "order": 2
+    },
+    {
+      "id": "builtin-chat",
+      "name": "日常聊天回顾",
+      "description": "轻松回顾：话题、约定、金句",
+      "file": "chat-recap.md",
+      "order": 3
+    },
+    {
+      "id": "builtin-customer-interview",
+      "name": "客户访谈",
+      "description": "提炼痛点与需求，明确跟进项",
+      "file": "customer-interview.md",
+      "order": 4
+    },
+    {
+      "id": "builtin-one-on-one",
+      "name": "一对一沟通",
+      "description": "记录诉求与共识，避免沟通失真",
+      "file": "one-on-one.md",
+      "order": 5
+    }
+  ]
+}

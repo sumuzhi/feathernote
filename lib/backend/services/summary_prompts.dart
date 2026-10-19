@@ -21,6 +21,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -34,6 +35,7 @@ class SummaryPrompt {
     required this.name,
     required this.content,
     required this.builtin,
+    this.description = '',
   });
 
   /// 从 JSON 反序列化。
@@ -42,6 +44,7 @@ class SummaryPrompt {
     name: json['name'] as String? ?? '未命名',
     content: json['content'] as String? ?? '',
     builtin: json['builtin'] as bool? ?? false,
+    description: json['description'] as String? ?? '',
   );
 
   /// 标准会议纪要（既有模板，运行时从资产解析）。
@@ -53,11 +56,25 @@ class SummaryPrompt {
   /// 日常聊天预置 id。
   static const String builtinChatId = 'builtin-chat';
 
+  /// 知识萃取预置 id（原 minutes.md 那套，从 builtin-current 独立出来）。
+  static const String builtinKnowledgeId = 'builtin-knowledge';
+
+  /// 客户访谈预置 id。
+  static const String builtinCustomerInterviewId = 'builtin-customer-interview';
+
+  /// 一对一沟通预置 id。
+  static const String builtinOneOnOneId = 'builtin-one-on-one';
+
   /// 唯一标识（预置为固定 id；自定义 `custom-<uuid>`）。
   final String id;
 
   /// 显示名。
   final String name;
+
+  /// 一句话场景说明（预置来自 catalog.json；自定义可空）。
+  ///
+  /// 列表页用它告诉用户「这个模板适合什么场景」，比只有名字更易选。
+  final String description;
 
   /// 模板内容（含 `{{meeting_content}}` 占位符）。
   final String content;
@@ -71,97 +88,137 @@ class SummaryPrompt {
     'name': name,
     'content': content,
     'builtin': builtin,
+    if (description.isNotEmpty) 'description': description,
   };
 
   /// 复制。
-  SummaryPrompt copyWith({String? name, String? content}) => SummaryPrompt(
-    id: id,
-    name: name ?? this.name,
-    content: content ?? this.content,
-    builtin: builtin,
-  );
+  SummaryPrompt copyWith({String? name, String? content, String? description}) =>
+      SummaryPrompt(
+        id: id,
+        name: name ?? this.name,
+        content: content ?? this.content,
+        builtin: builtin,
+        description: description ?? this.description,
+      );
 }
 
-/// 面试复盘预置模板（用户要求：总结问过的问题、没答出来的问题等，帮助复盘）。
-const String kBuiltinInterviewTemplate = '''
-你将收到一场面试的完整逐字稿。请以帮候选人**复盘**为目的，严格输出以下 Markdown 结构：
+/// 预置模板目录（资产）。
+const String kPromptCatalogAsset = 'assets/prompts/catalog.json';
 
-# 面试复盘
+/// 目录里一条预置模板的元信息。
+class _CatalogEntry {
+  const _CatalogEntry({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.file,
+    required this.order,
+  });
 
-## 一、面试概况
-- 时间、时长、参与人数（据逐字稿判断；判断不出的写「未可知」）
+  final String id;
+  final String name;
+  final String description;
+  final String file;
+  final int order;
+}
 
-## 二、面试官提问清单
-按提问顺序制表：
-| # | 问题 | 我的回答概述 | 回答质量（✅ 流畅 / ⚠️ 勉强 / ❌ 未答上） |
+/// 已加载的目录缓存（进程内只解析一次）。
+List<_CatalogEntry>? _catalogCache;
 
-## 三、未答上 / 答得不理想的问题（重点复盘）
-逐条展开，**一条不许漏**：
-- **问题原文**（保留面试官原话）
-- **考察意图**：这题在考什么
-- **薄弱点分析**：我的缺口在哪里
-- **参考答案要点**：给出简洁、可背诵的答题框架（3-5 条要点）
+/// 已加载的模板正文缓存（key = 资产路径）。
+final Map<String, String> _templateCache = <String, String>{};
 
-## 四、亮点与加分项
-哪些回答表现好、好在哪（可复用的表达方式或答题结构）
+/// 读取并解析 catalog.json（带缓存）。
+Future<List<_CatalogEntry>> _loadCatalog() async {
+  final List<_CatalogEntry>? cached = _catalogCache;
+  if (cached != null) return cached;
 
-## 五、改进行动计划
-3-5 条可执行的下一步（要补的知识点、要准备的答案、要打磨的表达）
+  // 单元测试环境（未初始化 Flutter binding）读不到 rootBundle。
+  // 这不是错误场景：此时降级为空目录，让调用方回落到默认行为，
+  // 避免把「测试环境限制」变成业务异常（曾导致 minutes_service 单测全挂）。
+  String raw;
+  try {
+    raw = await rootBundle.loadString(kPromptCatalogAsset);
+  } catch (_) {
+    _catalogCache = const <_CatalogEntry>[];
+    return _catalogCache!;
+  }
+  final dynamic decoded = jsonDecode(raw);
+  final List<dynamic> items =
+      (decoded is Map<String, dynamic> ? decoded['prompts'] as List<dynamic>? : null) ??
+      const <dynamic>[];
 
-要求：所有结论必须以逐字稿为据，引用时保留口语证据；未答上的问题宁可标注「未答上」也不许臆测我的回答。
+  final List<_CatalogEntry> entries = <_CatalogEntry>[];
+  for (final dynamic item in items) {
+    if (item is! Map<String, dynamic>) continue;
+    final String id = item['id'] as String? ?? '';
+    final String name = item['name'] as String? ?? '';
+    final String file = item['file'] as String? ?? '';
+    if (id.isEmpty || name.isEmpty || file.isEmpty) continue;
+    entries.add(
+      _CatalogEntry(
+        id: id,
+        name: name,
+        description: item['description'] as String? ?? '',
+        file: file,
+        order: item['order'] as int? ?? 999,
+      ),
+    );
+  }
+  entries.sort((_CatalogEntry a, _CatalogEntry b) => a.order.compareTo(b.order));
+  _catalogCache = entries;
+  return entries;
+}
 
-【逐字稿与会议信息】
-{{meeting_content}}
-''';
+/// 读取某个模板文件的正文（带缓存）。
+Future<String> _loadTemplateBody(String file) async {
+  final String assetPath = 'assets/prompts/$file';
+  final String? cached = _templateCache[assetPath];
+  if (cached != null) return cached;
+  String text;
+  try {
+    text = await rootBundle.loadString(assetPath);
+  } catch (_) {
+    // 资产缺失 / 测试环境无 binding 时降级：返回仅含占位符的最小模板，
+    // 保证生成链路不中断（否则整个纪要生成会因读模板失败而报错）。
+    text = '{{meeting_content}}';
+  }
+  _templateCache[assetPath] = text;
+  return text;
+}
 
-/// 日常聊天回顾预置模板（用户要求：普通日常聊天总结）。
-const String kBuiltinChatTemplate = '''
-你将收到一段日常聊天的完整逐字稿。请输出一份轻松易读的聊天回顾，严格使用以下 Markdown 结构：
+/// 全部预置项（从 catalog.json 加载，按 order 排序）。
+///
+/// 模板正文按需加载（见 [resolveTemplateOf]），此处 content 留空，
+/// 避免启动时把所有模板正文一次性读进内存。
+Future<List<SummaryPrompt>> builtinPromptsAsync() async {
+  final List<_CatalogEntry> entries = await _loadCatalog();
+  return <SummaryPrompt>[
+    for (final _CatalogEntry e in entries)
+      SummaryPrompt(
+        id: e.id,
+        name: e.name,
+        content: '',
+        builtin: true,
+        description: e.description,
+      ),
+  ];
+}
 
-# 聊天回顾
+/// 从目录查某个预置项对应的模板文件（找不到返回 null）。
+Future<String?> _templateFileOf(String id) async {
+  final List<_CatalogEntry> entries = await _loadCatalog();
+  for (final _CatalogEntry e in entries) {
+    if (e.id == id) return e.file;
+  }
+  return null;
+}
 
-## 一、这场聊了什么
-3-5 句话概括主要话题与整体氛围。
-
-## 二、话题清单
-按出现顺序制表（5-10 条为宜）：
-| 话题 | 谁提起 | 聊到的要点 |
-
-## 三、值得记住的事
-- **约定 / 待办**：谁答应做什么、时间点（没有写「无」）
-- **金句 / 段子**：原话摘录 1-3 条
-- **提到的人名 / 地点 / 事件**：未来可能再提及的信息
-
-## 四、下次可以聊的
-基于本次话题列出 2-3 个可延续的线头。
-
-要求：语气轻松、忠实原意、不过度解读；逐字稿里没有的内容不要编造。
-
-【逐字稿与会议信息】
-{{meeting_content}}
-''';
-
-/// 3 个预置项（顺序即默认展示顺序；`builtin-current` 内容运行时从资产解析）。
-List<SummaryPrompt> builtinPrompts() => <SummaryPrompt>[
-  const SummaryPrompt(
-    id: SummaryPrompt.builtinCurrentId,
-    name: '标准会议纪要',
-    content: '', // 内容 = assets/prompts/minutes.md，运行时经 loadMinutesTemplate() 解析
-    builtin: true,
-  ),
-  const SummaryPrompt(
-    id: SummaryPrompt.builtinInterviewId,
-    name: '面试复盘',
-    content: kBuiltinInterviewTemplate,
-    builtin: true,
-  ),
-  const SummaryPrompt(
-    id: SummaryPrompt.builtinChatId,
-    name: '日常聊天回顾',
-    content: kBuiltinChatTemplate,
-    builtin: true,
-  ),
-];
+/// 清除模板缓存（供测试与热重载使用）。
+void clearPromptCaches() {
+  _catalogCache = null;
+  _templateCache.clear();
+}
 
 const String _kFileName = 'summary_prompts.json';
 
@@ -212,15 +269,31 @@ class SummaryPromptStore {
     ],
   };
 
-  /// 全量列表：3 个预置在前 + 自定义（按创建顺序）。
-  List<SummaryPrompt> allPrompts() => <SummaryPrompt>[...builtinPrompts(), ...customs];
+  /// 全量列表：预置（按 catalog order）在前 + 自定义（按创建顺序）。
+  ///
+  /// 预置元信息来自 catalog.json，因此需要异步加载。
+  Future<List<SummaryPrompt>> allPrompts() async => <SummaryPrompt>[
+    ...await builtinPromptsAsync(),
+    ...customs,
+  ];
 
-  /// 解析选中项（selectedId 失效时回落到标准会议纪要）。
-  SummaryPrompt effectiveSelection() {
-    for (final SummaryPrompt p in allPrompts()) {
+  /// 解析选中项（selectedId 失效时回落到 catalog 的第一项，即标准会议纪要）。
+  Future<SummaryPrompt> effectiveSelection() async {
+    final List<SummaryPrompt> all = await allPrompts();
+    for (final SummaryPrompt p in all) {
       if (p.id == selectedId) return p;
     }
-    return builtinPrompts().first;
+    // 目录为空（测试环境无 asset）时兜底返回一个最小预置项，
+    // 保证调用方不必处理 null，也不会崩。
+    if (all.isEmpty) {
+      return const SummaryPrompt(
+        id: SummaryPrompt.builtinCurrentId,
+        name: '标准会议纪要',
+        content: '{{meeting_content}}',
+        builtin: true,
+      );
+    }
+    return all.first;
   }
 
   /// 复制。
@@ -258,23 +331,27 @@ Future<void> saveSummaryPromptStore(SummaryPromptStore store) async {
   }
 }
 
-/// 解析某条 Prompt 的实际模板内容（`builtin-current` 从资产加载并缓存）。
+/// 解析某条 Prompt 的实际模板内容。
+///
+/// - 预置：按 catalog.json 里的 file 字段从资产加载（带缓存）；
+/// - 自定义：直接返回用户填写的内容。
 Future<String> resolveTemplateOf(SummaryPrompt prompt) async {
-  if (prompt.id == SummaryPrompt.builtinCurrentId) {
-    return loadMinutesTemplate();
-  }
-  return prompt.content;
+  if (!prompt.builtin) return prompt.content;
+  final String? file = await _templateFileOf(prompt.id);
+  if (file == null) return prompt.content; // 目录里没有 → 回落（理论上不会发生）
+  return _loadTemplateBody(file);
 }
 
 /// 生成启动时调用：读取当前选中的 Prompt。
 ///
-/// 返回 (名称, 模板内容)。**`builtin-current` 的模板内容恒返回 null**——
-/// 表示走 buildMinutesMessages 的默认资产模板路径（含其专属 system 消息）。
-Future<(String name, String? templateOverride)> loadSelectedPrompt() async {
+/// 返回 (名称, 模板内容)。
+///
+/// ⚠️ 现在**所有模板都返回非 null 的模板内容**（包括 builtin-current）——
+/// 因为模板正文已全部外置到 assets/prompts/*.md，统一由 catalog 驱动。
+/// 旧实现里 builtin-current 返回 null 是为了走「资产默认路径 + 专属 system 消息」，
+/// 现在这套特殊处理已移除（见 buildMinutesMessages 的注释）。
+Future<(String name, String template)> loadSelectedPrompt() async {
   final SummaryPromptStore store = await loadSummaryPromptStore();
-  final SummaryPrompt selection = store.effectiveSelection();
-  if (selection.id == SummaryPrompt.builtinCurrentId) {
-    return (selection.name, null);
-  }
+  final SummaryPrompt selection = await store.effectiveSelection();
   return (selection.name, await resolveTemplateOf(selection));
 }

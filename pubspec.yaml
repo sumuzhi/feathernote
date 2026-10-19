@@ -3,7 +3,7 @@ description: 智能会议纪要 · 移动端（Flutter + Dart 本地后端，无
 publish_to: 'none'
 
 # versionName+versionCode：Android 侧读这里。
-version: 1.0.23+24
+version: 1.0.24+25
 
 environment:
   sdk: ^3.13.4
@@ -54,7 +54,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/prompts/minutes.md
+    # 目录声明：新增模板只需往 assets/prompts/ 加 .md + 在 catalog.json 登记，
+    # 不必再改这里（避免"加了文件忘记声明导致运行时找不到"）。
+    - assets/prompts/
     - assets/brand/
     - assets/fonts/
   # 字体：不打包 / 不注册（UI 使用系统字体，跟随用户设置）。

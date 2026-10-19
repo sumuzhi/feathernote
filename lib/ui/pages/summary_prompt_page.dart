@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../backend/services/prompts.dart' show kMinutesPromptAsset;
 import '../../backend/services/summary_prompts.dart';
 import '../providers/app_providers.dart';
 import '../theme/app_theme.dart';
@@ -27,6 +26,12 @@ class SummaryPromptPage extends ConsumerStatefulWidget {
 class _SummaryPromptPageState extends ConsumerState<SummaryPromptPage> {
   SummaryPromptStore? _store;
 
+  /// 全量列表（预置 + 自定义）。
+  ///
+  /// 预置元信息来自 catalog.json（异步加载），所以不能在 build 里直接算，
+  /// 必须在 [_reload] 里加载好缓存起来。
+  List<SummaryPrompt> _prompts = const <SummaryPrompt>[];
+
   @override
   void initState() {
     super.initState();
@@ -35,8 +40,12 @@ class _SummaryPromptPageState extends ConsumerState<SummaryPromptPage> {
 
   Future<void> _reload() async {
     final SummaryPromptStore store = await loadSummaryPromptStore();
+    final List<SummaryPrompt> prompts = await store.allPrompts();
     if (!mounted) return;
-    setState(() => _store = store);
+    setState(() {
+      _store = store;
+      _prompts = prompts;
+    });
   }
 
   Future<void> _select(SummaryPrompt prompt) async {
@@ -55,6 +64,25 @@ class _SummaryPromptPageState extends ConsumerState<SummaryPromptPage> {
   Future<void> _openEditor({SummaryPrompt? existing}) async {
     // 压栈到全页编辑器；返回后刷新（新建/保存会改变列表与选中态）。
     await context.push('/summary-prompt/edit', extra: existing);
+    await _reload();
+  }
+
+  /// 基于预置项创建副本：读取其模板正文，作为内容填入编辑器。
+  ///
+  /// 预置本身保持只读（作为参考基准），但用户可以自由派生并修改副本，
+  /// 这样既守住「标准答案」的意义，又不限制用户改造的自由。
+  Future<void> _duplicate(SummaryPrompt prompt) async {
+    final String content = await resolveTemplateOf(prompt);
+    if (!mounted) return;
+    // 传给编辑器的副本：id 留空（由编辑器生成 custom-<uuid>），名称加「副本」后缀。
+    final SummaryPrompt seed = SummaryPrompt(
+      id: '',
+      name: '${prompt.name} 副本',
+      content: content,
+      builtin: false,
+      description: '',
+    );
+    await context.push('/summary-prompt/edit', extra: seed);
     await _reload();
   }
 
@@ -130,7 +158,7 @@ class _SummaryPromptPageState extends ConsumerState<SummaryPromptPage> {
                   style: AppTextStyles.metaSmall,
                 ),
                 const SizedBox(height: 12),
-                for (final SummaryPrompt prompt in store.allPrompts())
+                for (final SummaryPrompt prompt in _prompts)
                   _PromptCard(
                     prompt: prompt,
                     selected: store.selectedId == prompt.id,
@@ -138,6 +166,9 @@ class _SummaryPromptPageState extends ConsumerState<SummaryPromptPage> {
                     onEdit:
                         prompt.builtin ? null : () => _openEditor(existing: prompt),
                     onDelete: prompt.builtin ? null : () => _deleteCustom(prompt),
+                    // 预置项提供「另存为副本」，让用户能在官方模板基础上改造。
+                    onDuplicate:
+                        prompt.builtin ? () => _duplicate(prompt) : null,
                   ),
                 const SizedBox(height: 16),
                 Text(
@@ -161,6 +192,7 @@ class _PromptCard extends StatelessWidget {
     required this.onSelect,
     this.onEdit,
     this.onDelete,
+    this.onDuplicate,
   });
 
   final SummaryPrompt prompt;
@@ -168,6 +200,10 @@ class _PromptCard extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+
+  /// 预置项的「另存为副本」：基于预置内容新建一个可编辑的自定义项。
+  /// 预置本身保持只读（作为参考基准），但用户可自由派生。
+  final VoidCallback? onDuplicate;
 
   @override
   Widget build(BuildContext context) {
@@ -208,6 +244,13 @@ class _PromptCard extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 8),
                     child: Text('预置', style: AppTextStyles.metaSmall),
                   ),
+                if (onDuplicate != null)
+                  IconButton(
+                    icon: const Icon(Icons.copy_all_outlined, size: 20),
+                    color: AppColors.muted,
+                    onPressed: onDuplicate,
+                    tooltip: '另存为副本',
+                  ),
                 if (onEdit != null)
                   IconButton(
                     icon: const Icon(Icons.edit_outlined, size: 20),
@@ -227,8 +270,9 @@ class _PromptCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(30, 2, 8, 0),
               child: Text(
-                prompt.id == SummaryPrompt.builtinCurrentId
-                    ? '既有知识萃取模板（$kMinutesPromptAsset）'
+                // 预置项优先显示 catalog 里的场景说明；自定义项显示内容预览。
+                prompt.description.isNotEmpty
+                    ? prompt.description
                     : _preview(prompt.content),
                 style: AppTextStyles.metaSmall,
                 maxLines: 2,

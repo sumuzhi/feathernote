@@ -1,13 +1,18 @@
-// 总结 Prompt 管理的存储与选择逻辑单测（fake path_provider，纯文件 IO）。
+// 总结 Prompt 管理的存储、选择与模板库单测。
 //
 // 覆盖用户需求的关键语义：
-// - 预置 3 个（标准纪要 / 面试复盘 / 日常聊天），不可编辑删除；
+// - 模板库由 assets/prompts/catalog.json 驱动，预置项只读；
+// - 预置项带 description（列表页用于说明场景）；
 // - 自定义 N 个（增改删），持久化往返一致；
-// - 选中项指向被删除的自定义项时回落到标准会议纪要；
-// - builtin-current 的模板运行时从资产解析（loadSelectedPrompt 返回 null override）；
+// - 选中项指向被删除的自定义项时回落到 catalog 首项（标准会议纪要）；
+// - 所有模板（含 builtin-current）都从资产解析出正文；
 // - 自定义模板经 interpolate 正确插值 {{meeting_content}}。
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' show StringCodec;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -25,6 +30,30 @@ class _FakePathProvider extends PathProviderPlatform {
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+}
+
+/// 用真实资产文件内容替换 rootBundle，避免单测依赖 Flutter asset 打包。
+///
+/// 直接读磁盘上的 assets/prompts/ 目录（测试工作目录是项目根），
+/// 这样单测验证的就是**真实模板**，而非另写一份假模板。
+///
+/// ⚠️ 注意返回类型：`flutter/assets` 通道的返回值必须经 StandardMessageCodec
+/// 编码。`loadString` 期望 String（或 Uint8List，内部会 decode）。
+/// 直接返回 null 表示「资产不存在」（loadString 会抛异常，符合预期）。
+void _installAssetLoader() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMessageHandler(
+    'flutter/assets',
+    (ByteData? message) async {
+      final String key = const StringCodec().decodeMessage(message)!;
+      final File file = File(key);
+      if (!file.existsSync()) {
+        return null; // 资产不存在
+      }
+      final Uint8List bytes = file.readAsBytesSync();
+      return const StringCodec().encodeMessage(utf8.decode(bytes));
+    },
+  );
 }
 
 Meeting _meeting() => Meeting(
@@ -73,39 +102,101 @@ void main() {
   setUp(() async {
     base = await Directory.systemTemp.createTemp('summary_prompts_test');
     PathProviderPlatform.instance = _FakePathProvider(base.path);
+    clearPromptCaches();
+    clearMinutesTemplateCache();
+    _installAssetLoader();
   });
 
   tearDown(() async {
     await base.delete(recursive: true);
   });
 
-  group('SummaryPromptStore 预置与选择', () {
-    test('默认存储：3 个预置，选中标准会议纪要', () {
-      const SummaryPromptStore store = SummaryPromptStore();
-      expect(store.allPrompts().length, 3);
-      expect(store.selectedId, SummaryPrompt.builtinCurrentId);
+  group('模板库（catalog.json 驱动）', () {
+    test('catalog 解析出 6 个预置，顺序正确，均带 description', () async {
+      final List<SummaryPrompt> prompts = await builtinPromptsAsync();
+      expect(prompts.length, 6);
       expect(
-        store.allPrompts().map((SummaryPrompt p) => p.name).toList(),
-        <String>['标准会议纪要', '面试复盘', '日常聊天回顾'],
+        prompts.map((SummaryPrompt p) => p.name).toList(),
+        <String>[
+          '标准会议纪要',
+          '知识萃取',
+          '面试复盘',
+          '日常聊天回顾',
+          '客户访谈',
+          '一对一沟通',
+        ],
       );
-      // 预置模板内容非空且含必需占位符。
-      for (final SummaryPrompt p in store.allPrompts()) {
-        if (p.id == SummaryPrompt.builtinCurrentId) {
-          expect(p.content, isEmpty); // 内容运行时从资产解析
-        } else {
-          expect(p.content, contains('{{meeting_content}}'));
-          expect(p.content.trim(), isNotEmpty);
-        }
+      // 每个预置都必须有场景说明（列表页用来帮助用户选择）。
+      for (final SummaryPrompt p in prompts) {
+        expect(p.builtin, isTrue);
+        expect(p.description.trim(), isNotEmpty, reason: '${p.name} 缺少 description');
       }
     });
 
-    test('面试复盘预置：覆盖提问清单 / 未答上问题 / 复盘结构', () {
-      final SummaryPrompt interview = builtinPrompts().firstWhere(
+    test('catalog.json 本身合法且字段齐全', () async {
+      final String raw = await File('assets/prompts/catalog.json').readAsString();
+      final Map<String, dynamic> json = jsonDecode(raw) as Map<String, dynamic>;
+      final List<dynamic> items = json['prompts'] as List<dynamic>;
+      expect(items.length, 6);
+      for (final dynamic item in items) {
+        final Map<String, dynamic> m = item as Map<String, dynamic>;
+        expect(m['id'], isA<String>());
+        expect(m['name'], isA<String>());
+        expect(m['description'], isA<String>());
+        expect(m['file'], isA<String>());
+        // file 指向的模板必须真实存在。
+        expect(
+          File('assets/prompts/${m['file']}').existsSync(),
+          isTrue,
+          reason: '模板文件缺失：${m['file']}',
+        );
+      }
+    });
+
+    test('每个预置模板都能解析出正文且含必需占位符', () async {
+      final List<SummaryPrompt> prompts = await builtinPromptsAsync();
+      for (final SummaryPrompt p in prompts) {
+        final String body = await resolveTemplateOf(p);
+        expect(body.trim(), isNotEmpty, reason: '${p.name} 正文为空');
+        expect(
+          body,
+          contains('{{meeting_content}}'),
+          reason: '${p.name} 缺少 {{meeting_content}} 占位符',
+        );
+      }
+    });
+
+    test('面试复盘模板覆盖关键结构', () async {
+      final List<SummaryPrompt> prompts = await builtinPromptsAsync();
+      final SummaryPrompt interview = prompts.firstWhere(
         (SummaryPrompt p) => p.id == SummaryPrompt.builtinInterviewId,
       );
-      expect(interview.content, contains('提问清单'));
-      expect(interview.content, contains('未答上'));
-      expect(interview.content, contains('改进行动计划'));
+      final String body = await resolveTemplateOf(interview);
+      expect(body, contains('提问清单'));
+      expect(body, contains('未答上'));
+      expect(body, contains('改进行动计划'));
+    });
+
+    test('标准会议纪要已重写为通用纪要（不再是知识萃取）', () async {
+      final List<SummaryPrompt> prompts = await builtinPromptsAsync();
+      final SummaryPrompt standard = prompts.firstWhere(
+        (SummaryPrompt p) => p.id == SummaryPrompt.builtinCurrentId,
+      );
+      final String body = await resolveTemplateOf(standard);
+      // 通用纪要标志性章节
+      expect(body, contains('待办事项'));
+      expect(body, contains('决议事项'));
+      // 不应再是知识萃取那套
+      expect(body, isNot(contains('知识萃取')));
+      expect(body, isNot(contains('经验萃取顾问')));
+    });
+  });
+
+  group('SummaryPromptStore 选择与持久化', () {
+    test('默认存储：选中标准会议纪要', () {
+      const SummaryPromptStore store = SummaryPromptStore();
+      expect(store.selectedId, SummaryPrompt.builtinCurrentId);
+      expect(store.customs, isEmpty);
     });
 
     test('自定义项经 JSON 往返保持一致；损坏 JSON 回落默认', () async {
@@ -133,7 +224,7 @@ void main() {
       expect(fallback.customs, isEmpty);
     });
 
-    test('选中项被删除 → 回落标准会议纪要（effectiveSelection）', () {
+    test('选中项被删除 → 回落标准会议纪要（effectiveSelection）', () async {
       const SummaryPrompt custom = SummaryPrompt(
         id: 'custom-9',
         name: 'x',
@@ -143,13 +234,13 @@ void main() {
       final SummaryPromptStore withCustom = const SummaryPromptStore(
         customs: <SummaryPrompt>[custom],
       ).copyWith(selectedId: 'custom-9');
-      expect(withCustom.effectiveSelection().id, 'custom-9');
+      expect((await withCustom.effectiveSelection()).id, 'custom-9');
 
-      // 删除后：store 仍持有失效 selectedId → 回落预置首个。
+      // 删除后：store 仍持有失效 selectedId → 回落 catalog 首项。
       final SummaryPromptStore afterDelete = withCustom.copyWith(
         customs: <SummaryPrompt>[],
       );
-      expect(afterDelete.effectiveSelection().id, SummaryPrompt.builtinCurrentId);
+      expect((await afterDelete.effectiveSelection()).id, SummaryPrompt.builtinCurrentId);
     });
 
     test('fromJson 拒绝持久化的预置项快照与非法条目', () {
@@ -171,18 +262,31 @@ void main() {
       expect(store.customs.length, 1);
       expect(store.customs.single.id, 'custom-ok');
     });
+
+    test('自定义项可携带 description（另存为副本时不被丢弃）', () {
+      const SummaryPrompt custom = SummaryPrompt(
+        id: 'custom-3',
+        name: '副本',
+        content: 'c {{meeting_content}}',
+        builtin: false,
+        description: '我的说明',
+      );
+      final SummaryPrompt round = SummaryPrompt.fromJson(custom.toJson());
+      expect(round.description, '我的说明');
+    });
   });
 
   group('生成接线（loadSelectedPrompt / buildMinutesMessages）', () {
-    test('builtin-current → templateOverride 为 null（走资产默认路径）', () async {
-      setMinutesTemplateForTesting('# 标准纪要\n{{meeting_content}}');
-      final (String name, String? override) = await loadSelectedPrompt();
+    test('默认选中 → 返回真实模板正文（不再是 null override）', () async {
+      final (String name, String template) = await loadSelectedPrompt();
       expect(name, '标准会议纪要');
-      expect(override, isNull);
-      clearMinutesTemplateCache();
+      expect(template.trim(), isNotEmpty);
+      expect(template, contains('{{meeting_content}}'));
+      // 新模板应含通用纪要章节。
+      expect(template, contains('待办事项'));
     });
 
-    test('选中自定义 → override 为模板内容，插值注入逐字稿', () async {
+    test('选中自定义 → 插值注入逐字稿', () async {
       const SummaryPrompt custom = SummaryPrompt(
         id: 'custom-2',
         name: '要点提炼',
@@ -192,20 +296,33 @@ void main() {
       await saveSummaryPromptStore(
         const SummaryPromptStore(selectedId: 'custom-2', customs: <SummaryPrompt>[custom]),
       );
-      final (String name, String? override) = await loadSelectedPrompt();
+      final (String name, String template) = await loadSelectedPrompt();
       expect(name, '要点提炼');
-      expect(override, contains('要点提炼任务'));
+      expect(template, contains('要点提炼任务'));
 
       final List<LlmMessage> messages = await buildMinutesMessages(
         _meeting(),
-        templateOverride: override,
+        templateOverride: template,
       );
       expect(messages.length, 2);
-      // 自定义模板 → 通用 system 消息（非知识管家）。
       expect(messages[0].content, contains('记录整理助手'));
-      // 逐字稿注入点已插值（含原文与说话人）。
       expect(messages[1].content, contains('数据库索引的原理'));
       expect(messages[1].content, contains('要点提炼任务'));
+      expect(messages[1].content, isNot(contains('{{meeting_content}}')));
+    });
+
+    test('选中预置「知识萃取」→ 走知识管家 system 消息', () async {
+      await saveSummaryPromptStore(
+        const SummaryPromptStore(selectedId: SummaryPrompt.builtinKnowledgeId),
+      );
+      final (String name, String template) = await loadSelectedPrompt();
+      expect(name, '知识萃取');
+      final List<LlmMessage> messages = await buildMinutesMessages(
+        _meeting(),
+        templateOverride: template,
+      );
+      // 预置模板现在统一走「记录整理助手」分支（旧的 null 特殊路径已移除）。
+      expect(messages[0].content, contains('记录整理助手'));
       expect(messages[1].content, isNot(contains('{{meeting_content}}')));
     });
   });
