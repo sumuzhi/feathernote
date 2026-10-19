@@ -8,7 +8,9 @@ library;
 ///
 /// v2（IMPORT-PIPELINE-DESIGN §5.2）：meetings 新增 `import_*` 4 列，
 /// `source` CHECK 放开 `imported`。v1 → v2 走 [kUpgradeV2Statements] 重建表。
-const int kSchemaVersion = 2;
+/// v3（PROMPT-TAG）：meetings 新增 `minutes_prompt` 列（纪要由哪个总结
+/// Prompt 生成，生成落盘时写入），v2 → v3 走 [kUpgradeV3Statements] 单列 ALTER。
+const int kSchemaVersion = 3;
 
 /// schema 版本键名。
 const String kSchemaMetaVersionKey = 'schema_version';
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS meetings (
   minutes_md        TEXT,
   minutes_partial   INTEGER NOT NULL DEFAULT 0,
   minutes_error     TEXT,
+  minutes_prompt    TEXT,
   status            TEXT    NOT NULL DEFAULT 'recording',
   source            TEXT    NOT NULL DEFAULT 'microphone',
   finalize_status   TEXT    NOT NULL DEFAULT 'none',
@@ -97,6 +100,7 @@ const List<String> kSchemaStatements = <String>[
       'created_at TEXT NOT NULL, duration_ms INTEGER NOT NULL DEFAULT 0, '
       'sample_rate INTEGER NOT NULL DEFAULT 16000, speaker_count INTEGER NOT NULL DEFAULT 0, '
       'minutes_md TEXT, minutes_partial INTEGER NOT NULL DEFAULT 0, minutes_error TEXT, '
+      'minutes_prompt TEXT, '
       "status TEXT NOT NULL DEFAULT 'recording', source TEXT NOT NULL DEFAULT 'microphone', "
       "finalize_status TEXT NOT NULL DEFAULT 'none', transcript_source TEXT NOT NULL DEFAULT 'realtime', "
       'finalize_error TEXT, audio_status TEXT NOT NULL DEFAULT \'none\', audio_key TEXT, '
@@ -190,4 +194,12 @@ const List<String> kUpgradeV2Statements = <String>[
   'CREATE INDEX IF NOT EXISTS idx_meetings_created_at ON meetings(created_at DESC)',
   'PRAGMA foreign_key_check',
   'PRAGMA foreign_keys = ON',
+];
+
+/// v2 → v3 迁移语句（PROMPT-TAG；按序执行）。
+///
+/// `minutes_prompt` 是无 CHECK 约束的可空列，标准 `ALTER TABLE ADD COLUMN`
+/// 即可，无需重建表。
+const List<String> kUpgradeV3Statements = <String>[
+  'ALTER TABLE meetings ADD COLUMN minutes_prompt TEXT',
 ];

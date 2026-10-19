@@ -144,6 +144,9 @@ class MinutesService {
     bool keepAliveHeld = false;
     final Stopwatch watch = Stopwatch()..start();
     int firstTokenMs = -1;
+    // 本次生成所用的总结 Prompt 名：声明在 try 外（finally 落盘要用）；
+    // 前置守卫失败（未走到读取选择）时回落「标准会议纪要」占位。
+    String promptName = '标准会议纪要';
     try {
       meeting = await persistence.loadMeeting(meetingId);
       if (meeting == null) {
@@ -173,8 +176,9 @@ class MinutesService {
 
       // 用户要求：总结 Prompt 可自定义、选其一生效、**仅影响下一次总结**。
       // 在生成启动瞬间读取当前选择（此后换选不影响本次）。
-      final (String promptName, String templateContent) =
+      final (String selectedName, String templateContent) =
           await loadSelectedPrompt();
+      promptName = selectedName;
       final List<LlmMessage> messages = await buildMinutesMessages(
         meeting,
         templateOverride: templateContent,
@@ -260,6 +264,7 @@ class MinutesService {
             meeting,
             meetingId,
             markdown: task.buffer.toString(),
+            promptName: promptName,
             completed: completed,
             failure: failure,
             hadComplete: hadComplete,
@@ -315,6 +320,7 @@ class MinutesService {
     String meetingId, {
     required String note,
     String? minutesMd,
+    String? minutesPrompt,
     MeetingStatus? status,
     bool? minutesPartial,
     String? minutesError,
@@ -324,6 +330,7 @@ class MinutesService {
       await persistence.updateMinutes(
         meetingId,
         minutesMd: minutesMd,
+        minutesPrompt: minutesPrompt,
         status: status,
         minutesPartial: minutesPartial,
         minutesError: minutesError,
@@ -345,6 +352,7 @@ class MinutesService {
     Meeting meeting,
     String meetingId, {
     required String markdown,
+    required String promptName,
     required bool completed,
     required Object? failure,
     required bool hadComplete,
@@ -378,6 +386,7 @@ class MinutesService {
           meetingId,
           note: '纪要已落盘',
           minutesMd: markdown,
+          minutesPrompt: promptName,
           status: MeetingStatus.minutesReady,
           minutesPartial: false,
           clearMinutesError: true,

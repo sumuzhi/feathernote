@@ -311,19 +311,66 @@ void main() {
       expect(messages[1].content, isNot(contains('{{meeting_content}}')));
     });
 
-    test('选中预置「知识萃取」→ 走知识管家 system 消息', () async {
+    test('选中预置「知识萃取」→ 消息里是知识萃取的正文（不是默认模板）', () async {
       await saveSummaryPromptStore(
         const SummaryPromptStore(selectedId: SummaryPrompt.builtinKnowledgeId),
       );
       final (String name, String template) = await loadSelectedPrompt();
       expect(name, '知识萃取');
+
+      // ① 返回的模板必须是知识萃取正文，不能是标准纪要正文。
+      expect(template, contains('经验萃取顾问'));
+      expect(template, isNot(contains('决议事项')));
+
       final List<LlmMessage> messages = await buildMinutesMessages(
         _meeting(),
         templateOverride: template,
       );
-      // 预置模板现在统一走「记录整理助手」分支（旧的 null 特殊路径已移除）。
-      expect(messages[0].content, contains('记录整理助手'));
-      expect(messages[1].content, isNot(contains('{{meeting_content}}')));
+      final String userMessage = messages[1].content;
+
+      // ② user 消息必须包含知识萃取模板的特征文本 —— 这是「模板真的生效」的
+      //    决定性证据：只有模板正文被插值进来，才会出现这些字。
+      expect(userMessage, contains('提炼而非复述'), reason: '知识萃取的 Working Principles 未进入 prompt');
+      expect(userMessage, contains('经验萃取'));
+
+      // ③ 不能混入标准会议纪要的章节（否则说明用错了模板）。
+      expect(userMessage, isNot(contains('决议事项')));
+      expect(userMessage, isNot(contains('待办事项')));
+
+      // ④ 逐字稿已注入。
+      expect(userMessage, contains('数据库索引的原理'));
+      expect(userMessage, isNot(contains('{{meeting_content}}')));
+    });
+
+    test('切模板后重新生成，prompt 内容随之改变', () async {
+      // 先选标准会议纪要。
+      await saveSummaryPromptStore(
+        const SummaryPromptStore(selectedId: SummaryPrompt.builtinCurrentId),
+      );
+      final (String name1, String tpl1) = await loadSelectedPrompt();
+      final List<LlmMessage> m1 = await buildMinutesMessages(
+        _meeting(),
+        templateOverride: tpl1,
+      );
+
+      // 再切到客户访谈。
+      await saveSummaryPromptStore(
+        const SummaryPromptStore(selectedId: SummaryPrompt.builtinCustomerInterviewId),
+      );
+      final (String name2, String tpl2) = await loadSelectedPrompt();
+      final List<LlmMessage> m2 = await buildMinutesMessages(
+        _meeting(),
+        templateOverride: tpl2,
+      );
+
+      expect(name1, '标准会议纪要');
+      expect(name2, '客户访谈');
+      // 两次的 user 消息必须不同 —— 证明换模板确实换了 prompt。
+      expect(m1[1].content, isNot(equals(m2[1].content)));
+      // 客户访谈的特征章节。
+      expect(m2[1].content, contains('痛点与诉求'));
+      expect(m2[1].content, contains('隐含需求'));
+      expect(m1[1].content, isNot(contains('痛点与诉求')));
     });
   });
 }

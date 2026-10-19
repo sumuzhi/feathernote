@@ -97,7 +97,7 @@ void main() {
     }
   }
 
-  group('schema v1 → v2 迁移（真实 v1 存量库）', () {
+  group('schema v1 → v3 迁移（真实 v1 存量库）', () {
     test('旧会议全量可读（含子表），新列默认值正确', () async {
       buildV1Database();
       final AppDatabase db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
@@ -121,6 +121,8 @@ void main() {
       expect(meeting.importError, isNull);
       expect(meeting.importTaskId, isNull);
       expect(meeting.importMetaJson, isNull);
+      // v3 新列：旧纪要没有 prompt 记录 → null（不展示 tag）。
+      expect(meeting.minutesPrompt, isNull);
       // 子表存活（这是本迁移最大的风险点：DROP TABLE 的隐式 DELETE 级联）。
       expect(meeting.segments.length, 2);
       expect(meeting.segments[0].text, '旧库第一句');
@@ -168,7 +170,7 @@ void main() {
       expect(loaded.importStatus, ImportStatus.importPending);
     });
 
-    test('PRAGMA table_info(meetings) 含 4 个新列，schema_meta 升到 2', () async {
+    test('PRAGMA table_info(meetings) 含 4 个新列 + minutes_prompt，schema_meta 升到 3', () async {
       buildV1Database();
       final AppDatabase db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
       addTearDown(db.close);
@@ -184,6 +186,7 @@ void main() {
         'import_error',
         'import_task_id',
         'import_meta_json',
+        'minutes_prompt',
       ]));
 
       final List<QueryRow> checkRows =
@@ -191,7 +194,23 @@ void main() {
       expect(checkRows, isEmpty, reason: '迁移后外键必须自洽');
 
       final int? version = await DriftMeetingRepository(db).schemaVersion();
-      expect(version, 2);
+      expect(version, 3);
+    });
+
+    test('v3：updateMinutes 写入 minutes_prompt 并可读回（PROMPT-TAG 回归）', () async {
+      buildV1Database();
+      final AppDatabase db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+      final DriftMeetingRepository repo = DriftMeetingRepository(db);
+
+      await repo.updateMinutes(
+        'mtg_v1_old',
+        minutesPrompt: '面试复盘',
+      );
+      final Meeting? meeting = await repo.loadMeeting('mtg_v1_old');
+      expect(meeting!.minutesPrompt, '面试复盘');
+      // 纪要正文不被窄更新破坏。
+      expect(meeting.minutesMd, '# v1 纪要');
     });
 
     test('新库直接建表即为 v2（onCreate 路径不受迁移影响）', () async {

@@ -63,6 +63,16 @@ class AppDatabase extends _$AppDatabase {
         );
         logInfo('storage', 'schema 迁移完成 v1 → v2（meetings 重建 + import_* 4 列）');
       }
+      // v2 → v3：meetings 加 `minutes_prompt` 列（纪要来源 Prompt 名，可空）。
+      if (from < 3) {
+        for (final String statement in kUpgradeV3Statements) {
+          await customStatement(statement);
+        }
+        await customStatement(
+          "UPDATE schema_meta SET value = '3' WHERE key = '$kSchemaMetaVersionKey'",
+        );
+        logInfo('storage', 'schema 迁移完成 v2 → v3（meetings + minutes_prompt 列）');
+      }
       if (from > to) {
         logWarn('storage', 'schema 版本回退 from=$from to=$to（拒绝降级，跳过迁移）');
       }

@@ -32,6 +32,7 @@ abstract class MeetingRepository {
   Future<void> updateMinutes(
     String id, {
     String? minutesMd,
+    String? minutesPrompt,
     MeetingStatus? status,
     bool? minutesPartial,
     String? minutesError,
@@ -112,6 +113,7 @@ class DriftMeetingRepository implements MeetingRepository {
   Future<void> updateMinutes(
     String id, {
     String? minutesMd,
+    String? minutesPrompt,
     MeetingStatus? status,
     bool? minutesPartial,
     String? minutesError,
@@ -127,9 +129,11 @@ class DriftMeetingRepository implements MeetingRepository {
     final int nextPartial = (minutesPartial ?? (row.minutesPartial != 0)) ? 1 : 0;
     final String? nextError =
         clearMinutesError ? null : (minutesError ?? row.minutesError);
+    final String? nextPrompt = minutesPrompt ?? row.minutesPrompt;
     await db.meetingDao.updateMinutes(
       id,
       minutesMd: minutesMd ?? row.minutesMd,
+      minutesPrompt: nextPrompt,
       status: nextStatus,
       minutesPartial: nextPartial,
       minutesError: nextError,
@@ -226,6 +230,7 @@ class DriftMeetingRepository implements MeetingRepository {
       sampleRate: Value<int>(meeting.sampleRate),
       speakerCount: Value<int>(meeting.speakerCount),
       minutesMd: Value<String?>(meeting.minutesMd),
+      minutesPrompt: Value<String?>(meeting.minutesPrompt),
       minutesPartial: Value<int>(meeting.minutesPartial ? 1 : 0),
       minutesError: Value<String?>(meeting.minutesError),
       status: Value<String>(meeting.status.value),
@@ -295,6 +300,7 @@ class DriftMeetingRepository implements MeetingRepository {
       sampleRate: row.sampleRate,
       speakerCount: row.speakerCount,
       minutesMd: row.minutesMd,
+      minutesPrompt: row.minutesPrompt,
       minutesPartial: row.minutesPartial != 0,
       minutesError: row.minutesError,
       status: MeetingStatus.fromValue(row.status),

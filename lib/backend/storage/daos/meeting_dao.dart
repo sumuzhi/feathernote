@@ -55,6 +55,7 @@ class MeetingDao extends DatabaseAccessor<AppDatabase> with _$MeetingDaoMixin {
   Future<int> updateMinutes(
     String id, {
     required String? minutesMd,
+    required String? minutesPrompt,
     required String status,
     required int minutesPartial,
     required String? minutesError,
@@ -62,6 +63,7 @@ class MeetingDao extends DatabaseAccessor<AppDatabase> with _$MeetingDaoMixin {
       (update(meetings)..where((Meetings tbl) => tbl.id.equals(id))).write(
         MeetingsCompanion(
           minutesMd: Value<String?>(minutesMd),
+          minutesPrompt: Value<String?>(minutesPrompt),
           status: Value<String>(status),
           minutesPartial: Value<int>(minutesPartial),
           minutesError: Value<String?>(minutesError),

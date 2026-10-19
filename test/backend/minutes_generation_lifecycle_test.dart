@@ -64,6 +64,7 @@ class _Repo implements MeetingRepository {
   Future<void> updateMinutes(
     String id, {
     String? minutesMd,
+      String? minutesPrompt,
     MeetingStatus? status,
     bool? minutesPartial,
     String? minutesError,

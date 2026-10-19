@@ -45,6 +45,7 @@ class MinutesView {
     required this.abstractText,
     required this.sections,
     required this.transcriptChars,
+    this.promptTag,
     this.expandNote,
     this.onExpandAbstract,
     this.onOpenTranscript,
@@ -57,6 +58,9 @@ class MinutesView {
 
   /// 模型标签（qwen3.7-plus）。
   final String modelTag;
+
+  /// 总结 Prompt 标签（该纪要由哪个 Prompt 生成；空/缺省不展示）。
+  final String? promptTag;
 
   /// 摘要正文。
   final String abstractText;
@@ -117,10 +121,13 @@ class MinutesCard extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 9,
             runSpacing: 6,
-            // 用户要求：仅保留 LLM（模型）标签，移除「内容较长」标签。
+            // 用户要求：仅保留 LLM（模型）标签，移除「内容较长」标签；
+            // PROMPT-TAG：纪要由哪个总结 Prompt 生成，紧跟模型标签展示。
             children: <Widget>[
               Text(view.title, style: AppTextStyles.cardHead),
               AppTag(text: view.modelTag),
+              if (view.promptTag != null && view.promptTag!.isNotEmpty)
+                AppTag(text: view.promptTag!, wash: true),
             ],
           ),
           const SizedBox(height: 13),

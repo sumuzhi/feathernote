@@ -40,6 +40,9 @@ class Meetings extends Table {
   /// 纪要生成失败原因。
   TextColumn get minutesError => text().nullable()();
 
+  /// 生成该纪要所用的总结 Prompt 名（PROMPT-TAG；生成落盘时写入）。
+  TextColumn get minutesPrompt => text().nullable()();
+
   /// 状态：`recording` / `stopped` / `minutes_ready`。
   TextColumn get status => text().withDefault(const Constant('recording'))();
 

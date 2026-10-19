@@ -26,6 +26,7 @@ class Meeting {
     required this.segments,
     required this.speakers,
     this.minutesMd,
+    this.minutesPrompt,
     this.minutesError,
     this.finalizeError,
     this.audioKey,
@@ -56,6 +57,9 @@ class Meeting {
 
   /// 纪要 Markdown（可空）。
   final String? minutesMd;
+
+  /// 生成该纪要所用的总结 Prompt 名（PROMPT-TAG；生成落盘时写入，可空）。
+  final String? minutesPrompt;
 
   /// 纪要是否为残篇（生成中断落盘）。
   final bool minutesPartial;
@@ -121,6 +125,7 @@ class Meeting {
     int? sampleRate,
     int? speakerCount,
     String? minutesMd,
+    String? minutesPrompt,
     bool? minutesPartial,
     String? minutesError,
     MeetingStatus? status,
@@ -149,6 +154,7 @@ class Meeting {
       sampleRate: sampleRate ?? this.sampleRate,
       speakerCount: speakerCount ?? this.speakerCount,
       minutesMd: minutesMd ?? this.minutesMd,
+      minutesPrompt: minutesPrompt ?? this.minutesPrompt,
       minutesPartial: minutesPartial ?? this.minutesPartial,
       minutesError: minutesError ?? this.minutesError,
       status: status ?? this.status,

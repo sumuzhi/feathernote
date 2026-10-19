@@ -431,6 +431,9 @@ class _MeetingPageState extends ConsumerState<MeetingPage> {
         // （仅保留 LLM/模型标签）。
         title: '✦ AI 纪要',
         modelTag: meeting.minutesPartial ? '生成中断' : 'qwen3.7-plus',
+        // PROMPT-TAG：标明该纪要由哪个总结 Prompt 生成（生成落盘时写入；
+        // 旧数据/旧版本生成的为空 → 不展示）。
+        promptTag: meeting.minutesPrompt,
         abstractText: outline.summary.isEmpty
             ? (outline.tailBody.isEmpty ? '纪要生成中…' : outline.tailBody)
             : outline.summary,

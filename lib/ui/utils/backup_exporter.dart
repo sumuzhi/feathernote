@@ -126,6 +126,7 @@ Map<String, dynamic> _meetingJson(Meeting m) => <String, dynamic>{
       'audioError': m.audioError,
       'minutesPartial': m.minutesPartial,
       'minutesMd': m.minutesMd,
+      'minutesPrompt': m.minutesPrompt,
       'minutesError': m.minutesError,
       'finalizeError': m.finalizeError,
       'importStatus': m.importStatus.value,

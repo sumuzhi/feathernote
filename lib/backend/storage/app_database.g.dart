@@ -108,6 +108,17 @@ class $MeetingsTable extends Meetings
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _minutesPromptMeta = const VerificationMeta(
+    'minutesPrompt',
+  );
+  @override
+  late final GeneratedColumn<String> minutesPrompt = GeneratedColumn<String>(
+    'minutes_prompt',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -265,6 +276,7 @@ class $MeetingsTable extends Meetings
     minutesMd,
     minutesPartial,
     minutesError,
+    minutesPrompt,
     status,
     source,
     finalizeStatus,
@@ -354,6 +366,15 @@ class $MeetingsTable extends Meetings
         minutesError.isAcceptableOrUnknown(
           data['minutes_error']!,
           _minutesErrorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('minutes_prompt')) {
+      context.handle(
+        _minutesPromptMeta,
+        minutesPrompt.isAcceptableOrUnknown(
+          data['minutes_prompt']!,
+          _minutesPromptMeta,
         ),
       );
     }
@@ -504,6 +525,10 @@ class $MeetingsTable extends Meetings
         DriftSqlType.string,
         data['${effectivePrefix}minutes_error'],
       ),
+      minutesPrompt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}minutes_prompt'],
+      ),
       status: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}status'],
@@ -593,6 +618,9 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
   /// 纪要生成失败原因。
   final String? minutesError;
 
+  /// 生成该纪要所用的总结 Prompt 名（PROMPT-TAG；生成落盘时写入）。
+  final String? minutesPrompt;
+
   /// 状态：`recording` / `stopped` / `minutes_ready`。
   final String status;
 
@@ -642,6 +670,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     this.minutesMd,
     required this.minutesPartial,
     this.minutesError,
+    this.minutesPrompt,
     required this.status,
     required this.source,
     required this.finalizeStatus,
@@ -671,6 +700,9 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     map['minutes_partial'] = Variable<int>(minutesPartial);
     if (!nullToAbsent || minutesError != null) {
       map['minutes_error'] = Variable<String>(minutesError);
+    }
+    if (!nullToAbsent || minutesPrompt != null) {
+      map['minutes_prompt'] = Variable<String>(minutesPrompt);
     }
     map['status'] = Variable<String>(status);
     map['source'] = Variable<String>(source);
@@ -715,6 +747,9 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       minutesError: minutesError == null && nullToAbsent
           ? const Value.absent()
           : Value(minutesError),
+      minutesPrompt: minutesPrompt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(minutesPrompt),
       status: Value(status),
       source: Value(source),
       finalizeStatus: Value(finalizeStatus),
@@ -758,6 +793,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       minutesMd: serializer.fromJson<String?>(json['minutesMd']),
       minutesPartial: serializer.fromJson<int>(json['minutesPartial']),
       minutesError: serializer.fromJson<String?>(json['minutesError']),
+      minutesPrompt: serializer.fromJson<String?>(json['minutesPrompt']),
       status: serializer.fromJson<String>(json['status']),
       source: serializer.fromJson<String>(json['source']),
       finalizeStatus: serializer.fromJson<String>(json['finalizeStatus']),
@@ -786,6 +822,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       'minutesMd': serializer.toJson<String?>(minutesMd),
       'minutesPartial': serializer.toJson<int>(minutesPartial),
       'minutesError': serializer.toJson<String?>(minutesError),
+      'minutesPrompt': serializer.toJson<String?>(minutesPrompt),
       'status': serializer.toJson<String>(status),
       'source': serializer.toJson<String>(source),
       'finalizeStatus': serializer.toJson<String>(finalizeStatus),
@@ -812,6 +849,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     Value<String?> minutesMd = const Value.absent(),
     int? minutesPartial,
     Value<String?> minutesError = const Value.absent(),
+    Value<String?> minutesPrompt = const Value.absent(),
     String? status,
     String? source,
     String? finalizeStatus,
@@ -835,6 +873,9 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     minutesMd: minutesMd.present ? minutesMd.value : this.minutesMd,
     minutesPartial: minutesPartial ?? this.minutesPartial,
     minutesError: minutesError.present ? minutesError.value : this.minutesError,
+    minutesPrompt: minutesPrompt.present
+        ? minutesPrompt.value
+        : this.minutesPrompt,
     status: status ?? this.status,
     source: source ?? this.source,
     finalizeStatus: finalizeStatus ?? this.finalizeStatus,
@@ -874,6 +915,9 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
       minutesError: data.minutesError.present
           ? data.minutesError.value
           : this.minutesError,
+      minutesPrompt: data.minutesPrompt.present
+          ? data.minutesPrompt.value
+          : this.minutesPrompt,
       status: data.status.present ? data.status.value : this.status,
       source: data.source.present ? data.source.value : this.source,
       finalizeStatus: data.finalizeStatus.present
@@ -922,6 +966,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
           ..write('minutesMd: $minutesMd, ')
           ..write('minutesPartial: $minutesPartial, ')
           ..write('minutesError: $minutesError, ')
+          ..write('minutesPrompt: $minutesPrompt, ')
           ..write('status: $status, ')
           ..write('source: $source, ')
           ..write('finalizeStatus: $finalizeStatus, ')
@@ -950,6 +995,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
     minutesMd,
     minutesPartial,
     minutesError,
+    minutesPrompt,
     status,
     source,
     finalizeStatus,
@@ -977,6 +1023,7 @@ class MeetingRow extends DataClass implements Insertable<MeetingRow> {
           other.minutesMd == this.minutesMd &&
           other.minutesPartial == this.minutesPartial &&
           other.minutesError == this.minutesError &&
+          other.minutesPrompt == this.minutesPrompt &&
           other.status == this.status &&
           other.source == this.source &&
           other.finalizeStatus == this.finalizeStatus &&
@@ -1002,6 +1049,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
   final Value<String?> minutesMd;
   final Value<int> minutesPartial;
   final Value<String?> minutesError;
+  final Value<String?> minutesPrompt;
   final Value<String> status;
   final Value<String> source;
   final Value<String> finalizeStatus;
@@ -1026,6 +1074,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     this.minutesMd = const Value.absent(),
     this.minutesPartial = const Value.absent(),
     this.minutesError = const Value.absent(),
+    this.minutesPrompt = const Value.absent(),
     this.status = const Value.absent(),
     this.source = const Value.absent(),
     this.finalizeStatus = const Value.absent(),
@@ -1051,6 +1100,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     this.minutesMd = const Value.absent(),
     this.minutesPartial = const Value.absent(),
     this.minutesError = const Value.absent(),
+    this.minutesPrompt = const Value.absent(),
     this.status = const Value.absent(),
     this.source = const Value.absent(),
     this.finalizeStatus = const Value.absent(),
@@ -1078,6 +1128,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     Expression<String>? minutesMd,
     Expression<int>? minutesPartial,
     Expression<String>? minutesError,
+    Expression<String>? minutesPrompt,
     Expression<String>? status,
     Expression<String>? source,
     Expression<String>? finalizeStatus,
@@ -1103,6 +1154,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
       if (minutesMd != null) 'minutes_md': minutesMd,
       if (minutesPartial != null) 'minutes_partial': minutesPartial,
       if (minutesError != null) 'minutes_error': minutesError,
+      if (minutesPrompt != null) 'minutes_prompt': minutesPrompt,
       if (status != null) 'status': status,
       if (source != null) 'source': source,
       if (finalizeStatus != null) 'finalize_status': finalizeStatus,
@@ -1130,6 +1182,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     Value<String?>? minutesMd,
     Value<int>? minutesPartial,
     Value<String?>? minutesError,
+    Value<String?>? minutesPrompt,
     Value<String>? status,
     Value<String>? source,
     Value<String>? finalizeStatus,
@@ -1155,6 +1208,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
       minutesMd: minutesMd ?? this.minutesMd,
       minutesPartial: minutesPartial ?? this.minutesPartial,
       minutesError: minutesError ?? this.minutesError,
+      minutesPrompt: minutesPrompt ?? this.minutesPrompt,
       status: status ?? this.status,
       source: source ?? this.source,
       finalizeStatus: finalizeStatus ?? this.finalizeStatus,
@@ -1201,6 +1255,9 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
     }
     if (minutesError.present) {
       map['minutes_error'] = Variable<String>(minutesError.value);
+    }
+    if (minutesPrompt.present) {
+      map['minutes_prompt'] = Variable<String>(minutesPrompt.value);
     }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
@@ -1259,6 +1316,7 @@ class MeetingsCompanion extends UpdateCompanion<MeetingRow> {
           ..write('minutesMd: $minutesMd, ')
           ..write('minutesPartial: $minutesPartial, ')
           ..write('minutesError: $minutesError, ')
+          ..write('minutesPrompt: $minutesPrompt, ')
           ..write('status: $status, ')
           ..write('source: $source, ')
           ..write('finalizeStatus: $finalizeStatus, ')
@@ -2674,6 +2732,7 @@ typedef $$MeetingsTableCreateCompanionBuilder = MeetingsCompanion Function({
   Value<String?> minutesMd,
   Value<int> minutesPartial,
   Value<String?> minutesError,
+  Value<String?> minutesPrompt,
   Value<String> status,
   Value<String> source,
   Value<String> finalizeStatus,
@@ -2699,6 +2758,7 @@ typedef $$MeetingsTableUpdateCompanionBuilder = MeetingsCompanion Function({
   Value<String?> minutesMd,
   Value<int> minutesPartial,
   Value<String?> minutesError,
+  Value<String?> minutesPrompt,
   Value<String> status,
   Value<String> source,
   Value<String> finalizeStatus,
@@ -2831,6 +2891,11 @@ class $$MeetingsTableFilterComposer
 
   ColumnFilters<String> get minutesError => $composableBuilder(
     column: $table.minutesError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get minutesPrompt => $composableBuilder(
+    column: $table.minutesPrompt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3029,6 +3094,11 @@ class $$MeetingsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get minutesPrompt => $composableBuilder(
+    column: $table.minutesPrompt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
@@ -3138,6 +3208,11 @@ class $$MeetingsTableAnnotationComposer
 
   GeneratedColumn<String> get minutesError => $composableBuilder(
     column: $table.minutesError,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get minutesPrompt => $composableBuilder(
+    column: $table.minutesPrompt,
     builder: (column) => column,
   );
 
@@ -3318,6 +3393,7 @@ class $$MeetingsTableTableManager
                 Value<String?> minutesMd = const Value.absent(),
                 Value<int> minutesPartial = const Value.absent(),
                 Value<String?> minutesError = const Value.absent(),
+                Value<String?> minutesPrompt = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<String> finalizeStatus = const Value.absent(),
@@ -3342,6 +3418,7 @@ class $$MeetingsTableTableManager
                 minutesMd: minutesMd,
                 minutesPartial: minutesPartial,
                 minutesError: minutesError,
+                minutesPrompt: minutesPrompt,
                 status: status,
                 source: source,
                 finalizeStatus: finalizeStatus,
@@ -3368,6 +3445,7 @@ class $$MeetingsTableTableManager
                 Value<String?> minutesMd = const Value.absent(),
                 Value<int> minutesPartial = const Value.absent(),
                 Value<String?> minutesError = const Value.absent(),
+                Value<String?> minutesPrompt = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<String> finalizeStatus = const Value.absent(),
@@ -3392,6 +3470,7 @@ class $$MeetingsTableTableManager
                 minutesMd: minutesMd,
                 minutesPartial: minutesPartial,
                 minutesError: minutesError,
+                minutesPrompt: minutesPrompt,
                 status: status,
                 source: source,
                 finalizeStatus: finalizeStatus,
